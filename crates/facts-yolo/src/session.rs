@@ -107,6 +107,12 @@ impl Session {
         options: FyDetectOptions,
     ) -> Result<OwnedResult, Error> {
         self.validate_detect(options)?;
+        // The declared in-process fixtures are fixed at 2x2. This test-only
+        // constraint is checked before admission and before execution counters.
+        #[cfg(feature = "contract-fixtures")]
+        if image.width() != 2 || image.height() != 2 {
+            return Err(INVALID);
+        }
         // Admission covers execution AND finalization. Only shared outer
         // references exist before try_lock; no unbounded queue is introduced.
         let _admission = self.execution.try_lock().map_err(|error| match error {

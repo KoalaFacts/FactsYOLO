@@ -4,7 +4,7 @@ use crate::error::{Error, FLAGS, INVALID, VERSION};
 
 // Private whitelist: only repr(C) records starting with the three u32 fields.
 // Do not implement this for arbitrary Rust types or fixed array elements.
-pub(super) trait Descriptor {}
+pub(crate) trait Descriptor {}
 impl Descriptor for FyAbiInfo {}
 impl Descriptor for FyDiagnostic {}
 impl Descriptor for FyModelOptions {}
@@ -20,7 +20,7 @@ impl Descriptor for FyResultInfo {}
 /// Except for null/misaligned pointers, the caller provides an initialized,
 /// readable two-u32 prefix. A sufficiently large advertised record must really
 /// exist, with initialized header fields. Storage remains live during the call.
-pub(super) unsafe fn validate<T: Descriptor>(raw: *const T) -> Result<(), Error> {
+pub(crate) unsafe fn validate<T: Descriptor>(raw: *const T) -> Result<(), Error> {
     if raw.is_null() || !raw.is_aligned() {
         return Err(INVALID);
     }

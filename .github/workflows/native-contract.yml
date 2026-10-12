@@ -25,6 +25,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust }}
       CARGO_TERM_COLOR: never
+      FACTSYOLO_BUILD_ID: ${{ github.sha }}
     steps:
       - name: Fetch exact public commit without credentials
         run: |

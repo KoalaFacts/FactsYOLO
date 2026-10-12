@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::ffi::types::*;
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Error {
+/// A library failure with a numeric status and a static, non-sensitive message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Error {
     pub status: i32,
     pub message: &'static str,
 }

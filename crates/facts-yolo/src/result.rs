@@ -141,10 +141,30 @@ pub fn finalize(
             return Err(OUTPUT);
         }
         let detection = FyDetection {
-            x_min: coordinate(candidate.x_min, transform.pad_x, transform.scale_x, source.0)?,
-            y_min: coordinate(candidate.y_min, transform.pad_y, transform.scale_y, source.1)?,
-            x_max: coordinate(candidate.x_max, transform.pad_x, transform.scale_x, source.0)?,
-            y_max: coordinate(candidate.y_max, transform.pad_y, transform.scale_y, source.1)?,
+            x_min: coordinate(
+                candidate.x_min,
+                transform.pad_x,
+                transform.scale_x,
+                source.0,
+            )?,
+            y_min: coordinate(
+                candidate.y_min,
+                transform.pad_y,
+                transform.scale_y,
+                source.1,
+            )?,
+            x_max: coordinate(
+                candidate.x_max,
+                transform.pad_x,
+                transform.scale_x,
+                source.0,
+            )?,
+            y_max: coordinate(
+                candidate.y_max,
+                transform.pad_y,
+                transform.scale_y,
+                source.1,
+            )?,
             score: canonical_zero(candidate.score),
             class_id: candidate.class_id,
         };

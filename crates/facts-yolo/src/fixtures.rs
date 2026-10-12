@@ -42,10 +42,42 @@ pub(crate) const TRANSFORM: ImageTransform = ImageTransform {
 };
 
 pub(crate) const BASIC_CANDIDATES: [Candidate; 4] = [
-    Candidate { x_min: -1.0, y_min: -1.0, x_max: 3.0, y_max: 3.0, score: 0.9, class_id: 1, source_index: 0 },
-    Candidate { x_min: 1.0, y_min: 1.0, x_max: 5.0, y_max: 5.0, score: 0.9, class_id: 0, source_index: 1 },
-    Candidate { x_min: 3.0, y_min: 3.0, x_max: 5.0, y_max: 5.0, score: 0.5, class_id: 0, source_index: 2 },
-    Candidate { x_min: 3.0, y_min: 3.0, x_max: 3.0, y_max: 5.0, score: 0.7, class_id: 0, source_index: 3 },
+    Candidate {
+        x_min: -1.0,
+        y_min: -1.0,
+        x_max: 3.0,
+        y_max: 3.0,
+        score: 0.9,
+        class_id: 1,
+        source_index: 0,
+    },
+    Candidate {
+        x_min: 1.0,
+        y_min: 1.0,
+        x_max: 5.0,
+        y_max: 5.0,
+        score: 0.9,
+        class_id: 0,
+        source_index: 1,
+    },
+    Candidate {
+        x_min: 3.0,
+        y_min: 3.0,
+        x_max: 5.0,
+        y_max: 5.0,
+        score: 0.5,
+        class_id: 0,
+        source_index: 2,
+    },
+    Candidate {
+        x_min: 3.0,
+        y_min: 3.0,
+        x_max: 3.0,
+        y_max: 5.0,
+        score: 0.7,
+        class_id: 0,
+        source_index: 3,
+    },
 ];
 pub(crate) const INVALID_CANDIDATES: [Candidate; 1] = [Candidate {
     x_min: f32::NAN,

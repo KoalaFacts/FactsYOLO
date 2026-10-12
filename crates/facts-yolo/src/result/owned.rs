@@ -24,7 +24,11 @@ impl OwnedResult {
             source_width: source.0,
             source_height: source.1,
             count: finalized.detections.len(),
-            result_flags: if finalized.truncated { FY_RESULT_TRUNCATED } else { 0 },
+            result_flags: if finalized.truncated {
+                FY_RESULT_TRUNCATED
+            } else {
+                0
+            },
             backend_id: execution[0],
             device_kind: execution[1],
             device_index: execution[2],

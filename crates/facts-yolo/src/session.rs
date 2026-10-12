@@ -123,6 +123,11 @@ impl Session {
             options.score_threshold,
             options.max_detections,
         )?;
-        Ok(OwnedResult::new(finalized, source, self.description(), self.model.identity()))
+        Ok(OwnedResult::new(
+            finalized,
+            source,
+            self.description(),
+            self.model.identity(),
+        ))
     }
 }

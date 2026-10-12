@@ -31,8 +31,14 @@ impl Context {
             max_detections: 16,
         };
         unsafe {
-            assert_eq!(fy_test_model_create(1, fixture, &mut model, null_mut()), FY_OK);
-            assert_eq!(fy_session_create(1, model, &options, &mut session, null_mut()), FY_OK);
+            assert_eq!(
+                fy_test_model_create(1, fixture, &mut model, null_mut()),
+                FY_OK
+            );
+            assert_eq!(
+                fy_session_create(1, model, &options, &mut session, null_mut()),
+                FY_OK
+            );
         }
         Self { model, session }
     }
@@ -40,7 +46,15 @@ impl Context {
     fn run(&self, pixels: &[u8], cap: usize) -> *mut FyResult {
         let mut result = null_mut();
         assert_eq!(
-            unsafe { fy_detect(self.session, &image(pixels), &options(cap), &mut result, null_mut()) },
+            unsafe {
+                fy_detect(
+                    self.session,
+                    &image(pixels),
+                    &options(cap),
+                    &mut result,
+                    null_mut(),
+                )
+            },
             FY_OK
         );
         assert!(!result.is_null());
@@ -118,8 +132,18 @@ fn completed_result_outlives_pixels_model_and_session() {
         context.run(&pixels, 16)
     };
     let mut metadata = info();
-    assert_eq!(unsafe { fy_result_describe(result, &mut metadata, null_mut()) }, FY_OK);
-    assert_eq!((metadata.source_width, metadata.source_height, metadata.count), (2, 2, 3));
+    assert_eq!(
+        unsafe { fy_result_describe(result, &mut metadata, null_mut()) },
+        FY_OK
+    );
+    assert_eq!(
+        (
+            metadata.source_width,
+            metadata.source_height,
+            metadata.count
+        ),
+        (2, 2, 3)
+    );
     assert_eq!(metadata.backend_id, FY_BACKEND_TEST_FIXTURE);
     assert_eq!(metadata.device_kind, FY_DEVICE_CPU);
     assert_eq!(metadata.precision, FY_PRECISION_F32);
@@ -131,9 +155,15 @@ fn completed_result_outlives_pixels_model_and_session() {
     let mut copied = [sentinel(); 4];
     let mut required = 77;
     for _ in 0..100 {
-        assert_eq!(unsafe { fy_result_copy(result, null_mut(), 0, &mut required, null_mut()) }, FY_OK);
+        assert_eq!(
+            unsafe { fy_result_copy(result, null_mut(), 0, &mut required, null_mut()) },
+            FY_OK
+        );
         assert_eq!(required, 3);
-        assert_eq!(unsafe { fy_result_copy(result, copied.as_mut_ptr(), 3, &mut required, null_mut()) }, FY_OK);
+        assert_eq!(
+            unsafe { fy_result_copy(result, copied.as_mut_ptr(), 3, &mut required, null_mut()) },
+            FY_OK
+        );
         assert_eq!(copied[0].class_id, 0);
         assert_eq!(copied[0].x_max, 2.0);
         assert_eq!(copied[1].class_id, 1);
@@ -152,17 +182,37 @@ fn insufficient_capacity_is_atomic_and_invalid_copy_preserves_count() {
     let mut copied = [sentinel(); 4];
     let mut required = 77;
     for cap in [0, 1, 2] {
-        assert_eq!(unsafe { fy_result_copy(result, copied.as_mut_ptr(), cap, &mut required, null_mut()) }, FY_BUFFER_TOO_SMALL);
+        assert_eq!(
+            unsafe { fy_result_copy(result, copied.as_mut_ptr(), cap, &mut required, null_mut()) },
+            FY_BUFFER_TOO_SMALL
+        );
         assert_eq!(required, 3);
         assert_eq!(copied, [sentinel(); 4]);
     }
     required = 77;
-    assert_eq!(unsafe { fy_result_copy(result, null_mut(), 1, &mut required, null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe { fy_result_copy(result, null_mut(), 1, &mut required, null_mut()) },
+        FY_INVALID_ARGUMENT
+    );
     assert_eq!(required, 77);
-    assert_eq!(unsafe { fy_result_copy(result, copied.as_mut_ptr(), usize::MAX, &mut required, null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe {
+            fy_result_copy(
+                result,
+                copied.as_mut_ptr(),
+                usize::MAX,
+                &mut required,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
     assert_eq!(required, 77);
     assert_eq!(copied, [sentinel(); 4]);
-    assert_eq!(unsafe { fy_result_copy(result, copied.as_mut_ptr(), 4, null_mut(), null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe { fy_result_copy(result, copied.as_mut_ptr(), 4, null_mut(), null_mut()) },
+        FY_INVALID_ARGUMENT
+    );
     assert_eq!(unsafe { fy_result_release(&mut result, null_mut()) }, FY_OK);
 }
 
@@ -172,13 +222,19 @@ fn empty_and_capped_results_report_exact_metadata() {
         let context = Context::new(fixture);
         let mut result = context.run(&[0; 12], cap);
         let mut metadata = info();
-        assert_eq!(unsafe { fy_result_describe(result, &mut metadata, null_mut()) }, FY_OK);
+        assert_eq!(
+            unsafe { fy_result_describe(result, &mut metadata, null_mut()) },
+            FY_OK
+        );
         assert_eq!(metadata.count, count);
         assert_eq!(metadata.result_flags, flags);
         let mut copied = sentinel();
         let mut required = 77;
         if count == 0 {
-            assert_eq!(unsafe { fy_result_copy(result, &mut copied, 0, &mut required, null_mut()) }, FY_OK);
+            assert_eq!(
+                unsafe { fy_result_copy(result, &mut copied, 0, &mut required, null_mut()) },
+                FY_OK
+            );
             assert_eq!(required, 0);
             assert_eq!(copied, sentinel());
         }
@@ -192,7 +248,18 @@ fn invalid_model_output_cannot_be_hidden_by_threshold() {
     let mut result = null_mut();
     let mut opts = options(1);
     opts.score_threshold = 1.0;
-    assert_eq!(unsafe { fy_detect(context.session, &image(&[0; 12]), &opts, &mut result, null_mut()) }, FY_MODEL_OUTPUT_INVALID);
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                context.session,
+                &image(&[0; 12]),
+                &opts,
+                &mut result,
+                null_mut(),
+            )
+        },
+        FY_MODEL_OUTPUT_INVALID
+    );
     assert!(result.is_null());
 }
 
@@ -201,20 +268,64 @@ fn failed_detect_preserves_nonempty_output_and_validates_options() {
     let context = Context::new(BASIC);
     let mut result = context.run(&[0; 12], 16);
     let existing = result;
-    assert_eq!(unsafe { fy_detect(context.session, &image(&[0; 12]), &options(16), &mut result, null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                context.session,
+                &image(&[0; 12]),
+                &options(16),
+                &mut result,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
     assert_eq!(result, existing);
     assert_eq!(unsafe { fy_result_release(&mut result, null_mut()) }, FY_OK);
     for (cap, expected) in [(0, FY_INVALID_ARGUMENT), (17, FY_LIMIT_EXCEEDED)] {
-        assert_eq!(unsafe { fy_detect(context.session, &image(&[0; 12]), &options(cap), &mut result, null_mut()) }, expected);
+        assert_eq!(
+            unsafe {
+                fy_detect(
+                    context.session,
+                    &image(&[0; 12]),
+                    &options(cap),
+                    &mut result,
+                    null_mut(),
+                )
+            },
+            expected
+        );
         assert!(result.is_null());
     }
     for threshold in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
         let mut opts = options(16);
         opts.score_threshold = threshold;
-        assert_eq!(unsafe { fy_detect(context.session, &image(&[0; 12]), &opts, &mut result, null_mut()) }, FY_INVALID_ARGUMENT);
+        assert_eq!(
+            unsafe {
+                fy_detect(
+                    context.session,
+                    &image(&[0; 12]),
+                    &opts,
+                    &mut result,
+                    null_mut(),
+                )
+            },
+            FY_INVALID_ARGUMENT
+        );
         assert!(result.is_null());
     }
-    assert_eq!(unsafe { fy_detect(context.session, &image(&[0; 11]), &options(16), &mut result, null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                context.session,
+                &image(&[0; 11]),
+                &options(16),
+                &mut result,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
     assert!(result.is_null());
     result = context.run(&[0; 12], 16);
     assert_eq!(unsafe { fy_result_release(&mut result, null_mut()) }, FY_OK);
@@ -227,11 +338,39 @@ fn short_inputs_are_rejected_without_full_record_reads() {
     let context = Context::new(BASIC);
     let prefix = Prefix([8, 1]);
     let mut result = null_mut();
-    assert_eq!(unsafe { fy_detect(context.session, prefix.0.as_ptr().cast(), &options(16), &mut result, null_mut()) }, FY_INVALID_ARGUMENT);
-    assert_eq!(unsafe { fy_detect(context.session, &image(&[0; 12]), prefix.0.as_ptr().cast(), &mut result, null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                context.session,
+                prefix.0.as_ptr().cast(),
+                &options(16),
+                &mut result,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                context.session,
+                &image(&[0; 12]),
+                prefix.0.as_ptr().cast(),
+                &mut result,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
     assert!(result.is_null());
-    assert_eq!(unsafe { fy_detect(null_mut(), null(), null(), &mut result, null_mut()) }, FY_INVALID_ARGUMENT);
-    assert_eq!(unsafe { fy_result_release(null_mut(), null_mut()) }, FY_INVALID_ARGUMENT);
+    assert_eq!(
+        unsafe { fy_detect(null_mut(), null(), null(), &mut result, null_mut()) },
+        FY_INVALID_ARGUMENT
+    );
+    assert_eq!(
+        unsafe { fy_result_release(null_mut(), null_mut()) },
+        FY_INVALID_ARGUMENT
+    );
 }
 
 #[test]
@@ -252,14 +391,23 @@ fn output_payload_need_not_be_initialized_and_extensions_are_preserved() {
         base: FyResultInfo,
         tail: [u8; 16],
     }
-    let mut extended = Extended { base: info(), tail: [0xA5; 16] };
+    let mut extended = Extended {
+        base: info(),
+        tail: [0xA5; 16],
+    };
     extended.base.struct_size = size_of::<Extended>() as u32;
-    assert_eq!(unsafe { fy_result_describe(result, &mut extended.base, null_mut()) }, FY_OK);
+    assert_eq!(
+        unsafe { fy_result_describe(result, &mut extended.base, null_mut()) },
+        FY_OK
+    );
     assert_eq!(extended.tail, [0xA5; 16]);
     assert_eq!(extended.base.struct_size, size_of::<Extended>() as u32);
     extended.base.struct_version = 2;
     extended.base.count = 77;
-    assert_eq!(unsafe { fy_result_describe(result, &mut extended.base, null_mut()) }, FY_UNSUPPORTED_ABI);
+    assert_eq!(
+        unsafe { fy_result_describe(result, &mut extended.base, null_mut()) },
+        FY_UNSUPPORTED_ABI
+    );
     assert_eq!(extended.base.count, 77);
     assert_eq!(unsafe { fy_result_release(&mut result, null_mut()) }, FY_OK);
 }
@@ -278,9 +426,15 @@ fn malformed_diagnostics_do_not_destroy_or_modify_a_result() {
         required_bytes: 77,
     };
     let mut required = 77;
-    assert_eq!(unsafe { fy_result_copy(result, null_mut(), 0, &mut required, &mut diag) }, FY_UNSUPPORTED_ABI);
+    assert_eq!(
+        unsafe { fy_result_copy(result, null_mut(), 0, &mut required, &mut diag) },
+        FY_UNSUPPORTED_ABI
+    );
     assert_eq!(required, 77);
-    assert_eq!(unsafe { fy_result_release(&mut result, &mut diag) }, FY_UNSUPPORTED_ABI);
+    assert_eq!(
+        unsafe { fy_result_release(&mut result, &mut diag) },
+        FY_UNSUPPORTED_ABI
+    );
     assert_eq!(result, existing);
     assert_eq!(diag.required_bytes, 77);
     assert_eq!(unsafe { fy_result_release(&mut result, null_mut()) }, FY_OK);

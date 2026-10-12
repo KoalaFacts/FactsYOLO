@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Immutable model state. Only the feature-gated test factory constructs it.
-use crate::{Error, result::{Candidate, ImageTransform}, session::UNSUPPORTED};
+use crate::{
+    Error,
+    result::{Candidate, ImageTransform},
+    session::UNSUPPORTED,
+};
 #[cfg(feature = "contract-fixtures")]
 use crate::{error::INVALID, fixtures};
 
@@ -37,7 +41,9 @@ impl Model {
             id
         }
         #[cfg(not(feature = "contract-fixtures"))]
-        { [0; 32] }
+        {
+            [0; 32]
+        }
     }
 
     pub(crate) fn execute(&self) -> Result<(&'static [Candidate], ImageTransform), Error> {
@@ -54,6 +60,8 @@ impl Model {
             Ok((values, fixtures::TRANSFORM))
         }
         #[cfg(not(feature = "contract-fixtures"))]
-        { Err(UNSUPPORTED) }
+        {
+            Err(UNSUPPORTED)
+        }
     }
 }

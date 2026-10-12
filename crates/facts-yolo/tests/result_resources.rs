@@ -47,18 +47,30 @@ fn result_lifetimes_and_copy_retries_have_exact_resource_and_execution_counts() 
         max_detections: 3,
     };
     unsafe {
-        assert_eq!(fy_test_model_create(1, BASIC, &mut model, null_mut()), FY_OK);
-        assert_eq!(fy_session_create(1, model, &settings, &mut session, null_mut()), FY_OK);
+        assert_eq!(
+            fy_test_model_create(1, BASIC, &mut model, null_mut()),
+            FY_OK
+        );
+        assert_eq!(
+            fy_session_create(1, model, &settings, &mut session, null_mut()),
+            FY_OK
+        );
         assert_eq!(fy_model_release(&mut model, null_mut()), FY_OK);
         let active = resource_counts();
         let executions = execution_count();
         for index in 0..10_000 {
             let mut result = null_mut();
-            assert_eq!(fy_detect(session, &image, &options, &mut result, null_mut()), FY_OK);
+            assert_eq!(
+                fy_detect(session, &image, &options, &mut result, null_mut()),
+                FY_OK
+            );
             assert_eq!(resource_counts()[3], baseline[3] + 1);
             for _ in 0..3 {
                 let mut required = 77;
-                assert_eq!(fy_result_copy(result, null_mut(), 0, &mut required, null_mut()), FY_OK);
+                assert_eq!(
+                    fy_result_copy(result, null_mut(), 0, &mut required, null_mut()),
+                    FY_OK
+                );
                 assert_eq!(required, 3);
             }
             assert_eq!(execution_count(), executions + index + 1);

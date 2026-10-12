@@ -107,7 +107,10 @@ fn cap_applies_after_filtering_and_marks_only_removed_boxes() {
 #[test]
 fn threshold_is_inclusive_at_zero_and_one() {
     for score in [0.0, 0.5, 1.0] {
-        let value = Candidate { score, ..candidate(0) };
+        let value = Candidate {
+            score,
+            ..candidate(0)
+        };
         let result = finalize(&[value], identity(), (2, 2), 1, score, 1).unwrap();
         assert_eq!(result.detections.len(), 1);
     }
@@ -120,7 +123,10 @@ fn clipping_precedes_zero_area_removal() {
         x_max: -2.0,
         ..candidate(0)
     };
-    let partial = Candidate { x_min: -1.0, ..candidate(1) };
+    let partial = Candidate {
+        x_min: -1.0,
+        ..candidate(1)
+    };
     let result = finalize(&[outside, partial], identity(), (2, 2), 1, 0.0, 1).unwrap();
     assert_eq!(result.detections.len(), 1);
     assert_eq!(result.detections[0].x_min, 0.0);
@@ -131,17 +137,54 @@ fn clipping_precedes_zero_area_removal() {
 fn invalid_candidates_are_rejected_even_below_threshold_or_after_cap() {
     let mut cases = Vec::new();
     for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        cases.push(Candidate { x_min: invalid, score: 0.1, ..candidate(1) });
-        cases.push(Candidate { y_min: invalid, score: 0.1, ..candidate(1) });
-        cases.push(Candidate { x_max: invalid, score: 0.1, ..candidate(1) });
-        cases.push(Candidate { y_max: invalid, score: 0.1, ..candidate(1) });
-        cases.push(Candidate { score: invalid, ..candidate(1) });
+        cases.push(Candidate {
+            x_min: invalid,
+            score: 0.1,
+            ..candidate(1)
+        });
+        cases.push(Candidate {
+            y_min: invalid,
+            score: 0.1,
+            ..candidate(1)
+        });
+        cases.push(Candidate {
+            x_max: invalid,
+            score: 0.1,
+            ..candidate(1)
+        });
+        cases.push(Candidate {
+            y_max: invalid,
+            score: 0.1,
+            ..candidate(1)
+        });
+        cases.push(Candidate {
+            score: invalid,
+            ..candidate(1)
+        });
     }
-    cases.push(Candidate { score: -0.1, ..candidate(1) });
-    cases.push(Candidate { score: 1.1, ..candidate(1) });
-    cases.push(Candidate { class_id: 1, score: 0.1, ..candidate(1) });
-    cases.push(Candidate { x_min: 2.0, score: 0.1, ..candidate(1) });
-    cases.push(Candidate { y_min: 2.0, score: 0.1, ..candidate(1) });
+    cases.push(Candidate {
+        score: -0.1,
+        ..candidate(1)
+    });
+    cases.push(Candidate {
+        score: 1.1,
+        ..candidate(1)
+    });
+    cases.push(Candidate {
+        class_id: 1,
+        score: 0.1,
+        ..candidate(1)
+    });
+    cases.push(Candidate {
+        x_min: 2.0,
+        score: 0.1,
+        ..candidate(1)
+    });
+    cases.push(Candidate {
+        y_min: 2.0,
+        score: 0.1,
+        ..candidate(1)
+    });
     for invalid in cases {
         let error = finalize(&[candidate(0), invalid], identity(), (2, 2), 1, 0.8, 1);
         assert_eq!(error.unwrap_err().status, FY_MODEL_OUTPUT_INVALID);
@@ -152,8 +195,14 @@ fn invalid_candidates_are_rejected_even_below_threshold_or_after_cap() {
 fn invalid_transforms_are_rejected_even_for_an_empty_result() {
     for invalid in [0.0, -1.0, f32::NAN, f32::INFINITY] {
         for transform in [
-            ImageTransform { scale_x: invalid, ..identity() },
-            ImageTransform { scale_y: invalid, ..identity() },
+            ImageTransform {
+                scale_x: invalid,
+                ..identity()
+            },
+            ImageTransform {
+                scale_y: invalid,
+                ..identity()
+            },
         ] {
             let error = finalize(&[], transform, (2, 2), 1, 0.0, 1);
             assert_eq!(error.unwrap_err().status, FY_MODEL_OUTPUT_INVALID);
@@ -161,8 +210,14 @@ fn invalid_transforms_are_rejected_even_for_an_empty_result() {
     }
     for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         for transform in [
-            ImageTransform { pad_x: invalid, ..identity() },
-            ImageTransform { pad_y: invalid, ..identity() },
+            ImageTransform {
+                pad_x: invalid,
+                ..identity()
+            },
+            ImageTransform {
+                pad_y: invalid,
+                ..identity()
+            },
         ] {
             let error = finalize(&[], transform, (2, 2), 1, 0.0, 1);
             assert_eq!(error.unwrap_err().status, FY_MODEL_OUTPUT_INVALID);
@@ -195,7 +250,11 @@ fn signed_zero_is_normalized_in_public_coordinates_and_scores() {
         ..candidate(0)
     };
     let result = finalize(&[value], identity(), (2, 2), 1, 0.0, 1).unwrap();
-    for value in [result.detections[0].x_min, result.detections[0].y_min, result.detections[0].score] {
+    for value in [
+        result.detections[0].x_min,
+        result.detections[0].y_min,
+        result.detections[0].score,
+    ] {
         assert_eq!(value.to_bits(), 0);
     }
 }
@@ -216,5 +275,10 @@ fn ordering_and_top_k_do_not_depend_on_input_enumeration() {
     assert_eq!(expected.detections, reversed.detections);
     assert_eq!(expected.detections.len(), 17);
     assert!(expected.truncated && reversed.truncated);
-    assert!(expected.detections.iter().all(|d| d.score == 0.9 && d.class_id == 0));
+    assert!(
+        expected
+            .detections
+            .iter()
+            .all(|d| d.score == 0.9 && d.class_id == 0)
+    );
 }

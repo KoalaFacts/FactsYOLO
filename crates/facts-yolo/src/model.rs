@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Immutable model state. Only the feature-gated test factory constructs it.
+use crate::{Error, result::{Candidate, ImageTransform}, session::UNSUPPORTED};
 #[cfg(feature = "contract-fixtures")]
-use crate::{Error, error::INVALID, fixtures};
+use crate::{error::INVALID, fixtures};
 
 pub(crate) struct Model {
     backend_id: u32,
@@ -25,8 +26,34 @@ impl Model {
     }
 
     pub(crate) fn backend_id(&self) -> u32 {
-        #[cfg(feature = "contract-fixtures")]
-        debug_assert!((fixtures::BASIC..=fixtures::PAYLOAD_DROP_PANIC).contains(&self.fixture_id));
         self.backend_id
+    }
+
+    pub(crate) fn identity(&self) -> [u8; 32] {
+        #[cfg(feature = "contract-fixtures")]
+        {
+            let mut id = [0; 32];
+            id[0] = self.fixture_id as u8;
+            id
+        }
+        #[cfg(not(feature = "contract-fixtures"))]
+        { [0; 32] }
+    }
+
+    pub(crate) fn execute(&self) -> Result<(&'static [Candidate], ImageTransform), Error> {
+        #[cfg(feature = "contract-fixtures")]
+        {
+            // Explicit fixture candidates are already post-suppression.
+            let values: &[Candidate] = match self.fixture_id {
+                fixtures::BASIC => &fixtures::BASIC_CANDIDATES,
+                fixtures::EMPTY => &[],
+                fixtures::INVALID_OUTPUT => &fixtures::INVALID_CANDIDATES,
+                _ => return Err(UNSUPPORTED),
+            };
+            fixtures::record_execution();
+            Ok((values, fixtures::TRANSFORM))
+        }
+        #[cfg(not(feature = "contract-fixtures"))]
+        { Err(UNSUPPORTED) }
     }
 }

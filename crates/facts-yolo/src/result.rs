@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Original-image result normalization; no model-specific suppression.
+pub(crate) mod owned;
 use crate::{Error, error::INVALID, ffi::types::*};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;

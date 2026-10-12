@@ -1,7 +1,11 @@
 fy_abi_query
 fy_capabilities_copy
+fy_detect
 fy_model_open
 fy_model_release
+fy_result_copy
+fy_result_describe
+fy_result_release
 fy_session_create
 fy_session_describe
 fy_session_release

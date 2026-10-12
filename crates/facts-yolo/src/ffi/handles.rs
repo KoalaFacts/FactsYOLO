@@ -23,8 +23,8 @@ struct ModelHandle {
     _live: crate::fixtures::Live,
 }
 
-struct SessionHandle {
-    session: Session,
+pub(super) struct SessionHandle {
+    pub(super) session: Session,
 }
 
 const ABI: Error = Error {
@@ -39,7 +39,7 @@ const LIMIT: Error = Error {
     status: FY_LIMIT_EXCEEDED,
     message: "model artifact byte limit exceeded",
 };
-const SHORT: Error = Error {
+pub(super) const SHORT: Error = Error {
     status: FY_BUFFER_TOO_SMALL,
     message: "destination capacity is too small",
 };
@@ -79,7 +79,7 @@ unsafe fn slot_value<T>(slot: *mut *mut T) -> Result<*mut T, Error> {
 
 /// # Safety
 /// The slot satisfies slot_value's contract. A rejected non-null value is not read.
-unsafe fn empty_slot<T>(slot: *mut *mut T) -> Result<(), Error> {
+pub(super) unsafe fn empty_slot<T>(slot: *mut *mut T) -> Result<(), Error> {
     if unsafe { slot_value(slot)? }.is_null() {
         Ok(())
     } else {
@@ -90,7 +90,7 @@ unsafe fn empty_slot<T>(slot: *mut *mut T) -> Result<(), Error> {
 /// # Safety
 /// T is the private allocation type corresponding to opaque O, and a non-null
 /// value is a unique live Box<T> from this library with no concurrent users.
-unsafe fn release<T, O>(slot: *mut *mut O) -> Result<(), Error> {
+pub(super) unsafe fn release<T, O>(slot: *mut *mut O) -> Result<(), Error> {
     let raw = unsafe { slot_value(slot)? }.cast::<T>();
     if raw.is_null() {
         return Ok(());
@@ -111,7 +111,10 @@ unsafe fn release<T, O>(slot: *mut *mut O) -> Result<(), Error> {
 /// # Safety
 /// Descriptor prefixes and accepted diagnostic storage follow the C contract.
 /// operation must leave outputs unchanged on failure, except documented counts.
-unsafe fn entry(raw_diag: *mut FyDiagnostic, operation: impl FnOnce() -> Result<(), Error>) -> i32 {
+pub(super) unsafe fn entry(
+    raw_diag: *mut FyDiagnostic,
+    operation: impl FnOnce() -> Result<(), Error>,
+) -> i32 {
     // SAFETY: validate diagnostics before reading or changing operation outputs.
     let diag = match unsafe { Diagnostic::validate(raw_diag) } {
         Ok(diag) => diag,

@@ -26,9 +26,9 @@ or another person's identity. A sign-off is an authorship/provenance certificati
 not a cryptographic commit signature or a copyright transfer.
 
 DCO compliance is a manual review requirement at this stage. No DCO check,
-branch-protection setting, or other automated enforcement is installed by these
-documents. Missing sign-offs on external contribution commits block acceptance
-until the contributor supplies them.
+branch-protection setting, or other automated DCO enforcement is installed by
+these documents. Missing sign-offs on external contribution commits block
+acceptance until the contributor supplies them.
 
 ## Independent implementation and provenance
 
@@ -60,18 +60,24 @@ before implementation.
 
 Preserve the single-core design: bindings adapt the public contract rather than
 independently reimplementing preprocessing, model output interpretation, or
-postprocessing.
+postprocessing. Review and merge the current implementation task before starting
+the next task in the accepted M1 plan.
 
 ## Verification at this stage
 
-This is a documentation-only foundation, so there is no Rust build, test suite,
-or performance baseline yet. Check local Markdown links, consistency of scope,
-license notices, and provenance statements. Do not report a detector or SDK as
-implemented because these documents exist.
+Run the workspace Debug and Release tests, native build, clippy, and formatting
+commands in [README](README.md), plus the applicable C smoke commands in the
+[workflow](.github/workflows/native-contract.yml). Include actual command output
+and distinguish local execution from remote CI. CI is not DCO enforcement.
 
-Future code changes must bring relevant tests and actual command output. Public
-support/performance claims require reproducible results on the named build,
-model, hardware, and runtime configuration.
+Write failing regression tests before behavior changes, then verify the whole
+suite. Do not report a detector or SDK as implemented because the native query
+and ABI records exist. Public support/performance claims require reproducible
+results on the named build, model, hardware, and runtime configuration. The
+current [evidence record](docs/testing/native-contract.md) covers only task 1.
+
+Also check local Markdown links, consistency of scope, license notices, and
+provenance statements when changing documentation.
 
 ## Model or data contributions
 

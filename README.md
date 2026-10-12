@@ -3,9 +3,30 @@
 An independent, Rust-first computer-vision foundation for products written in
 C#, Go, and TypeScript.
 
-**Status: project foundation only.** This repository does not yet contain a
-working detector, training implementation, model weights, published SDK, or
-benchmarks. Planned capabilities below are not a claim of present support.
+**Status: native infrastructure under implementation.** The repository contains
+a buildable Rust library, a C header, the experimental `fy_abi_query` entry point,
+descriptor/diagnostic boundary tests, and a C dynamic/static smoke consumer.
+It does not yet contain a working detector, training implementation, model
+weights, published SDK, or detector benchmarks. Other records in the header
+prepare later tasks; they do not imply that model/session APIs already exist.
+
+## Build and verify
+
+Install the pinned Rust toolchain through rustup, then run:
+
+```sh
+cargo test --workspace --locked --offline
+cargo test --workspace --locked --offline --release
+cargo build -p facts-yolo --locked --offline --release
+cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+cargo fmt --all -- --check
+```
+
+The native library is built as `rlib`, `cdylib`, and `staticlib`; Cargo publication
+is disabled. Task 1 CI exercises Linux x64 with Rust 1.99.0 and the 1.85.0 floor,
+and Windows x64 with Rust 1.99.0. Linux also executes C callers against the dynamic
+and static libraries. These checks are not full vision-platform certification.
+See [the test record](docs/testing/native-contract.md) for exact evidence and limits.
 
 ## Purpose
 
@@ -31,9 +52,9 @@ No compute framework has been selected or added at this stage.
 - Explicit resource lifetimes, bounded workloads, reported device selection,
   and tested numerical tolerances across bindings and backends.
 
-Exact APIs, model architecture, platform support, and performance targets require
-an architecture specification and implementation evidence before being advertised
-as supported. Rust does not by itself guarantee a dependency-free binary,
+The development ABI is not a stable release. Model architecture, broader platform
+support, and performance targets require implementation evidence before being
+advertised. Rust does not by itself guarantee a dependency-free binary,
 zero-copy execution, or the absence of runtime GPU compilation.
 
 ## License and provenance

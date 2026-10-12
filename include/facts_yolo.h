@@ -53,8 +53,8 @@ extern "C" {
 #define FY_CAP_TEST_ONLY UINT32_C(4)
 
 /* Natural target C layout, never packed. All three prefix fields are inputs.
- * Only fy_abi_query is implemented in task 1; remaining records prepare later
- * task declarations, not a claim that those operations/backends exist. */
+ * Query, capability and ownership operations are implemented. Detection/result
+ * records prepare later operations; no detector or inference API exists yet. */
 typedef struct fy_abi_info {
     uint32_t struct_size, struct_version, required_flags;
     uint32_t abi_major, abi_minor;
@@ -109,23 +109,62 @@ typedef struct fy_capability {
     uint32_t backend_id, device_kind, device_index, flags, precision_mask;
 } fy_capability;
 
+/* Opaque owning handles. Never allocate, dereference or free these yourself. */
+typedef struct fy_model fy_model;
+typedef struct fy_session fy_session;
+
 /* Experimental ABI 1.0; not a stable release.
  * Set struct_size=sizeof(record), struct_version=1, required_flags=0.
- * For out, only the header must be initialized. For diag, also initialize data
- * and capacity; required_bytes is output-only. diag may be NULL.
+ * For info outputs, only the header must be initialized. For diag, also
+ * initialize data and capacity; required_bytes is output-only. diag may be NULL.
+ * Accepted input options must have all fields initialized, not just the header.
  * Callers provide actually allocated, live, aligned, mutually disjoint and
  * externally synchronized storage. Non-null accepted descriptors advertise
  * real accessible storage. A short descriptor still provides at least two
  * initialized u32 words. Dangling/forged pointers are outside this contract.
- * Unknown versions/required flags fail without changing out. Larger optional
- * tails and headers are left intact. Malformed diag fails before changing out.
+ * Unknown versions/required flags fail without changing operation outputs.
+ * Larger optional tails and headers are left intact. Malformed diag is checked
+ * first and leaves operation outputs and diagnostic storage unchanged.
  * Diagnostic capacity includes a terminating NUL; required_bytes excludes it.
  * Zero capacity is permitted, with NULL data. Positive capacity needs writable
  * data. Diagnostic truncation preserves UTF-8 and the operation's status.
- * There is no global last-error state and no buffer retention after return.
+ * There is no global last-error state and no borrowed-buffer retention.
  * Recoverable unwinding is contained, but aborts/invalid foreign memory are not.
  */
 FY_API int32_t FY_CALL fy_abi_query(fy_abi_info *out, fy_diagnostic *diag);
+
+/* NULL dst + zero capacity queries count successfully. A non-NULL insufficient
+ * destination returns BUFFER_TOO_SMALL, writes required count only, and leaves
+ * all records untouched. Other invalid arguments preserve count and records.
+ * The normal task-3 build reports zero capabilities. Test builds are explicit. */
+FY_API int32_t FY_CALL fy_capabilities_copy(
+    fy_capability *dst, size_t capacity, size_t *required, fy_diagnostic *diag);
+
+/* Owning output slots must be initialized to NULL. Nonempty slots are rejected
+ * without replacing their value. Empty slots remain NULL on creation failure.
+ * Model loading validates ABI/limits/buffers, then returns UNSUPPORTED_MODEL:
+ * no artifact parser or real backend is installed yet, even in a test build.
+ * Positive length and positive limits are mandatory; zero is not unlimited. */
+FY_API int32_t FY_CALL fy_model_open(
+    uint32_t required_abi_major, const uint8_t *bytes, size_t length,
+    const fy_model_options *options, fy_model **out, fy_diagnostic *diag);
+
+/* All non-NULL handles must originate from the same loaded library instance.
+ * Release takes a writable initialized slot: NULL slot is INVALID_ARGUMENT;
+ * a valid slot containing NULL is a no-op. Success clears the owning slot.
+ * Another copy of a released pointer is stale, not an idempotent release token.
+ * No use/release race is allowed. Release is not cancellation. Destroy all
+ * handles before unloading their library. Only this library frees its handles.
+ * Sessions retain model state independently of the public model handle. */
+FY_API int32_t FY_CALL fy_model_release(fy_model **slot, fy_diagnostic *diag);
+FY_API int32_t FY_CALL fy_session_create(
+    uint32_t required_abi_major, const fy_model *model,
+    const fy_session_options *options, fy_session **out, fy_diagnostic *diag);
+/* Immutable description may run concurrently while the handle stays live.
+ * Options are copied at creation. No silent device/precision fallback occurs. */
+FY_API int32_t FY_CALL fy_session_describe(
+    const fy_session *session, fy_session_info *out, fy_diagnostic *diag);
+FY_API int32_t FY_CALL fy_session_release(fy_session **slot, fy_diagnostic *diag);
 #ifdef __cplusplus
 }
 #endif

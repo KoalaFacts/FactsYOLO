@@ -73,13 +73,9 @@ fn rgb_bgr_and_straight_rgba_share_channel_semantics() {
         let ffi = unsafe { ImageView::from_ffi(&image, limits()) }.unwrap();
         for (x, expected) in [(0, [1, 2, 3]), (1, [4, 5, 6])] {
             assert_eq!(safe.rgb_at(x, 0), Some(expected));
-            assert_eq!(ffi.rgb_at(x, y_zero()), safe.rgb_at(x, 0));
+            assert_eq!(ffi.rgb_at(x, 0), safe.rgb_at(x, 0));
         }
     }
-}
-
-fn y_zero() -> u32 {
-    0
 }
 
 #[test]
@@ -290,9 +286,19 @@ fn ten_thousand_backed_descriptors_match_u128_reference() {
             && u128::from(width) * u128::from(height) <= budget.max_pixels as u128;
         let result =
             ImageView::from_bytes(&backing[..length], width, height, stride, format, budget);
+        let descriptor = raw(&backing[..length], width, height, stride, format);
+        // SAFETY: the entire advertised range is backed by initialized storage
+        // kept immutable and alive until both views are dropped this iteration.
+        let ffi_result = unsafe { ImageView::from_ffi(&descriptor, budget) };
         assert_eq!(result.is_ok(), expected_ok, "seed={seed:#x}");
+        assert_eq!(ffi_result.is_ok(), expected_ok, "FFI seed={seed:#x}");
+        if let (Err(safe_error), Err(ffi_error)) = (&result, &ffi_result) {
+            assert_eq!(safe_error.status, ffi_error.status);
+        }
         if let Ok(view) = result {
+            let ffi_view = ffi_result.unwrap();
             assert_eq!(view.as_bytes().len() as u128, needed);
+            assert_eq!(ffi_view.as_bytes(), view.as_bytes());
             for y in 0..height {
                 for x in 0..width {
                     let start = y as usize * stride + x as usize * c as usize;
@@ -303,6 +309,7 @@ fn ten_thousand_backed_descriptors_match_u128_reference() {
                         [p[0], p[1], p[2]]
                     };
                     assert_eq!(view.rgb_at(x, y), Some(expected));
+                    assert_eq!(ffi_view.rgb_at(x, y), Some(expected));
                 }
             }
         }

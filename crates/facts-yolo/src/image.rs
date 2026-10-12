@@ -59,14 +59,7 @@ impl<'a> ImageView<'a> {
         pixel_format: u32,
         limits: ImageLimits,
     ) -> Result<Self, Error> {
-        let layout = Layout::checked(
-            data.len(),
-            width,
-            height,
-            row_stride,
-            pixel_format,
-            limits,
-        )?;
+        let layout = Layout::checked(data.len(), width, height, row_stride, pixel_format, limits)?;
         Ok(Self {
             data: &data[..layout.required_bytes],
             width,
@@ -101,9 +94,7 @@ impl<'a> ImageView<'a> {
             raw.pixel_format,
             limits,
         )?;
-        if raw.data.is_null()
-            || (raw.data as usize).checked_add(raw.byte_length).is_none()
-        {
+        if raw.data.is_null() || (raw.data as usize).checked_add(raw.byte_length).is_none() {
             return Err(INVALID);
         }
         // SAFETY: numeric checks establish positive, bounded slice length.

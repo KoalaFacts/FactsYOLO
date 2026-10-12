@@ -4,11 +4,16 @@ An independent, Rust-first computer-vision foundation for products written in
 C#, Go, and TypeScript.
 
 **Status: native infrastructure under implementation.** The repository contains
-a buildable Rust library, a C header, the experimental `fy_abi_query` entry point,
-descriptor/diagnostic boundary tests, and a C dynamic/static smoke consumer.
-It does not yet contain a working detector, training implementation, model
-weights, published SDK, or detector benchmarks. Other records in the header
-prepare later tasks; they do not imply that model/session APIs already exist.
+a buildable Rust library, a C header, ABI/version diagnostics, checked borrowed
+RGB/BGR/RGBA image views, capability discovery, and model/session ownership paths.
+C consumers exercise dynamic and static linking. Model/session creation is
+exercised using an explicitly test-only factory, not a trained detector.
+
+**No real model format or compute backend is installed.** The normal build
+reports zero backend capabilities; validated `fy_model_open` requests return
+`FY_UNSUPPORTED_MODEL`. Even test builds do not accept fixture bytes as model
+artifacts. There is no detection execution API, trained weight release, training
+implementation, published SDK, or detector benchmark yet.
 
 ## Build and verify
 
@@ -17,16 +22,23 @@ Install the pinned Rust toolchain through rustup, then run:
 ```sh
 cargo test --workspace --locked --offline
 cargo test --workspace --locked --offline --release
+cargo test --workspace --features contract-fixtures --target-dir target/contract-fixtures --locked --offline
+cargo test --workspace --features contract-fixtures --target-dir target/contract-fixtures --locked --offline --release
 cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 ```
 
-The native library is built as `rlib`, `cdylib`, and `staticlib`; Cargo publication
-is disabled. Task 1 CI exercises Linux x64 with Rust 1.99.0 and the 1.85.0 floor,
-and Windows x64 with Rust 1.99.0. Linux also executes C callers against the dynamic
-and static libraries. These checks are not full vision-platform certification.
-See [the test record](docs/testing/native-contract.md) for exact evidence and limits.
+The native library builds as `rlib`, `cdylib`, and `staticlib`; Cargo publication
+is disabled. CI exercises Linux x64 with Rust 1.99.0 and the 1.85.0 floor, and
+Windows x64 with Rust 1.99.0. Linux executes C callers against normal and test
+libraries using both link modes, and verifies exact public/test-only exports.
+Test builds have their own output directory and must not be shipped as defaults.
+
+See [the initial ABI test record](docs/testing/native-contract.md) and
+[the ownership test record](docs/testing/model-session-ownership.md) for commands,
+evidence, and limitations. These are native-contract checks, not complete
+vision-platform certification or proof of production memory/accuracy targets.
 
 ## Purpose
 

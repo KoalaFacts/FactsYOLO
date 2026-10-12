@@ -5,5 +5,7 @@ pub mod ffi;
 #[cfg(feature = "contract-fixtures")]
 pub mod fixtures;
 pub mod image;
+mod model;
+mod session;
 pub use error::Error;
 pub use ffi::exports::fy_abi_query;

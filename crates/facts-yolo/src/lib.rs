@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod fixtures;
 pub mod image;
 mod model;
+pub mod result;
 mod session;
 pub use error::Error;
 pub use ffi::exports::fy_abi_query;

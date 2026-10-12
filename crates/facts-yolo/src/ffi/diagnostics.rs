@@ -29,9 +29,7 @@ impl Diagnostic {
         // padding are not read, and no reference to the whole record is formed.
         let data = unsafe { addr_of!((*raw.as_ptr()).data).read() }.cast::<u8>();
         let capacity = unsafe { addr_of!((*raw.as_ptr()).capacity).read() };
-        if capacity > isize::MAX as usize
-            || (data as usize).checked_add(capacity).is_none()
-        {
+        if capacity > isize::MAX as usize || (data as usize).checked_add(capacity).is_none() {
             return Err(INVALID);
         }
         let buffer = match NonZeroUsize::new(capacity) {

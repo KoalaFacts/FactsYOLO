@@ -16,7 +16,11 @@ impl Diagnostic {
     /// preconditions. Output-only required_bytes need not be initialized.
     pub(super) unsafe fn validate(raw: *mut FyDiagnostic) -> Result<Self, Error> {
         if raw.is_null() {
-            return Ok(Self { raw, data: null_mut(), capacity: 0 });
+            return Ok(Self {
+                raw,
+                data: null_mut(),
+                capacity: 0,
+            });
         }
         // SAFETY: forwarded caller prefix contract; no full-record read.
         unsafe { descriptors::validate(raw)? };
@@ -30,7 +34,11 @@ impl Diagnostic {
         {
             return Err(INVALID);
         }
-        Ok(Self { raw, data, capacity })
+        Ok(Self {
+            raw,
+            data,
+            capacity,
+        })
     }
 
     /// # Safety
@@ -55,15 +63,19 @@ impl Diagnostic {
     }
 }
 
-// ASCII behavior required by the initial ABI tests; the Unicode regression
-// below is deliberately RED until character-boundary truncation is added.
 fn prefix_len(message: &str, capacity: usize) -> usize {
-    message.len().min(capacity.saturating_sub(1))
+    let mut count = message.len().min(capacity.saturating_sub(1));
+    // At most three decrements: a UTF-8 scalar occupies at most four bytes.
+    while !message.is_char_boundary(count) {
+        count -= 1;
+    }
+    count
 }
 
 #[cfg(test)]
 mod tests {
-    use super::prefix_len;
+    use super::{Diagnostic, prefix_len};
+    use crate::ffi::types::FyDiagnostic;
 
     #[test]
     fn unicode_truncation_respects_character_boundaries() {
@@ -72,5 +84,29 @@ mod tests {
         assert_eq!(prefix_len("éX", 2), 0);
         assert_eq!(prefix_len("éX", 3), 2);
         assert_eq!(prefix_len("éX", 4), 3);
+    }
+
+    #[test]
+    fn unicode_writer_preserves_canary_and_required_count() {
+        for capacity in 0..=4 {
+            let mut bytes = [0xA5; 8];
+            let mut raw = FyDiagnostic {
+                struct_size: size_of::<FyDiagnostic>() as u32,
+                struct_version: 1,
+                required_flags: 0,
+                data: bytes.as_mut_ptr().cast(),
+                capacity,
+                required_bytes: usize::MAX,
+            };
+            let diag = unsafe { Diagnostic::validate(&mut raw) }.unwrap();
+            unsafe { diag.write("éX") };
+            assert_eq!(raw.required_bytes, 3);
+            let count = prefix_len("éX", capacity);
+            assert_eq!(&bytes[..count], &"éX".as_bytes()[..count]);
+            if capacity > 0 {
+                assert_eq!(bytes[count], 0);
+            }
+            assert!(bytes[capacity..].iter().all(|b| *b == 0xA5));
+        }
     }
 }

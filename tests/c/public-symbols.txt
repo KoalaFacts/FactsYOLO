@@ -1,0 +1,7 @@
+fy_abi_query
+fy_capabilities_copy
+fy_model_open
+fy_model_release
+fy_session_create
+fy_session_describe
+fy_session_release

@@ -40,22 +40,34 @@ jobs:
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustc --version --verbose
           cargo --version
+      - name: Fixture tests in isolated target directory
+        run: |
+          cargo test --workspace --features contract-fixtures --target-dir target/contract-fixtures --locked --offline
+          cargo test --workspace --features contract-fixtures --target-dir target/contract-fixtures --locked --offline --release
       - name: Debug tests
         run: cargo test --workspace --locked --offline
       - name: Release tests
         run: cargo test --workspace --locked --offline --release
       - name: Build native libraries
-        run: cargo build -p facts-yolo --locked --offline --release
-      - name: C dynamic and static smoke tests
+        run: |
+          cargo build -p facts-yolo --locked --offline --release
+          cargo build -p facts-yolo --features contract-fixtures --target-dir target/contract-fixtures --locked --offline --release
+      - name: C dynamic and static smoke tests and fixture isolation
         if: runner.os == 'Linux'
         run: |
           gcc -std=c11 -Wall -Wextra -Werror -Iinclude tests/c/abi_query.c -Ltarget/release -lfacts_yolo -Wl,-rpath,"$PWD/target/release" -o target/c-dynamic
           target/c-dynamic
           gcc -std=c11 -Wall -Wextra -Werror -DFY_STATIC -Iinclude tests/c/abi_query.c target/release/libfacts_yolo.a -ldl -lpthread -lm -lrt -lutil -o target/c-static
           target/c-static
-          test "$(nm -D --defined-only target/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_')" = fy_abi_query
+          nm -D --defined-only target/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_' | LC_ALL=C sort > target/normal-symbols.txt
+          diff -u tests/c/public-symbols.txt target/normal-symbols.txt
+          { cat tests/c/public-symbols.txt; echo fy_test_model_create; } | LC_ALL=C sort > target/fixture-expected.txt
+          nm -D --defined-only target/contract-fixtures/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_' | LC_ALL=C sort > target/fixture-symbols.txt
+          diff -u target/fixture-expected.txt target/fixture-symbols.txt
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+        run: |
+          cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+          cargo clippy --workspace --all-targets --features contract-fixtures --target-dir target/contract-fixtures --locked --offline -- -D warnings
       - name: Format
         if: always() && matrix.rust == '1.99.0'
         run: |

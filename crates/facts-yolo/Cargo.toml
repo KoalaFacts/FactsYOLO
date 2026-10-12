@@ -1,0 +1,19 @@
+[package]
+name = "facts-yolo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Independent Rust vision infrastructure: experimental native contract"
+
+[lib]
+name = "facts_yolo"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = []
+contract-fixtures = []
+
+[lints]
+workspace = true

@@ -18,9 +18,18 @@ FactsYOLO-authored license terms.
 
 ## Runtime and build dependencies
 
-No Rust crates, native ML runtimes, GPU SDKs, image/video codecs, or precompiled
-libraries have been added in this documentation foundation. In particular, Burn
-is an evaluation candidate, not an approved or bundled dependency.
+The task 1 Cargo lockfile contains only the project-owned `facts-yolo` and `xtask`
+workspace packages, with no external Cargo dependencies. The implementation
+uses Rust's standard library. Rust toolchains, their bundled components, and
+platform/system link dependencies retain their own terms; zero external Cargo
+dependencies is not a claim of zero binary redistribution obligations.
+
+Rust 1.99.0 is the pinned build toolchain and 1.85.0 is tested as the minimum.
+Git, GCC and the GitHub-hosted Linux/Windows build environments are development
+tools, not bundled FactsYOLO runtime packages. The workflow uses no third-party
+Actions and requests read-only repository permissions. No native ML runtime,
+GPU SDK, image/video codec, or downloaded model has been added. Burn remains an
+evaluation candidate, not an approved or bundled dependency.
 
 Before adding a dependency, record its exact version/source, SPDX license where
 available, required notices, transitive/native components, build features, and
@@ -29,8 +38,9 @@ Retain applicable license copies and attribution in the source and release
 packages as required. Native GPU libraries and codecs need separate reviews;
 a permissive wrapper does not determine their redistribution terms.
 
-Generate a versioned dependency inventory/SBOM when executable artifacts exist.
-Do not describe a future dependency set as audited based on this initial file.
+Before binary publication, produce a versioned SBOM that includes toolchain and
+native components and review their license/notice obligations. No binary release
+or completed binary-distribution license audit is claimed by this task.
 
 ## Reference
 

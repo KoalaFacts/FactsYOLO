@@ -111,10 +111,7 @@ unsafe fn release<T, O>(slot: *mut *mut O) -> Result<(), Error> {
 /// # Safety
 /// Descriptor prefixes and accepted diagnostic storage follow the C contract.
 /// operation must leave outputs unchanged on failure, except documented counts.
-unsafe fn entry(
-    raw_diag: *mut FyDiagnostic,
-    operation: impl FnOnce() -> Result<(), Error>,
-) -> i32 {
+unsafe fn entry(raw_diag: *mut FyDiagnostic, operation: impl FnOnce() -> Result<(), Error>) -> i32 {
     // SAFETY: validate diagnostics before reading or changing operation outputs.
     let diag = match unsafe { Diagnostic::validate(raw_diag) } {
         Ok(diag) => diag,
@@ -193,10 +190,7 @@ pub unsafe extern "C" fn fy_model_open(
 /// correct live model handle from this library, with no overlapping use/release.
 /// Diagnostics and slot are disjoint. Copied stale handles are never safe.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fy_model_release(
-    slot: *mut *mut FyModel,
-    diag: *mut FyDiagnostic,
-) -> i32 {
+pub unsafe extern "C" fn fy_model_release(slot: *mut *mut FyModel, diag: *mut FyDiagnostic) -> i32 {
     unsafe { entry(diag, || release::<ModelHandle, FyModel>(slot)) }
 }
 
@@ -299,7 +293,9 @@ pub unsafe extern "C" fn fy_capabilities_copy(
             if required.is_null() || !required.is_aligned() {
                 return Err(INVALID);
             }
-            let bytes = capacity.checked_mul(size_of::<FyCapability>()).ok_or(INVALID)?;
+            let bytes = capacity
+                .checked_mul(size_of::<FyCapability>())
+                .ok_or(INVALID)?;
             if bytes > isize::MAX as usize
                 || (dst.is_null() && capacity != 0)
                 || (!dst.is_null() && !dst.is_aligned())

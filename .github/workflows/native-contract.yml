@@ -64,6 +64,17 @@ jobs:
           { cat tests/c/public-symbols.txt; echo fy_test_model_create; } | LC_ALL=C sort > target/fixture-expected.txt
           nm -D --defined-only target/contract-fixtures/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_' | LC_ALL=C sort > target/fixture-symbols.txt
           diff -u target/fixture-expected.txt target/fixture-symbols.txt
+      - name: C ownership consumers against normal and test libraries
+        if: runner.os == 'Linux'
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -Iinclude tests/c/ownership.c -Ltarget/release -lfacts_yolo -Wl,-rpath,"$PWD/target/release" -o target/c-ownership-normal
+          target/c-ownership-normal
+          gcc -std=c11 -Wall -Wextra -Werror -DFY_STATIC -Iinclude tests/c/ownership.c target/release/libfacts_yolo.a -ldl -lpthread -lm -lrt -lutil -o target/c-ownership-normal-static
+          target/c-ownership-normal-static
+          gcc -std=c11 -Wall -Wextra -Werror -DFY_TEST_FIXTURES -Iinclude -Itests/fixtures tests/c/ownership.c -Ltarget/contract-fixtures/release -lfacts_yolo -Wl,-rpath,"$PWD/target/contract-fixtures/release" -o target/c-ownership-fixture
+          target/c-ownership-fixture
+          gcc -std=c11 -Wall -Wextra -Werror -DFY_STATIC -DFY_TEST_FIXTURES -Iinclude -Itests/fixtures tests/c/ownership.c target/contract-fixtures/release/libfacts_yolo.a -ldl -lpthread -lm -lrt -lutil -o target/c-ownership-fixture-static
+          target/c-ownership-fixture-static
       - name: Clippy
         run: |
           cargo clippy --workspace --all-targets --locked --offline -- -D warnings

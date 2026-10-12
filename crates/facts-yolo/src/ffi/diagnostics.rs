@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::{descriptors, types::FyDiagnostic};
 use crate::error::{Error, INVALID};
-use std::ptr::{addr_of, addr_of_mut, null_mut};
+use std::num::NonZeroUsize;
+use std::ptr::{NonNull, addr_of, addr_of_mut};
 
-/// A per-call raw view. Never stored globally or returned across the ABI.
+/// Per-call validated destinations. Disabled diagnostics contain no pointers.
+/// Never stored globally or returned across the ABI.
 pub(super) struct Diagnostic {
-    raw: *mut FyDiagnostic,
-    data: *mut u8,
-    capacity: usize,
+    storage: Option<Storage>,
+}
+
+struct Storage {
+    required_bytes: NonNull<usize>,
+    buffer: Option<(NonNull<u8>, NonZeroUsize)>,
 }
 
 impl Diagnostic {
@@ -15,50 +20,55 @@ impl Diagnostic {
     /// The raw descriptor/buffer satisfy the public allocation and lifetime
     /// preconditions. Output-only required_bytes need not be initialized.
     pub(super) unsafe fn validate(raw: *mut FyDiagnostic) -> Result<Self, Error> {
-        if raw.is_null() {
-            return Ok(Self {
-                raw,
-                data: null_mut(),
-                capacity: 0,
-            });
-        }
+        let Some(raw) = NonNull::new(raw) else {
+            return Ok(Self { storage: None });
+        };
         // SAFETY: forwarded caller prefix contract; no full-record read.
-        unsafe { descriptors::validate(raw)? };
-        // SAFETY: input fields are initialized; required_bytes and padding
-        // deliberately are not read.
-        let data = unsafe { addr_of!((*raw).data).read() }.cast::<u8>();
-        let capacity = unsafe { addr_of!((*raw).capacity).read() };
+        unsafe { descriptors::validate(raw.as_ptr())? };
+        // SAFETY: accepted input fields are initialized. Output-only fields and
+        // padding are not read, and no reference to the whole record is formed.
+        let data = unsafe { addr_of!((*raw.as_ptr()).data).read() }.cast::<u8>();
+        let capacity = unsafe { addr_of!((*raw.as_ptr()).capacity).read() };
         if capacity > isize::MAX as usize
-            || (capacity > 0 && data.is_null())
             || (data as usize).checked_add(capacity).is_none()
         {
             return Err(INVALID);
         }
+        let buffer = match NonZeroUsize::new(capacity) {
+            Some(capacity) => Some((NonNull::new(data).ok_or(INVALID)?, capacity)),
+            None => None,
+        };
+        // SAFETY: a valid non-null full descriptor supplies this writable field.
+        // Retain its destination directly, not a nullable descriptor to later
+        // dereference. NonNull is not a substitute for the caller's lifetime,
+        // allocation, initialization and disjoint-storage obligations.
+        let required_bytes = unsafe { addr_of_mut!((*raw.as_ptr()).required_bytes) };
         Ok(Self {
-            raw,
-            data,
-            capacity,
+            storage: Some(Storage {
+                required_bytes: NonNull::new(required_bytes).ok_or(INVALID)?,
+                buffer,
+            }),
         })
     }
 
     /// # Safety
-    /// The validated storage is still live, writable and disjoint from other
-    /// call storage and message. No concurrent access to it is permitted.
+    /// The validated destinations remain live, writable and disjoint from other
+    /// call storage and message. No concurrent access to them is permitted.
     pub(super) unsafe fn write(&self, message: &str) {
-        if self.raw.is_null() {
+        let Some(storage) = &self.storage else {
             return;
-        }
-        // SAFETY: writes only the output field, not input fields/padding/tails.
-        unsafe { addr_of_mut!((*self.raw).required_bytes).write(message.len()) };
-        if self.capacity == 0 {
+        };
+        // SAFETY: the validated non-null destination is the output field only.
+        unsafe { storage.required_bytes.as_ptr().write(message.len()) };
+        let Some((data, capacity)) = storage.buffer else {
             return;
-        }
-        let count = prefix_len(message, self.capacity);
-        // SAFETY: count <= capacity - 1; caller supplies writable storage.
-        // The source is an independent Rust string, and storage is disjoint.
+        };
+        let count = prefix_len(message, capacity.get());
+        // SAFETY: count <= capacity - 1; a present buffer is non-null and has
+        // positive capacity. The message and caller's writable range are disjoint.
         unsafe {
-            std::ptr::copy_nonoverlapping(message.as_ptr(), self.data, count);
-            self.data.add(count).write(0);
+            std::ptr::copy_nonoverlapping(message.as_ptr(), data.as_ptr(), count);
+            data.as_ptr().add(count).write(0);
         }
     }
 }
@@ -76,6 +86,32 @@ fn prefix_len(message: &str, capacity: usize) -> usize {
 mod tests {
     use super::{Diagnostic, prefix_len};
     use crate::ffi::types::FyDiagnostic;
+    use std::ptr::null_mut;
+
+    #[test]
+    fn disabled_diagnostics_have_no_writable_destinations() {
+        let diag = unsafe { Diagnostic::validate(null_mut()) }.unwrap();
+        assert!(diag.storage.is_none());
+        unsafe { diag.write("no caller diagnostic storage") };
+    }
+
+    #[test]
+    fn zero_capacity_has_only_a_required_count_destination() {
+        let mut raw = FyDiagnostic {
+            struct_size: size_of::<FyDiagnostic>() as u32,
+            struct_version: 1,
+            required_flags: 0,
+            data: null_mut(),
+            capacity: 0,
+            required_bytes: usize::MAX,
+        };
+        let diag = unsafe { Diagnostic::validate(&mut raw) }.unwrap();
+        assert!(diag.storage.as_ref().unwrap().buffer.is_none());
+        unsafe { diag.write("éX") };
+        assert_eq!(raw.required_bytes, 3);
+        assert!(raw.data.is_null());
+        assert_eq!(raw.capacity, 0);
+    }
 
     #[test]
     fn unicode_truncation_respects_character_boundaries() {

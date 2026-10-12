@@ -2,7 +2,7 @@ name: Native contract
 on:
   pull_request:
   push:
-    branches: [main, 'feat/m1-*']
+    branches: [main]
 permissions:
   contents: read
 jobs:
@@ -45,8 +45,17 @@ jobs:
         run: cargo test --workspace --locked --offline --release
       - name: Build native libraries
         run: cargo build -p facts-yolo --locked --offline --release
+      - name: C dynamic and static smoke tests
+        if: runner.os == 'Linux'
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -Iinclude tests/c/abi_query.c -Ltarget/release -lfacts_yolo -Wl,-rpath,"$PWD/target/release" -o target/c-dynamic
+          target/c-dynamic
+          gcc -std=c11 -Wall -Wextra -Werror -DFY_STATIC -Iinclude tests/c/abi_query.c target/release/libfacts_yolo.a -ldl -lpthread -lm -lrt -lutil -o target/c-static
+          target/c-static
+          test "$(nm -D --defined-only target/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_')" = fy_abi_query
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
       - name: Format
-        if: matrix.rust == '1.99.0'
-        run: cargo fmt --all -- --check
+        if: always() && matrix.rust == '1.99.0'
+        run: |
+          cargo fmt --all -- --check || { cargo fmt --all; git diff; exit 1; }

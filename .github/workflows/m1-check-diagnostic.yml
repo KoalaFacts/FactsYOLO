@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# Temporary read-only investigation; remove before merging this PR.
+name: M1 check diagnostic
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Read the public CodeQL annotation, without credentials
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --max-time 30 \
+            -H 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/KoalaFacts/FactsYOLO/check-runs/114797946941/annotations?per_page=100' \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert isinstance(data,list); print(json.dumps(data,ensure_ascii=True,indent=2))'

@@ -182,6 +182,7 @@ fn check_exports(root: &Path, release: &Path, fixture: bool) -> Result<(), Strin
         expected.push_str(
             "fy_test_model_create\nfy_test_session_resume\nfy_test_session_wait_running\n",
         );
+        expected.push_str("fy_test_resource_counts\n");
     }
     validate_symbols(&expected, &names)?;
     std::fs::write(release.join("verified-exports.txt"), &names).map_err(|e| e.to_string())?;

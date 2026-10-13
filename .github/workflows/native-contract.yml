@@ -61,7 +61,7 @@ jobs:
           target/c-static
           nm -D --defined-only target/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_' | LC_ALL=C sort > target/normal-symbols.txt
           diff -u tests/c/public-symbols.txt target/normal-symbols.txt
-          { cat tests/c/public-symbols.txt; printf '%s\n' fy_test_model_create fy_test_session_wait_running fy_test_session_resume; } | LC_ALL=C sort > target/fixture-expected.txt
+          { cat tests/c/public-symbols.txt; printf '%s\n' fy_test_model_create fy_test_session_wait_running fy_test_session_resume fy_test_resource_counts; } | LC_ALL=C sort > target/fixture-expected.txt
           nm -D --defined-only target/contract-fixtures/release/libfacts_yolo.so | awk '{print $3}' | grep '^fy_' | LC_ALL=C sort > target/fixture-symbols.txt
           diff -u target/fixture-expected.txt target/fixture-symbols.txt
       - name: C ownership consumers against normal and test libraries

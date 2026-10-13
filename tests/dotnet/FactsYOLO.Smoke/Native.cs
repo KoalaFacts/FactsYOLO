@@ -8,8 +8,8 @@ namespace FactsYOLO.Smoke;
 internal static unsafe partial class Native
 {
     internal const string Library = "facts_yolo";
-    // This test process loads one explicit library for its whole lifetime.
-    // It is deliberately not unloaded while cached imports/finalizers may exist.
+    // One explicit library per test process. Keep it loaded while cached imports
+    // or finalizers can exist; unloading it is not an ownership workaround.
     private static nint module;
     internal static void ValidatePath(string path)
     {
@@ -66,7 +66,7 @@ internal static unsafe partial class Native
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int ResultRelease(nint* slot, FyDiagnostic* diagnostic);
 
-    // The following imports are test controls, never a production model API.
+    // Explicit test controls, never a production model API.
     [LibraryImport(Library, EntryPoint = "fy_test_model_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int TestModel(uint major, uint fixture, nint* output, FyDiagnostic* diagnostic);
@@ -87,6 +87,8 @@ internal sealed class NativeFailure(int status) : Exception($"FactsYOLO status {
 }
 internal static class Status
 {
-    // RED checkpoint: negative status handling is deliberately not implemented.
-    internal static void Check(int value) { }
+    internal static void Check(int value)
+    {
+        if (value != 0) throw new NativeFailure(value);
+    }
 }

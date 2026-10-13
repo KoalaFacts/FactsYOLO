@@ -47,7 +47,11 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         .parent()
         .ok_or("workspace root absent")?;
     let dotnet_root = root.join("tests/dotnet");
-    let sdk = capture(Command::new("dotnet").current_dir(&dotnet_root).arg("--version"))?;
+    let sdk = capture(
+        Command::new("dotnet")
+            .current_dir(&dotnet_root)
+            .arg("--version"),
+    )?;
     if sdk.trim() != "10.0.401" {
         return Err(format!("expected pinned SDK 10.0.401, got {sdk}"));
     }
@@ -56,15 +60,27 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     std::fs::create_dir_all(&evidence).map_err(|error| error.to_string())?;
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let layout = capture(Command::new(cargo).current_dir(root).args([
-        "run", "-p", "facts-yolo", "--example", "abi_layout", "--locked", "--offline", "--quiet",
+        "run",
+        "-p",
+        "facts-yolo",
+        "--example",
+        "abi_layout",
+        "--locked",
+        "--offline",
+        "--quiet",
     ]))?;
     let layout_path = evidence.join("rust-layout.txt");
     std::fs::write(&layout_path, layout).map_err(|error| error.to_string())?;
     let destination = evidence.join(mode);
     let project = dotnet_root.join("FactsYOLO.Smoke/FactsYOLO.Smoke.csproj");
     let mut build = Command::new("dotnet");
-    build.current_dir(&dotnet_root).arg(if mode == "aot" { "publish" } else { "build" });
-    build.arg(&project).args(["-c", "Release", "-o"]).arg(&destination);
+    build
+        .current_dir(&dotnet_root)
+        .arg(if mode == "aot" { "publish" } else { "build" });
+    build
+        .arg(&project)
+        .args(["-c", "Release", "-o"])
+        .arg(&destination);
     if mode == "aot" {
         build.args(["-r", rid, "--self-contained", "true", "-p:PublishAot=true"]);
     }
@@ -81,11 +97,15 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     }
     let mut failures = Vec::new();
     for (target, kind) in [("normal", "normal"), ("contract-fixtures", "fixture")] {
-        let library = root.join("target").join(target).join("release").join(if cfg!(windows) {
-            "facts_yolo.dll"
-        } else {
-            "libfacts_yolo.so"
-        });
+        let library = root
+            .join("target")
+            .join(target)
+            .join("release")
+            .join(if cfg!(windows) {
+                "facts_yolo.dll"
+            } else {
+                "libfacts_yolo.so"
+            });
         let mut command = if mode == "jit" {
             let mut command = Command::new("dotnet");
             command.arg(&executable);
@@ -93,7 +113,12 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         } else {
             Command::new(&executable)
         };
-        command.current_dir(&dotnet_root).arg(library).arg(&layout_path).arg(kind).arg(mode);
+        command
+            .current_dir(&dotnet_root)
+            .arg(library)
+            .arg(&layout_path)
+            .arg(kind)
+            .arg(mode);
         command.env_remove("LD_PRELOAD");
         if let Err(error) = checked(&mut command) {
             failures.push(error);

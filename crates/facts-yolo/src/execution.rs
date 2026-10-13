@@ -1,28 +1,79 @@
 // SPDX-License-Identifier: Apache-2.0
-//! RED checkpoint for the private execution-state contract.
-#![allow(dead_code)]
+//! Admission and explicit state validity, independent of advisory mutex poisoning.
 use crate::{Error, ffi::types::*};
+use std::sync::{Mutex, MutexGuard, TryLockError};
 
+/// Reusable is an adapter guarantee, not a classification inferred from a status.
 pub(crate) enum Failure {
     Reusable(Error),
     Fatal(Error),
 }
 
-pub(crate) struct Gate;
+const BUSY: Error = Error {
+    status: FY_BUSY,
+    message: "session is already executing",
+};
+const POISONED: Error = Error {
+    status: FY_POISONED,
+    message: "session execution state is poisoned",
+};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum State {
+    Ready,
+    Running,
+    Poisoned,
+}
+
+pub(crate) struct Gate {
+    state: Mutex<State>,
+}
+
+/// Every admitted path poisons unless a valid completion explicitly restores Ready.
+/// The lock remains held during cleanup/finalization as well as backend execution.
+struct Admission<'a> {
+    state: MutexGuard<'a, State>,
+}
+
+impl Drop for Admission<'_> {
+    fn drop(&mut self) {
+        if *self.state == State::Running {
+            *self.state = State::Poisoned;
+        }
+    }
+}
 
 impl Gate {
     pub(crate) fn new() -> Self {
-        Self
+        Self {
+            state: Mutex::new(State::Ready),
+        }
     }
 
     pub(crate) fn run<T>(
         &self,
-        _operation: impl FnOnce() -> Result<T, Failure>,
+        operation: impl FnOnce() -> Result<T, Failure>,
     ) -> Result<T, Error> {
-        Err(Error {
-            status: FY_INTERNAL_ERROR,
-            message: "execution gate is not implemented",
-        })
+        let state = self.state.try_lock().map_err(|error| match error {
+            TryLockError::WouldBlock => BUSY,
+            TryLockError::Poisoned(_) => POISONED,
+        })?;
+        if *state != State::Ready {
+            return Err(POISONED);
+        }
+        let mut admission = Admission { state };
+        *admission.state = State::Running;
+        match operation() {
+            Ok(value) => {
+                *admission.state = State::Ready;
+                Ok(value)
+            }
+            Err(Failure::Reusable(error)) => {
+                *admission.state = State::Ready;
+                Err(error)
+            }
+            Err(Failure::Fatal(error)) => Err(error),
+        }
     }
 }
 

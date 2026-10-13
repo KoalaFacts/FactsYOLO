@@ -35,8 +35,14 @@ fn test_controls_reject_invalid_arguments_and_do_not_change_ready_state() {
     unsafe {
         assert_eq!(fy_test_session_wait_running(null(), 1), FY_INVALID_ARGUMENT);
         assert_eq!(fy_test_session_resume(null()), FY_INVALID_ARGUMENT);
-        assert_eq!(fy_test_session_wait_running(blocking.session, 0), FY_INVALID_ARGUMENT);
-        assert_eq!(fy_test_session_wait_running(blocking.session, 1), FY_INTERNAL_ERROR);
+        assert_eq!(
+            fy_test_session_wait_running(blocking.session, 0),
+            FY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            fy_test_session_wait_running(blocking.session, 1),
+            FY_INTERNAL_ERROR
+        );
     }
     assert_eq!(basic.resume(), FY_UNSUPPORTED_FEATURE);
     assert_eq!(basic.call(0.5).0, FY_OK);
@@ -66,7 +72,11 @@ fn payload_drop_panic_is_contained_in_a_subprocess() {
         return;
     }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "payload_drop_panic_is_contained_in_a_subprocess", "--nocapture"])
+        .args([
+            "--exact",
+            "payload_drop_panic_is_contained_in_a_subprocess",
+            "--nocapture",
+        ])
         .env(PROBE, "1")
         .output()
         .unwrap();

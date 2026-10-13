@@ -33,7 +33,10 @@ impl Owner {
             max_detections: 16,
         };
         unsafe {
-            assert_eq!(fy_test_model_create(1, fixture, &mut model, null_mut()), FY_OK);
+            assert_eq!(
+                fy_test_model_create(1, fixture, &mut model, null_mut()),
+                FY_OK
+            );
             let status = fy_session_create(1, model, &options, &mut session, null_mut());
             assert_eq!(fy_model_release(&mut model, null_mut()), FY_OK);
             assert_eq!(status, FY_OK);
@@ -72,13 +75,15 @@ impl Owner {
         };
         let mut result = null_mut();
         let mut count = 0;
-        let status = unsafe {
-            fy_detect(self.session, &image, &options, &mut result, &mut diagnostic)
-        };
+        let status =
+            unsafe { fy_detect(self.session, &image, &options, &mut result, &mut diagnostic) };
         if status == FY_OK {
             assert!(!result.is_null());
             unsafe {
-                assert_eq!(fy_result_copy(result, null_mut(), 0, &mut count, null_mut()), FY_OK);
+                assert_eq!(
+                    fy_result_copy(result, null_mut(), 0, &mut count, null_mut()),
+                    FY_OK
+                );
                 assert_eq!(fy_result_release(&mut result, null_mut()), FY_OK);
             }
         } else {
@@ -90,9 +95,7 @@ impl Owner {
     }
 
     pub fn wait(&self) -> i32 {
-        unsafe {
-            facts_yolo::ffi::testing::fy_test_session_wait_running(self.session, 3000)
-        }
+        unsafe { facts_yolo::ffi::testing::fy_test_session_wait_running(self.session, 3000) }
     }
 
     pub fn resume(&self) -> i32 {

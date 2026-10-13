@@ -120,9 +120,8 @@ mod tests {
     #[test]
     fn unwinding_marks_admitted_state_poisoned() {
         let gate = Gate::new();
-        let result = std::panic::catch_unwind(|| {
-            gate.run::<()>(|| panic!("controlled gate panic"))
-        });
+        let result =
+            std::panic::catch_unwind(|| gate.run::<()>(|| panic!("controlled gate panic")));
         assert!(result.is_err());
         assert_eq!(gate.run(|| Ok(())).unwrap_err().status, FY_POISONED);
     }

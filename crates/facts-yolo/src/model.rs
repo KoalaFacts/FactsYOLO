@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Immutable model state. Only the feature-gated test factory constructs it.
+#[cfg(feature = "contract-fixtures")]
+use crate::{Error, error::INVALID, fixtures};
 use crate::{
     execution::Failure,
     result::{Candidate, ImageTransform},
     session::UNSUPPORTED,
 };
-#[cfg(feature = "contract-fixtures")]
-use crate::{Error, error::INVALID, fixtures};
 
 pub(crate) struct Model {
     backend_id: u32,

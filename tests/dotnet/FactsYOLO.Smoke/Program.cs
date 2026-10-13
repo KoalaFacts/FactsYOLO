@@ -125,9 +125,8 @@ internal static unsafe class Program
         using Model model = Model.Fixture(4);
         using Session session = model.CreateSession(Options());
         model.Dispose();
-        nint raw = session.AddressForTest(); // Test-only address; never an extra owning lease.
         Task<Result> work = Task.Run(() => session.Detect(Pixels));
-        int running = Native.WaitRunning(raw, 5000);
+        int running = session.WaitRunningForTest(5000);
         // Failure terminates this test process: never attempt cleanup through a
         // possibly stale pointer. All normal assertions occur after safe resume.
         if (running != 0) Environment.FailFast("Fixture did not enter the native call.");
@@ -142,11 +141,22 @@ internal static unsafe class Program
         bool closed = false;
         try { using Result unexpected = session.Detect(Pixels); }
         catch (ObjectDisposedException) { closed = true; }
-        if (Native.Resume(raw) != 0 || !work.Wait(TimeSpan.FromSeconds(10)))
+        // Acquire only after proving Detect's own lease retained the session.
+        // Resume can let Detect finish before Resume itself returns. This
+        // independent lease protects control, or safely rejects a timed-out call.
+        using Lease control = session.AcquireControlForTest();
+        if (Native.Resume(control.Pointer) != 0 || !work.Wait(TimeSpan.FromSeconds(10)))
             Environment.FailFast("Blocked native call could not be safely joined.");
         using Result result = work.GetAwaiter().GetResult();
+        Require(session.ReleaseCalls == 0,
+            "Fixture control lifetime ended before the control operation completed.");
+        Require(Counts().SequenceEqual(new nuint[] { 0, 1, 1, 1 }),
+            "Fixture control did not retain the session after Detect completed.");
+        control.Dispose();
         Require(busy && closed, "BUSY or disposed admission was hidden.");
         Require(session.ReleaseCalls == 1, "Physical session release was not exactly once.");
+        Throws<ObjectDisposedException>(() => { using Lease unexpected = session.AcquireControlForTest(); });
+        Throws<ObjectDisposedException>(() => session.WaitRunningForTest(1));
         Require(Counts().SequenceEqual(new nuint[] { 0, 0, 0, 1 }), "Lease did not release after return.");
         Canonical(result.Copy());
     }

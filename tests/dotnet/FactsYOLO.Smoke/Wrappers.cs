@@ -101,13 +101,16 @@ internal sealed unsafe class Session : IDisposable
         catch { owner.Dispose(); throw; }
         finally { if (raw != 0) Native.ResultRelease(&raw, null); }
     }
-    // Tests may borrow this address only while an undisposed owner or a
-    // barrier-confirmed in-flight operation keeps the native resource alive.
-    internal nint AddressForTest()
+    internal int WaitRunningForTest(uint timeoutMilliseconds)
     {
         using Lease lease = lifetime.Acquire();
-        return lease.Pointer;
+        return Native.WaitRunning(lease.Pointer, timeoutMilliseconds);
     }
+    // Only fixture control may retain a disposed but still-leased SafeHandle.
+    // DangerousAddRef atomically retains it or rejects an already closed handle;
+    // a past native barrier alone is not a lifetime guarantee. Ordinary methods
+    // continue to use lifetime.Acquire(), which rejects all disposed admission.
+    internal Lease AcquireControlForTest() => new(lifetime.Handle);
     internal int ReleaseCalls => lifetime.Handle.ReleaseCalls;
     public void Dispose() => lifetime.Dispose();
 }

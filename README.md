@@ -5,15 +5,20 @@ C#, Go, and TypeScript.
 
 **Status: native infrastructure under implementation.** The repository contains
 a buildable Rust library, a C header, ABI/version diagnostics, checked borrowed
-RGB/BGR/RGBA image views, capability discovery, and model/session ownership paths.
-C consumers exercise dynamic and static linking. Model/session creation is
-exercised using an explicitly test-only factory, not a trained detector.
+RGB/BGR/RGBA image views, model/session ownership, synchronous execution and owned
+result contracts, and single-session admission with recoverable panic containment.
+Execution is exercised using explicitly test-only fixtures, not trained detectors.
 
-**No real model format or compute backend is installed.** The normal build
-reports zero backend capabilities; validated `fy_model_open` requests return
+C consumers verify layouts, exports, results, errors and concurrent admission on
+Linux and Windows. An unpublished C# smoke adapter uses LibraryImport, SafeHandle
+and scoped lifetime leases; its JIT and Native AOT executables are tested on both
+platforms. These are conformance tools, not released C#/Go/TypeScript SDKs.
+
+**No real model format or compute backend is installed.** The normal build reports
+zero backend capabilities; validated `fy_model_open` requests return
 `FY_UNSUPPORTED_MODEL`. Even test builds do not accept fixture bytes as model
-artifacts. There is no detection execution API, trained weight release, training
-implementation, published SDK, or detector benchmark yet.
+artifacts. There is no trained weight release, training implementation, published
+SDK, or detector accuracy/performance benchmark yet.
 
 ## Build and verify
 
@@ -27,18 +32,32 @@ cargo test --workspace --features contract-fixtures --target-dir target/contract
 cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
+cargo run -p xtask --locked --offline -- c
 ```
 
-The native library builds as `rlib`, `cdylib`, and `staticlib`; Cargo publication
-is disabled. CI exercises Linux x64 with Rust 1.99.0 and the 1.85.0 floor, and
-Windows x64 with Rust 1.99.0. Linux executes C callers against normal and test
-libraries using both link modes, and verifies exact public/test-only exports.
-Test builds have their own output directory and must not be shipped as defaults.
+With the pinned .NET SDK and native tools installed, execute the managed adapter:
 
-See [the initial ABI test record](docs/testing/native-contract.md) and
-[the ownership test record](docs/testing/model-session-ownership.md) for commands,
-evidence, and limitations. These are native-contract checks, not complete
-vision-platform certification or proof of production memory/accuracy targets.
+```sh
+cargo run -p xtask --locked --offline -- dotnet --mode jit
+cargo run -p xtask --locked --offline -- dotnet --mode aot
+```
+
+The runner supports the current Linux x64 or Windows x64 host. Native AOT builds
+are executed, not just compiled. See [C# conformance](docs/testing/dotnet-conformance.md)
+for required tools, actual evidence and deployment limitations.
+
+The native library builds as `rlib`, `cdylib`, and `staticlib`; Cargo publication
+is disabled. Rust CI exercises Linux x64 with 1.99.0 and the 1.85.0 floor, and
+Windows x64 with 1.99.0. C conformance runs Linux shared/static and Windows DLL
+consumers. Exact normal/test export sets are checked; test builds have their own
+output directory and must not be shipped as defaults.
+
+See [the initial ABI test record](docs/testing/native-contract.md),
+[the ownership test record](docs/testing/model-session-ownership.md), and
+[C# conformance](docs/testing/dotnet-conformance.md) for commands, evidence and
+limitations. Historical records describe their tested revision. None of these
+checks establishes complete vision-platform certification or production
+memory/accuracy targets.
 
 ## Purpose
 

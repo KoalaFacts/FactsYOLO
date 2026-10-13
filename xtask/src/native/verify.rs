@@ -34,7 +34,9 @@ pub(super) fn compare_layout(expected: &str, actual: &str) -> Result<(), String>
     let expected = layout(expected)?;
     let actual = layout(actual)?;
     if expected != actual {
-        return Err(format!("layout mismatch: expected {expected:?}, actual {actual:?}"));
+        return Err(format!(
+            "layout mismatch: expected {expected:?}, actual {actual:?}"
+        ));
     }
     Ok(())
 }
@@ -44,7 +46,9 @@ fn symbols(text: &str) -> Result<BTreeSet<&str>, String> {
     for line in text.lines() {
         let name = line.trim();
         if !name.starts_with("fy_")
-            || !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
             || !values.insert(name)
         {
             return Err(format!("invalid or duplicate export: {name}"));
@@ -60,7 +64,9 @@ pub(super) fn validate_symbols(expected: &str, actual: &str) -> Result<(), Strin
     let expected = symbols(expected)?;
     let actual = symbols(actual)?;
     if expected != actual {
-        return Err(format!("export mismatch: expected {expected:?}, actual {actual:?}"));
+        return Err(format!(
+            "export mismatch: expected {expected:?}, actual {actual:?}"
+        ));
     }
     Ok(())
 }
@@ -71,11 +77,18 @@ pub(super) fn exported_names(output: &str) -> String {
     for line in output.lines() {
         let parts: Vec<_> = line.split_whitespace().collect();
         let candidate = match parts.as_slice() {
-            [address, kind, name] if address.bytes().all(|b| b.is_ascii_hexdigit())
-                && *kind == "T" => Some(*name),
-            [ordinal, hint, rva, name, ..] if ordinal.parse::<u32>().is_ok()
-                && hint.bytes().all(|b| b.is_ascii_hexdigit())
-                && rva.bytes().all(|b| b.is_ascii_hexdigit()) => Some(*name),
+            [address, kind, name]
+                if address.bytes().all(|b| b.is_ascii_hexdigit()) && *kind == "T" =>
+            {
+                Some(*name)
+            }
+            [ordinal, hint, rva, name, ..]
+                if ordinal.parse::<u32>().is_ok()
+                    && hint.bytes().all(|b| b.is_ascii_hexdigit())
+                    && rva.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
+                Some(*name)
+            }
             _ => None,
         };
         if let Some(name) = candidate.filter(|name| name.starts_with("fy_")) {
@@ -83,7 +96,11 @@ pub(super) fn exported_names(output: &str) -> String {
         }
     }
     names.sort_unstable();
-    if names.is_empty() { String::new() } else { names.join("\n") + "\n" }
+    if names.is_empty() {
+        String::new()
+    } else {
+        names.join("\n") + "\n"
+    }
 }
 
 #[cfg(test)]
@@ -137,7 +154,9 @@ mod tests {
             "fy_detect\n"
         );
         assert_eq!(
-            exported_names("ordinal hint RVA name\n 1 0 00001000 fy_abi_query\n 2 1 00002000 fy_detect\n"),
+            exported_names(
+                "ordinal hint RVA name\n 1 0 00001000 fy_abi_query\n 2 1 00002000 fy_detect\n"
+            ),
             "fy_abi_query\nfy_detect\n"
         );
         assert!(exported_names("debug strings fy_detect\n").is_empty());

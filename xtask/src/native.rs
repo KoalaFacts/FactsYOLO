@@ -7,13 +7,21 @@ use verify::{compare_layout, exported_names, validate_symbols};
 
 fn checked(command: &mut Command) -> Result<(), String> {
     eprintln!("+ {command:?}");
-    let status = command.status().map_err(|e| format!("cannot execute {command:?}: {e}"))?;
-    if status.success() { Ok(()) } else { Err(format!("{command:?} exited {status}")) }
+    let status = command
+        .status()
+        .map_err(|e| format!("cannot execute {command:?}: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{command:?} exited {status}"))
+    }
 }
 
 fn output(command: &mut Command) -> Result<Output, String> {
     eprintln!("+ {command:?}");
-    command.output().map_err(|e| format!("cannot execute {command:?}: {e}"))
+    command
+        .output()
+        .map_err(|e| format!("cannot execute {command:?}: {e}"))
 }
 
 fn captured(command: &mut Command) -> Result<String, String> {
@@ -37,11 +45,19 @@ fn cargo(root: &Path) -> Command {
 }
 
 fn ensure_file(path: &Path) -> Result<(), String> {
-    if path.is_file() { Ok(()) } else { Err(format!("required file is absent: {}", path.display())) }
+    if path.is_file() {
+        Ok(())
+    } else {
+        Err(format!("required file is absent: {}", path.display()))
+    }
 }
 
 fn library_file(directory: &Path) -> PathBuf {
-    directory.join(if cfg!(windows) { "facts_yolo.dll" } else { "libfacts_yolo.so" })
+    directory.join(if cfg!(windows) {
+        "facts_yolo.dll"
+    } else {
+        "libfacts_yolo.so"
+    })
 }
 
 fn compile(
@@ -56,9 +72,16 @@ fn compile(
     ensure_file(&source)?;
     let name = source.file_stem().ok_or("source has no filename")?;
     let mut executable = directory.join(name);
-    if cfg!(windows) { executable.set_extension("exe"); }
-    let compiler = std::env::var_os("CC")
-        .unwrap_or_else(|| if cfg!(windows) { "cl".into() } else { "cc".into() });
+    if cfg!(windows) {
+        executable.set_extension("exe");
+    }
+    let compiler = std::env::var_os("CC").unwrap_or_else(|| {
+        if cfg!(windows) {
+            "cl".into()
+        } else {
+            "cc".into()
+        }
+    });
     let mut command = Command::new(compiler);
     command.current_dir(directory);
     let includes = [
@@ -67,14 +90,24 @@ fn compile(
     ];
     if cfg!(windows) {
         command.args(["/nologo", "/std:c11", "/W4", "/WX", "/TC"]);
-        for include in &includes { command.arg(format!("/I{}", include.display())); }
-        if let Some((_, fixture, static_link)) = library {
-            if fixture { command.arg("/DFY_TEST_FIXTURES"); }
-            if static_link { return Err("Windows static C is not an M1 task 6 target".to_owned()); }
+        for include in &includes {
+            command.arg(format!("/I{}", include.display()));
         }
-        command.arg(&source)
+        if let Some((_, fixture, static_link)) = library {
+            if fixture {
+                command.arg("/DFY_TEST_FIXTURES");
+            }
+            if static_link {
+                return Err("Windows static C is not an M1 task 6 target".to_owned());
+            }
+        }
+        command
+            .arg(&source)
             .arg(format!("/Fe:{}", executable.display()))
-            .arg(format!("/Fo:{}", directory.join(name).with_extension("obj").display()));
+            .arg(format!(
+                "/Fo:{}",
+                directory.join(name).with_extension("obj").display()
+            ));
         command.arg("/link").arg("kernel32.lib");
         if let Some((release, _, _)) = library {
             let import = release.join("facts_yolo.dll.lib");
@@ -86,17 +119,29 @@ fn compile(
         }
     } else {
         command.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
-        for include in &includes { command.arg("-I").arg(include); }
+        for include in &includes {
+            command.arg("-I").arg(include);
+        }
         if let Some((_, fixture, static_link)) = library {
-            if fixture { command.arg("-DFY_TEST_FIXTURES"); }
-            if static_link { command.arg("-DFY_STATIC"); }
+            if fixture {
+                command.arg("-DFY_TEST_FIXTURES");
+            }
+            if static_link {
+                command.arg("-DFY_STATIC");
+            }
         }
         command.arg(&source).arg("-o").arg(&executable);
         if let Some((release, _, static_link)) = library {
-            let link = if static_link { release.join("libfacts_yolo.a") } else { library_file(release) };
+            let link = if static_link {
+                release.join("libfacts_yolo.a")
+            } else {
+                library_file(release)
+            };
             ensure_file(&link)?;
             command.arg(link);
-            command.args(["-Xlinker", "-rpath", "-Xlinker"]).arg(release);
+            command
+                .args(["-Xlinker", "-rpath", "-Xlinker"])
+                .arg(release);
         }
         command.args(["-ldl", "-lm", "-lrt", "-lutil"]);
     }
@@ -110,7 +155,9 @@ fn run_program(executable: &Path, release: Option<&Path>) -> Result<String, Stri
     command.current_dir(executable.parent().ok_or("executable has no directory")?);
     if cfg!(target_os = "linux") {
         command.env_remove("LD_PRELOAD");
-        if let Some(release) = release { command.env("LD_LIBRARY_PATH", release); }
+        if let Some(release) = release {
+            command.env("LD_LIBRARY_PATH", release);
+        }
     }
     captured(&mut command)
 }
@@ -119,19 +166,30 @@ fn check_exports(root: &Path, release: &Path, fixture: bool) -> Result<(), Strin
     let file = library_file(release);
     ensure_file(&file)?;
     let mut command = Command::new(if cfg!(windows) { "dumpbin" } else { "nm" });
-    if cfg!(windows) { command.args(["/nologo", "/exports"]); }
-    else { command.args(["-D", "--defined-only"]); }
+    if cfg!(windows) {
+        command.args(["/nologo", "/exports"]);
+    } else {
+        command.args(["-D", "--defined-only"]);
+    }
     command.arg(&file);
     let names = exported_names(&captured(&mut command)?);
     let mut expected = std::fs::read_to_string(root.join("tests/c/public-symbols.txt"))
         .map_err(|e| e.to_string())?;
-    if !expected.ends_with('\n') { expected.push('\n'); }
+    if !expected.ends_with('\n') {
+        expected.push('\n');
+    }
     if fixture {
-        expected.push_str("fy_test_model_create\nfy_test_session_resume\nfy_test_session_wait_running\n");
+        expected.push_str(
+            "fy_test_model_create\nfy_test_session_resume\nfy_test_session_wait_running\n",
+        );
     }
     validate_symbols(&expected, &names)?;
     std::fs::write(release.join("verified-exports.txt"), &names).map_err(|e| e.to_string())?;
-    println!("{}: {} exact exports verified", file.display(), names.lines().count());
+    println!(
+        "{}: {} exact exports verified",
+        file.display(),
+        names.lines().count()
+    );
     Ok(())
 }
 
@@ -140,24 +198,54 @@ pub(super) fn run(exports_only: bool) -> Result<(), String> {
         return Err("this runner currently requires Linux x64 or Windows x64".to_owned());
     }
     // Cargo supplies an absolute path without depending on the caller's cwd.
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().ok_or("workspace root is absent")?;
-    if !root.is_absolute() { return Err("workspace root must be absolute".to_owned()); }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or("workspace root is absent")?;
+    if !root.is_absolute() {
+        return Err("workspace root must be absolute".to_owned());
+    }
     let normal = root.join("target/normal");
     let fixture = root.join("target/contract-fixtures");
     for (target, fixtures) in [(&normal, false), (&fixture, true)] {
         let mut build = cargo(root);
-        build.args(["build", "-p", "facts-yolo", "--locked", "--offline", "--release",
-                    "--no-default-features", "--target-dir"]).arg(target);
-        if fixtures { build.args(["--features", "contract-fixtures"]); }
+        build
+            .args([
+                "build",
+                "-p",
+                "facts-yolo",
+                "--locked",
+                "--offline",
+                "--release",
+                "--no-default-features",
+                "--target-dir",
+            ])
+            .arg(target);
+        if fixtures {
+            build.args(["--features", "contract-fixtures"]);
+        }
         checked(&mut build)?;
         check_exports(root, &target.join("release"), fixtures)?;
     }
-    if exports_only { return Ok(()); }
+    if exports_only {
+        return Ok(());
+    }
     let evidence = root.join("target/c-conformance");
     std::fs::create_dir_all(&evidence).map_err(|e| e.to_string())?;
     let mut layout_command = cargo(root);
-    layout_command.args(["run", "-p", "facts-yolo", "--example", "abi_layout", "--locked",
-                         "--offline", "--release", "--quiet", "--target-dir"]).arg(&normal);
+    layout_command
+        .args([
+            "run",
+            "-p",
+            "facts-yolo",
+            "--example",
+            "abi_layout",
+            "--locked",
+            "--offline",
+            "--release",
+            "--quiet",
+            "--target-dir",
+        ])
+        .arg(&normal);
     let rust_layout = captured(&mut layout_command)?;
     if rust_layout.lines().count() != 113 {
         return Err("expected 10 types, 75 fields, 27 constants and pointer width".to_owned());
@@ -174,7 +262,9 @@ pub(super) fn run(exports_only: bool) -> Result<(), String> {
         for (target, fixtures) in [(&normal, false), (&fixture, true)] {
             let release = target.join("release");
             for static_link in [false, true] {
-                if cfg!(windows) && static_link { continue; }
+                if cfg!(windows) && static_link {
+                    continue;
+                }
                 let mode = if fixtures { "fixture" } else { "normal" };
                 let link = if static_link { "static" } else { "dynamic" };
                 let directory = evidence.join(format!("{header}-{mode}-{link}"));
@@ -182,22 +272,40 @@ pub(super) fn run(exports_only: bool) -> Result<(), String> {
                 let executable = compile(root, &directory, "tests/c/contract.c", library, frozen)?;
                 print!("{}", run_program(&executable, Some(&release))?);
                 if fixtures {
-                    let executable = compile(root, &directory, "tests/c/threads.c", library, frozen)?;
+                    let executable =
+                        compile(root, &directory, "tests/c/threads.c", library, frozen)?;
                     print!("{}", run_program(&executable, Some(&release))?);
                 }
             }
         }
     }
-    let probe = compile(root, &evidence.join("loader"), "tests/c/load_path.c", None, false)?;
+    let probe = compile(
+        root,
+        &evidence.join("loader"),
+        "tests/c/load_path.c",
+        None,
+        false,
+    )?;
     for (target, expected) in [(&normal, "normal"), (&fixture, "fixture")] {
         let path = library_file(&target.join("release"));
-        print!("{}", captured(Command::new(&probe).arg(&path).arg(expected))?);
+        print!(
+            "{}",
+            captured(Command::new(&probe).arg(&path).arg(expected))?
+        );
     }
-    let missing = evidence.join("does-not-exist").join(library_file(Path::new("")));
-    if missing.exists() { return Err("negative-control path unexpectedly exists".to_owned()); }
+    let missing = evidence
+        .join("does-not-exist")
+        .join(library_file(Path::new("")));
+    if missing.exists() {
+        return Err("negative-control path unexpectedly exists".to_owned());
+    }
     let result = output(Command::new(&probe).arg(&missing).arg("fixture"))?;
-    if result.status.code() != Some(2) || String::from_utf8_lossy(&result.stdout).trim() != "LOAD_FAILED" {
-        return Err("missing absolute library did not fail through the expected loader path".to_owned());
+    if result.status.code() != Some(2)
+        || String::from_utf8_lossy(&result.stdout).trim() != "LOAD_FAILED"
+    {
+        return Err(
+            "missing absolute library did not fail through the expected loader path".to_owned(),
+        );
     }
     println!("missing-library negative control rejected; C conformance passed");
     Ok(())

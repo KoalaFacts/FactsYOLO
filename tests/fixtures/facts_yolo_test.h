@@ -4,8 +4,7 @@
 #include "facts_yolo.h"
 
 /* Test builds only. These symbols are absent from the normal native library.
- * IDs create model metadata for contract tests, not trained networks or model
- * files. Execution/fault behavior is not implemented by the task-3 factory. */
+ * IDs select deterministic in-process fixtures, never trained networks or files. */
 #define FY_BACKEND_TEST_FIXTURE UINT32_C(0xffff0001)
 #define FY_TEST_BASIC UINT32_C(1)
 #define FY_TEST_EMPTY UINT32_C(2)
@@ -19,6 +18,15 @@ extern "C" {
 FY_API int32_t FY_CALL fy_test_model_create(
     uint32_t required_abi_major, uint32_t fixture_id,
     fy_model **out, fy_diagnostic *diag);
+
+/* Only for FY_TEST_BLOCKING sessions; timeout_ms must be positive.
+ * Uses an independent latch, not the execution lock. A timeout is INTERNAL_ERROR.
+ * resume grants at most one permit and may precede entry to enable safe cleanup.
+ * Neither operation releases/cancels a session or provides production deadlines.
+ * All non-null handles must remain live; no concurrent release is permitted. */
+FY_API int32_t FY_CALL fy_test_session_wait_running(
+    const fy_session *session, uint32_t timeout_ms);
+FY_API int32_t FY_CALL fy_test_session_resume(const fy_session *session);
 #ifdef __cplusplus
 }
 #endif

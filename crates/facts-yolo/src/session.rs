@@ -3,12 +3,16 @@
 use crate::{
     Error,
     error::INVALID,
+    execution::{Failure, Gate},
     ffi::types::*,
     image::{ImageLimits, ImageView},
     model::Model,
     result::{finalize, owned::OwnedResult},
 };
-use std::sync::{Arc, Mutex, TryLockError};
+use std::sync::Arc;
+
+#[cfg(feature = "contract-fixtures")]
+mod control;
 
 pub(crate) const UNSUPPORTED: Error = Error {
     status: FY_UNSUPPORTED_FEATURE,
@@ -22,19 +26,13 @@ const LIMIT: Error = Error {
     status: FY_LIMIT_EXCEEDED,
     message: "requested result count exceeds session limit",
 };
-const BUSY: Error = Error {
-    status: FY_BUSY,
-    message: "session is already executing",
-};
-const POISONED: Error = Error {
-    status: FY_POISONED,
-    message: "session execution state is poisoned",
-};
 
 pub(crate) struct Session {
     model: Arc<Model>,
     options: FySessionOptions,
-    execution: Mutex<()>,
+    execution: Gate,
+    #[cfg(feature = "contract-fixtures")]
+    control: control::Latch,
     #[cfg(feature = "contract-fixtures")]
     _live: crate::fixtures::Live,
 }
@@ -65,7 +63,9 @@ impl Session {
         Ok(Self {
             model,
             options,
-            execution: Mutex::new(()),
+            execution: Gate::new(),
+            #[cfg(feature = "contract-fixtures")]
+            control: control::Latch::new(),
             #[cfg(feature = "contract-fixtures")]
             _live: crate::fixtures::Live::new(2),
         })
@@ -107,33 +107,54 @@ impl Session {
         options: FyDetectOptions,
     ) -> Result<OwnedResult, Error> {
         self.validate_detect(options)?;
-        // The declared in-process fixtures are fixed at 2x2. This test-only
-        // constraint is checked before admission and before execution counters.
+        // Host validation is deliberately outside admission and cannot poison it.
         #[cfg(feature = "contract-fixtures")]
         if image.width() != 2 || image.height() != 2 {
             return Err(INVALID);
         }
-        // Admission covers execution AND finalization. Only shared outer
-        // references exist before try_lock; no unbounded queue is introduced.
-        let _admission = self.execution.try_lock().map_err(|error| match error {
-            TryLockError::WouldBlock => BUSY,
-            TryLockError::Poisoned(_) => POISONED,
-        })?;
-        let (candidates, transform) = self.model.execute()?;
-        let source = (image.width(), image.height());
-        let finalized = finalize(
-            candidates,
-            transform,
-            source,
-            2,
-            options.score_threshold,
-            options.max_detections,
-        )?;
-        Ok(OwnedResult::new(
-            finalized,
-            source,
-            self.description(),
-            self.model.identity(),
-        ))
+        self.execution.run(|| {
+            #[cfg(feature = "contract-fixtures")]
+            if self.model.is_blocking() {
+                self.control.block().map_err(Failure::Fatal)?;
+            }
+            let (candidates, transform) = self.model.execute()?;
+            let source = (image.width(), image.height());
+            // An invalid output or incomplete finalization carries no promise
+            // that a future adapter's mutable state is safe to reuse.
+            let finalized = finalize(
+                candidates,
+                transform,
+                source,
+                2,
+                options.score_threshold,
+                options.max_detections,
+            )
+            .map_err(Failure::Fatal)?;
+            Ok(OwnedResult::new(
+                finalized,
+                source,
+                self.description(),
+                self.model.identity(),
+            ))
+        })
+    }
+
+    #[cfg(feature = "contract-fixtures")]
+    pub(crate) fn test_wait_running(&self, timeout_ms: u32) -> Result<(), Error> {
+        if timeout_ms == 0 {
+            return Err(INVALID);
+        }
+        if !self.model.is_blocking() {
+            return Err(UNSUPPORTED);
+        }
+        self.control.wait_running(timeout_ms)
+    }
+
+    #[cfg(feature = "contract-fixtures")]
+    pub(crate) fn test_resume(&self) -> Result<(), Error> {
+        if !self.model.is_blocking() {
+            return Err(UNSUPPORTED);
+        }
+        self.control.resume()
     }
 }

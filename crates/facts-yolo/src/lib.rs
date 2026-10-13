@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Experimental native infrastructure. No trained detector is implemented.
 mod error;
+mod execution;
 pub mod ffi;
 #[cfg(feature = "contract-fixtures")]
 pub mod fixtures;

@@ -5,4 +5,6 @@ mod diagnostics;
 pub mod exports;
 pub mod handles;
 pub mod results;
+#[cfg(feature = "contract-fixtures")]
+pub mod testing;
 pub mod types;

@@ -4,4 +4,5 @@ pub(crate) mod descriptors;
 mod diagnostics;
 pub mod exports;
 pub mod handles;
+pub mod results;
 pub mod types;

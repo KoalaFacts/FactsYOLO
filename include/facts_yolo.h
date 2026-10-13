@@ -53,8 +53,8 @@ extern "C" {
 #define FY_CAP_TEST_ONLY UINT32_C(4)
 
 /* Natural target C layout, never packed. All three prefix fields are inputs.
- * Query, capability and ownership operations are implemented. Detection/result
- * records prepare later operations; no detector or inference API exists yet. */
+ * All eleven entry points exist; only explicit test builds have executable
+ * fixture models. No trained detector or supported model format is installed. */
 typedef struct fy_abi_info {
     uint32_t struct_size, struct_version, required_flags;
     uint32_t abi_major, abi_minor;
@@ -112,6 +112,7 @@ typedef struct fy_capability {
 /* Opaque owning handles. Never allocate, dereference or free these yourself. */
 typedef struct fy_model fy_model;
 typedef struct fy_session fy_session;
+typedef struct fy_result fy_result;
 
 /* Experimental ABI 1.0; not a stable release.
  * Set struct_size=sizeof(record), struct_version=1, required_flags=0.
@@ -136,7 +137,7 @@ FY_API int32_t FY_CALL fy_abi_query(fy_abi_info *out, fy_diagnostic *diag);
 /* NULL dst + zero capacity queries count successfully. A non-NULL insufficient
  * destination returns BUFFER_TOO_SMALL, writes required count only, and leaves
  * all records untouched. Other invalid arguments preserve count and records.
- * The normal task-3 build reports zero capabilities. Test builds are explicit. */
+ * The normal M1 build reports zero capabilities. Test builds are explicit. */
 FY_API int32_t FY_CALL fy_capabilities_copy(
     fy_capability *dst, size_t capacity, size_t *required, fy_diagnostic *diag);
 
@@ -165,6 +166,32 @@ FY_API int32_t FY_CALL fy_session_create(
 FY_API int32_t FY_CALL fy_session_describe(
     const fy_session *session, fy_session_info *out, fy_diagnostic *diag);
 FY_API int32_t FY_CALL fy_session_release(fy_session **slot, fy_diagnostic *diag);
+
+/* Synchronous host-image borrow: data and inter-row padding are initialized and
+ * immutable until return, with no later access. Only RGB8/BGR8/straight RGBA8
+ * top-down oriented sRGB pixels are accepted; alpha is ignored. No file decoding.
+ * One session admits one execution through finalization; overlap returns BUSY.
+ * Threshold is finite [0,1], cap positive and within the session limit.
+ * Completed results own their data independently of pixels, models and sessions.
+ * Boxes use clipped original-image pixel edges, exclusive maxima. Invalid model
+ * output fails rather than being silently filtered. Sort: score descending,
+ * class then x_min/y_min/x_max/y_max ascending, source index as final tie-break.
+ * Cap applies after model-specific suppression and sets RESULT_TRUNCATED when
+ * it removes valid boxes. M1 fixtures contain post-suppression candidates only. */
+FY_API int32_t FY_CALL fy_detect(
+    fy_session *session, const fy_image *image, const fy_detect_options *options,
+    fy_result **out, fy_diagnostic *diag);
+FY_API int32_t FY_CALL fy_result_describe(
+    const fy_result *result, fy_result_info *out, fy_diagnostic *diag);
+/* Copy existing immutable results, never rerun. NULL+zero is a count query.
+ * required is mandatory and output-only. Positive capacity requires a valid
+ * destination. BUFFER_TOO_SMALL updates required only, never partial records.
+ * Exactly count records are written on success; extra destination space stays.
+ * Immutable describe/copy calls may overlap while the result remains live. */
+FY_API int32_t FY_CALL fy_result_copy(
+    const fy_result *result, fy_detection *dst, size_t capacity,
+    size_t *required, fy_diagnostic *diag);
+FY_API int32_t FY_CALL fy_result_release(fy_result **slot, fy_diagnostic *diag);
 #ifdef __cplusplus
 }
 #endif

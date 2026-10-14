@@ -61,11 +61,17 @@ jobs:
         with:
           dotnet-version: '10.0.401'
       - name: Execute real training and fresh-process inference gates
-        run: ${{ matrix.python }} experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence
+        shell: pwsh
+        run: |
+          ${{ matrix.python }} experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Execute trained artifacts through C and C# JIT/Native AOT
+        shell: pwsh
         run: |
           ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/burn target/td1-evidence-burn
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/candle target/td1-evidence-candle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Show command diagnostics when a gate fails
         if: failure()
         run: |

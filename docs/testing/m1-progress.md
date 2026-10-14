@@ -1,5 +1,11 @@
 # M1 execution ledger
 
+Current checkpoint: tasks 1–7 merged through PR10, `43746283ae66ef768b1f0a34be4180f25bfe4b85`.
+Task 8 resource/safety gates are under implementation/review; see [current evidence](m1-evidence.md).
+No real detector/backend/model format or SDK release has been selected.
+
+## Historical task-4 execution record
+
 Plan: `docs/superpowers/plans/2026-10-12-native-foundation.md`.
 Owner direction: continuously implement infrastructure; integrate each reviewed task before starting the next.
 

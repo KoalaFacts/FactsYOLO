@@ -33,6 +33,7 @@ cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 cargo run -p xtask --locked --offline -- c
+cargo run -p xtask --locked --offline -- verify
 ```
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
@@ -45,6 +46,12 @@ cargo run -p xtask --locked --offline -- dotnet --mode aot
 The runner supports the current Linux x64 or Windows x64 host. Native AOT builds
 are executed, not just compiled. See [C# conformance](docs/testing/dotnet-conformance.md)
 for required tools, actual evidence and deployment limitations.
+
+The unified `verify` command runs every mandatory local x64 gate, including
+resource samples and executed .NET JIT/AOT. Dedicated `miri` and `layout32`
+commands supply interpreted Rust safety and compile-only i686 pointer-width
+coverage. Missing tools fail verification. See [M1 evidence and limits](docs/testing/m1-evidence.md)
+for exact commands, sampling budgets and the remaining real-detector design gate.
 
 The native library builds as `rlib`, `cdylib`, and `staticlib`; Cargo publication
 is disabled. Rust CI exercises Linux x64 with 1.99.0 and the 1.85.0 floor, and

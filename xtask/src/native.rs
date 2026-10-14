@@ -75,13 +75,7 @@ fn compile(
     if cfg!(windows) {
         executable.set_extension("exe");
     }
-    let compiler = std::env::var_os("CC").unwrap_or_else(|| {
-        if cfg!(windows) {
-            "cl".into()
-        } else {
-            "cc".into()
-        }
-    });
+    let compiler = super::evidence::native_compiler();
     let mut command = Command::new(compiler);
     command.current_dir(directory);
     let includes = [
@@ -227,6 +221,11 @@ pub(super) fn run(exports_only: bool) -> Result<(), String> {
         checked(&mut build)?;
         check_exports(root, &target.join("release"), fixtures)?;
     }
+    // The actual fixture artifact is a negative control for normal isolation.
+    if check_exports(root, &fixture.join("release"), false).is_ok() {
+        return Err("normal export gate accepted a fixture-contaminated library".to_owned());
+    }
+    println!("normal-export negative control rejected fixture library");
     if exports_only {
         return Ok(());
     }
@@ -272,6 +271,16 @@ pub(super) fn run(exports_only: bool) -> Result<(), String> {
                 let library = Some((release.as_path(), fixtures, static_link));
                 let executable = compile(root, &directory, "tests/c/contract.c", library, frozen)?;
                 print!("{}", run_program(&executable, Some(&release))?);
+                if !frozen && cfg!(target_os = "linux") {
+                    let executable =
+                        compile(root, &directory, "tests/c/ownership.c", library, false)?;
+                    print!("{}", run_program(&executable, Some(&release))?);
+                    if !fixtures {
+                        let executable =
+                            compile(root, &directory, "tests/c/abi_query.c", library, false)?;
+                        print!("{}", run_program(&executable, Some(&release))?);
+                    }
+                }
                 if fixtures {
                     let executable =
                         compile(root, &directory, "tests/c/threads.c", library, frozen)?;

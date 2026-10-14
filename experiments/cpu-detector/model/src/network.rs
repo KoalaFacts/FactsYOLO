@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: Apache-2.0
+use crate::{features, Rng, B1, HIDDEN, INPUTS, PARAMETERS, W1, W2};
+#[derive(Debug, Clone, PartialEq)]
+pub struct Detection {
+    pub class: usize,
+    pub score: f32,
+    pub corners: [f32; 4],
+}
+#[derive(Clone)]
+pub struct Model {
+    pub weights: Vec<f32>,
+}
+pub fn sigmoid(x: f32) -> f32 {
+    if x >= 0.0 {
+        1.0 / (1.0 + (-x).exp())
+    } else {
+        let e = x.exp();
+        e / (1.0 + e)
+    }
+}
+pub fn decode(out: &[f32; 7]) -> Result<Option<Detection>, String> {
+    if out.iter().any(|v| !v.is_finite()) {
+        return Err("nonfinite network output".into());
+    }
+    let max = out[..3].iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let exp = [
+        (out[0] - max).exp(),
+        (out[1] - max).exp(),
+        (out[2] - max).exp(),
+    ];
+    let mut winner = 0;
+    for i in 1..3 {
+        if exp[i] > exp[winner] {
+            winner = i;
+        }
+    }
+    let score = exp[winner] / exp.iter().sum::<f32>();
+    if winner == 0 || score < 0.5 {
+        return Ok(None);
+    }
+    let [cx, cy, w, h] = [
+        sigmoid(out[3]),
+        sigmoid(out[4]),
+        sigmoid(out[5]),
+        sigmoid(out[6]),
+    ];
+    let corners = [
+        ((cx - w / 2.0) * 64.0).clamp(0.0, 64.0),
+        ((cy - h / 2.0) * 64.0).clamp(0.0, 64.0),
+        ((cx + w / 2.0) * 64.0).clamp(0.0, 64.0),
+        ((cy + h / 2.0) * 64.0).clamp(0.0, 64.0),
+    ];
+    if corners[2] <= corners[0] || corners[3] <= corners[1] {
+        return Ok(None);
+    }
+    Ok(Some(Detection {
+        class: winner - 1,
+        score,
+        corners,
+    }))
+}
+impl Model {
+    pub fn initialized(seed: u64) -> Self {
+        let mut rng = Rng::new(seed);
+        let mut weights = vec![0.0; PARAMETERS];
+        let a = (6.0_f32 / (INPUTS + HIDDEN) as f32).sqrt();
+        let b = (6.0_f32 / (HIDDEN + 7) as f32).sqrt();
+        for w in &mut weights[..W1] {
+            *w = (rng.unit() * 2.0 - 1.0) * a;
+        }
+        for w in &mut weights[B1..W2] {
+            *w = (rng.unit() * 2.0 - 1.0) * b;
+        }
+        Self { weights }
+    }
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.weights.len() != PARAMETERS
+            || self
+                .weights
+                .iter()
+                .any(|v| !v.is_finite() || v.abs() > 10_000.0)
+        {
+            return Err("invalid TD1 parameters".into());
+        }
+        Ok(())
+    }
+    pub fn forward(&self, input: &[f32]) -> Result<[f32; 7], String> {
+        self.validate()?;
+        if input.len() != INPUTS
+            || input
+                .iter()
+                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        {
+            return Err("invalid TD1 features".into());
+        }
+        let mut hidden = [0.0; HIDDEN];
+        for (j, h) in hidden.iter_mut().enumerate() {
+            *h = self.weights[W1 + j];
+            for (i, x) in input.iter().enumerate() {
+                *h += x * self.weights[i * HIDDEN + j];
+            }
+            *h = h.max(0.0);
+        }
+        let mut out = [0.0; 7];
+        for (k, y) in out.iter_mut().enumerate() {
+            *y = self.weights[W2 + k];
+            for (j, h) in hidden.iter().enumerate() {
+                *y += h * self.weights[B1 + j * 7 + k];
+            }
+        }
+        Ok(out)
+    }
+    pub fn detect(&self, pixels: &[u8]) -> Result<Option<Detection>, String> {
+        decode(&self.forward(&features(pixels)?)?)
+    }
+}

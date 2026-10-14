@@ -1,0 +1,10 @@
+[package]
+name = "fy-tiny-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version = "1.85"
+
+[dependencies]
+sha2.workspace = true

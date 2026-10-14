@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Experimental native infrastructure. No trained detector is implemented.
+//! Experimental native contracts with optional TD1 CPU detector inference.
 mod error;
 mod execution;
 pub mod ffi;

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Immutable model state. Only the feature-gated test factory constructs it.
+//! Immutable optional TD1 model state and isolated private contract fixtures.
+#[cfg(any(feature = "contract-fixtures", feature = "td1"))]
+use crate::error::INVALID;
 #[cfg(feature = "contract-fixtures")]
-use crate::{Error, error::INVALID, fixtures};
+use crate::fixtures;
+use crate::{Error, image::ImageView};
 use crate::{
     execution::Failure,
     result::{Candidate, ImageTransform},
@@ -10,6 +13,10 @@ use crate::{
 
 pub(crate) struct Model {
     backend_id: u32,
+    #[cfg(feature = "td1")]
+    tiny: Option<fy_tiny_model::Model>,
+    #[cfg(feature = "td1")]
+    identity: [u8; 32],
     #[cfg(feature = "contract-fixtures")]
     fixture_id: u32,
     #[cfg(feature = "contract-fixtures")]
@@ -17,6 +24,52 @@ pub(crate) struct Model {
 }
 
 impl Model {
+    #[cfg(feature = "td1")]
+    pub(crate) fn open(bytes: &[u8], parser_steps: usize) -> Result<Self, Error> {
+        use crate::ffi::types::*;
+        let unsupported = Error {
+            status: FY_UNSUPPORTED_MODEL,
+            message: "unsupported or invalid TD1 artifact",
+        };
+        // Fixed-size recognition bounds hashing and parameter allocation.
+        if bytes.len() != 51284 || !bytes.starts_with(b"FYTDv001") {
+            return Err(unsupported);
+        }
+        if parser_steps < bytes.len() {
+            return Err(Error {
+                status: FY_LIMIT_EXCEEDED,
+                message: "TD1 parser byte-work limit exceeded",
+            });
+        }
+        let tiny = fy_tiny_model::Model::from_bytes(bytes).map_err(|_| unsupported)?;
+        let mut identity = [0; 32];
+        identity.copy_from_slice(&bytes[24..56]);
+        Ok(Self {
+            backend_id: FY_BACKEND_TD1_CPU,
+            tiny: Some(tiny),
+            identity,
+            #[cfg(feature = "contract-fixtures")]
+            fixture_id: 0,
+            #[cfg(feature = "contract-fixtures")]
+            _live: fixtures::Live::new(1),
+        })
+    }
+    pub(crate) fn validate_image(&self, _image: &ImageView<'_>) -> Result<(), Error> {
+        #[cfg(feature = "td1")]
+        if self.tiny.is_some() {
+            return if _image.width() == 64 && _image.height() == 64 {
+                Ok(())
+            } else {
+                Err(INVALID)
+            };
+        }
+        #[cfg(feature = "contract-fixtures")]
+        if _image.width() != 2 || _image.height() != 2 {
+            return Err(INVALID);
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "contract-fixtures")]
     pub(crate) fn fixture(fixture_id: u32) -> Result<Self, Error> {
         if !(fixtures::BASIC..=fixtures::PAYLOAD_DROP_PANIC).contains(&fixture_id) {
@@ -24,6 +77,10 @@ impl Model {
         }
         Ok(Self {
             backend_id: fixtures::FY_BACKEND_TEST_FIXTURE,
+            #[cfg(feature = "td1")]
+            tiny: None,
+            #[cfg(feature = "td1")]
+            identity: [0; 32],
             fixture_id,
             _live: fixtures::Live::new(1),
         })
@@ -34,6 +91,10 @@ impl Model {
     }
 
     pub(crate) fn identity(&self) -> [u8; 32] {
+        #[cfg(feature = "td1")]
+        if self.tiny.is_some() {
+            return self.identity;
+        }
         #[cfg(feature = "contract-fixtures")]
         {
             let mut id = [0; 32];
@@ -51,7 +112,47 @@ impl Model {
         self.fixture_id == fixtures::BLOCKING
     }
 
-    pub(crate) fn execute(&self) -> Result<(&'static [Candidate], ImageTransform), Failure> {
+    pub(crate) fn execute(
+        &self,
+        _image: &ImageView<'_>,
+    ) -> Result<(Vec<Candidate>, ImageTransform), Failure> {
+        #[cfg(feature = "td1")]
+        if let Some(model) = &self.tiny {
+            let mut pixels = Vec::with_capacity(64 * 64 * 3);
+            for y in 0..64 {
+                for x in 0..64 {
+                    pixels
+                        .extend_from_slice(&_image.rgb_at(x, y).ok_or(Failure::Reusable(INVALID))?);
+                }
+            }
+            let detection = model.detect(&pixels).map_err(|_| {
+                Failure::Fatal(Error {
+                    status: crate::ffi::types::FY_MODEL_OUTPUT_INVALID,
+                    message: "invalid TD1 output",
+                })
+            })?;
+            let candidates = detection
+                .into_iter()
+                .map(|d| Candidate {
+                    x_min: d.corners[0],
+                    y_min: d.corners[1],
+                    x_max: d.corners[2],
+                    y_max: d.corners[3],
+                    score: d.score,
+                    class_id: d.class as u32,
+                    source_index: 0,
+                })
+                .collect();
+            return Ok((
+                candidates,
+                ImageTransform {
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                    pad_x: 0.0,
+                    pad_y: 0.0,
+                },
+            ));
+        }
         #[cfg(feature = "contract-fixtures")]
         {
             let values: &[Candidate] = match self.fixture_id {
@@ -70,7 +171,7 @@ impl Model {
                 _ => return Err(Failure::Reusable(UNSUPPORTED)),
             };
             fixtures::record_execution();
-            Ok((values, fixtures::TRANSFORM))
+            Ok((values.to_vec(), fixtures::TRANSFORM))
         }
         #[cfg(not(feature = "contract-fixtures"))]
         {

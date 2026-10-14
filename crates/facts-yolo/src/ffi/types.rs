@@ -21,6 +21,7 @@ pub const FY_STRUCT_VERSION: u32 = 1;
 pub const FY_RGB8: u32 = 1;
 pub const FY_BGR8: u32 = 2;
 pub const FY_RGBA8: u32 = 3;
+pub const FY_BACKEND_TD1_CPU: u32 = 1;
 pub const FY_DEVICE_CPU: u32 = 1;
 pub const FY_DEVICE_GPU: u32 = 2;
 pub const FY_PRECISION_F32: u32 = 1;

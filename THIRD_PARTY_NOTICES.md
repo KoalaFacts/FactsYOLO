@@ -82,3 +82,34 @@ weight file or dataset is publicly uploaded by the workflow. Source dependencies
 are fetched from their registry packages with upstream notices intact. Public
 binary packaging still requires license copies, source-offer compliance where
 applicable, and a binary SBOM; this source-only evaluation does not grant it.
+
+## Optional TD1 native inference
+
+The `td1` Cargo feature adds the original portable `fy-tiny-model` crate plus
+sha2=0.10.9; default and fixture-only builds do not activate these dependencies.
+The root lockfile now records this optional graph (so it is no longer the two-
+package M1 lockfile). Burn/Candle/colored/Oniguruma remain confined to the
+independent training experiment, not the native inference dependency graph.
+
+Selected native TD1 registry packages on Linux x64, exact versions/checksums
+pinned in root Cargo.lock:
+
+| Package | Version | Declared license |
+| --- | --- | --- |
+| block-buffer | 0.10.4 | MIT OR Apache-2.0 |
+| cfg-if | 1.0.5 | MIT OR Apache-2.0 |
+| cpufeatures | 0.2.17 | MIT OR Apache-2.0 |
+| crypto-common | 0.1.7 | MIT OR Apache-2.0 |
+| digest | 0.10.7 | MIT OR Apache-2.0 |
+| generic-array | 0.14.7 | MIT |
+| sha2 | 0.10.9 | MIT OR Apache-2.0 |
+| typenum | 1.20.1 | MIT OR Apache-2.0 |
+| version_check | 0.9.5 | MIT/Apache-2.0 |
+
+Sources and upstream notices are in the Cargo registry packages; sha2 is from
+https://github.com/RustCrypto/hashes. No source is vendored or modified. These
+MIT/Apache alternatives require retaining applicable license/copyright notices
+for redistribution. No external C/GPU library is added by this optional graph;
+Rust/std/system runtime obligations still apply. No binary release/license-copy
+bundle is produced in this stage; packaging still requires a binary SBOM and
+upstream notice copies. Root and portable MSRV remain1.85.

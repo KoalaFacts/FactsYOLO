@@ -77,3 +77,11 @@ JIT/AOT. These observations are preflight evidence; final-head commands and CI
 artifacts establish the acceptance result for each PR revision. The existing
 Linux/Windows M1 gates remain mandatory. Windows additionally runs TD1 Rust tests;
 actual trained-artifact C/C# support is currently demonstrated on Linux x64 only.
+
+The experiment lockfile pins `time` to 0.3.47 after checking
+[RUSTSEC-2026-0009](https://rustsec.org/advisories/RUSTSEC-2026-0009.html),
+which affects RFC2822 parsing before that release. `time` is an unselected optional
+transitive dependency: neither the configured CPU experiment nor the native TD1
+dependency tree includes it. Its required `time-core`, `time-macros` and `num-conv`
+lockfile entries are updated together; the selected dependency inventory and the
+root Rust1.85 dependency graph remain unchanged.

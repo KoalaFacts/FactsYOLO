@@ -19,11 +19,11 @@ fn preprocessing_preserves_spatial_and_channel_order() {
 
 #[test]
 fn original_data_is_reproducible_disjoint_and_geometrically_labeled() {
-    let a = dataset(101, 512);
-    let again = dataset(101, 512);
+    let a = dataset(101, 4096);
+    let again = dataset(101, 4096);
     let b = dataset(202, 128);
-    let c = dataset(303, 128);
-    assert_eq!(a.len(), 512);
+    let c = dataset(909, 128);
+    assert_eq!(a.len(), 4096);
     assert_eq!(b.len(), 128);
     assert_eq!(c.len(), 128);
     let mut hashes = std::collections::HashSet::new();

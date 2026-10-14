@@ -45,3 +45,13 @@ intended training and distribution use.
 Unclear provenance or missing artifact terms block publication of that artifact,
 not the independent Apache-2.0 source-code project. Do not infer permission from
 the ability to download a file or from the license of its surrounding repository.
+
+## Original TD1 experiment
+
+`experiments/cpu-detector/model/src/data.rs` generates original colored rectangles
+and background noise. Its source is Apache-2.0; no external images, annotations,
+models or pretrained weights are inputs. The initial weights are seeded random
+numbers. Generated pixels/weights remain ignored local or ephemeral CI outputs,
+and the workflow uploads only commands, scalar metrics and loss histories. This
+is not a public dataset/weight release or a blanket model artifact license.
+Any later publication requires its own reviewed provenance/license record.

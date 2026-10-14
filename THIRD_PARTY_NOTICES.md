@@ -27,9 +27,9 @@ dependencies is not a claim of zero binary redistribution obligations.
 Rust 1.99.0 is the pinned build toolchain and 1.85.0 is tested as the minimum.
 Git, GCC and the GitHub-hosted Linux/Windows build environments are development
 tools, not bundled FactsYOLO runtime packages. Workflows request read-only repository permissions.
-The development-only pinned Actions and safety tooling are recorded below. No native ML runtime,
-GPU SDK, image/video codec, or downloaded model has been added. Burn remains an
-evaluation candidate, not an approved or bundled dependency.
+The development-only pinned Actions and safety tooling are recorded below. The default M1 library adds no native ML runtime, GPU SDK, image/video codec,
+or downloaded model. The independent CPU experiment now evaluates Burn and
+Candle; see its separate dependency review below.
 
 Development-only tools added/used by the M1 acceptance gate:
 
@@ -69,3 +69,16 @@ or completed binary-distribution license audit is claimed by this task.
 
 Apache's licensing FAQ explains reuse of the license and treatment of third-party
 material: https://www.apache.org/foundation/license-faq.html.
+
+## Independent CPU detector experiment
+
+The development-only workspace under `experiments/cpu-detector` pins Burn0.22.0,
+Candle0.11.0 and their transitive graph without changing root Cargo.lock. See
+[the dependency review](experiments/cpu-detector/DEPENDENCIES.md) and
+[exact selected graph](experiments/cpu-detector/dependencies.json), including
+MPL-2.0 colored3.1.1 and bundled Oniguruma C/two-clause BSD notices. It is not
+an all-MIT/Apache or entirely Rust dependency graph. No compiled experiment,
+weight file or dataset is publicly uploaded by the workflow. Source dependencies
+are fetched from their registry packages with upstream notices intact. Public
+binary packaging still requires license copies, source-offer compliance where
+applicable, and a binary SBOM; this source-only evaluation does not grant it.

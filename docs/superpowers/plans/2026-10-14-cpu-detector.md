@@ -27,23 +27,23 @@
 
 **Files:** `experiments/cpu-detector/model/{Cargo.toml,src/{lib,data,network,artifact,loss}.rs,tests/contract.rs}`; independent workspace manifest/lockfile.
 **Interfaces:** `Sample { pixels: Vec<u8>, class: Option<usize>, box_xywh:[f32;4] }`; `dataset(seed,count)->Vec<Sample>`; `Model { weights:Vec<f32> }`, `Model::initialized(seed)`, `forward(&[f32])->[f32;7]`, `detect(&[u8])->Result<Option<Detection>,String>`, `to_bytes()/from_bytes()`; `features(&[u8])->Result<Vec<f32>,String>`; `loss_gradient(logits,labels)->(f32,Vec<f32>)`.
-- [ ] RED compiled tests for deterministic pixels/geometry/split separation, scalar forward/decoding, finite-difference loss, exact artifact roundtrip and malformed limits/checksums.
-- [ ] Implement only the defined model/data/contract, checking every input length and finite value.
-- [ ] GREEN portable tests on1.99 and1.85; record actual outputs. Commit focused task.
+- [x] RED compiled tests for deterministic pixels/geometry/split separation, scalar forward/decoding, finite-difference loss, exact artifact roundtrip and malformed limits/checksums.
+- [x] Implement only the defined model/data/contract, checking every input length and finite value.
+- [x] GREEN portable tests on1.99 and1.85; record actual outputs. Commit focused task.
 
 ### Task2: Real candidate gradients and fixed training experiment
 
-**Files:** `experiments/cpu-detector/{burn,candle,runner}/` manifests/source/tests, `verify.py` and dependency inventory.
+**Files:** `experiments/cpu-detector/evaluate/` manifest/source/tests, `verify.py` and dependency inventory.
 **Interfaces:** Adapter `predict(weights,features,batch)->Vec<f32>` and `gradients(weights,features,batch,output_gradient)->Vec<f32>` use actual tensors/autodiff; common runner Adam and metrics consume identical portable data/loss.
-- [ ] RED gradient/reference and parameter-change tests; CLI absent/invalid args must fail, not print success.
-- [ ] Implement adapters against exact upstream APIs, common optimizer/metrics and bounded artifact I/O.
-- [ ] GREEN finite differences, full candidate gradient comparison, actual2000-step runs, saved/reloaded inference and held-out metrics. Preserve raw losses and elapsed times.
-- [ ] Record dependency features/licenses/MSRV and negative controls. Commit when all experiment gates pass.
+- [x] RED gradient/reference and parameter-change tests; CLI absent/invalid args must fail, not print success.
+- [x] Implement adapters against exact upstream APIs, common optimizer/metrics and bounded artifact I/O.
+- [x] GREEN finite differences, full candidate gradient comparison, actual2000-step runs, saved/reloaded inference and held-out metrics. Preserve raw losses and elapsed times.
+- [x] Record dependency features/licenses/MSRV and negative controls. Commit when all experiment gates pass.
 
 ### Task3: Required CI/evidence and whole-stage verification
 
 **Files:** `.github/workflows/cpu-detector.yml`, README, `docs/testing/cpu-detector.md`, notices.
-- [ ] Add pinned toolchain/read-only workflow executing real Linux training, portable1.85 checks and uploading logs/metrics only.
+- [x] Add pinned toolchain/read-only workflow executing real Linux training, portable1.85 checks and uploading logs/metrics only.
 - [ ] Run final exact-head root builds, `xtask verify`, explicit AOT, Miri/i686; portable and candidate suites and complete experiment.
 - [ ] Fresh whole-branch independent review; address material findings with reproductions.
 - [ ] Draft PR until local/review gates pass, then all CI and zero unresolved comments before expected-head merge. Billing exceptions only after explicit confirmation.

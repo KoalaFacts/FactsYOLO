@@ -39,7 +39,8 @@ Parameter order is W1 [192,64] row-major, b1 [64], W2 [64,7], b2 [7]: 12,807 F32
 The PRNG uses a wrapping u64 LCG (multiplier6364136223846793005,
 increment1442695040888963407), returning the high32 bits. Uniform F32 uses its
 high24 bits divided by2^24; Xavier bound is sqrt(6/(fan_in+fan_out)), biases zero.
-Initialization seed404; dataset seeds101/202/303 for train/validation/test.
+Initialization seed404; current dataset seeds101/202/909 for train/validation/test
+(see the explicit coverage revision below).
 Batch sampling uses seed707 with replacement.
 This deterministic PRNG supplies uniform Xavier weights and zero biases.
 Frameworks receive identical parameter bytes; their own random initialization is
@@ -54,7 +55,7 @@ with the seeded generator. Object top-left coordinates are 2..41 inclusive and
 width/height 12..22 inclusive, so every box is inside the image. Noise must not
 encode coordinates, classes, sample index or split identity outside the image.
 Labels are geometry and class chosen before rasterization. Train/validation/test
-use distinct fixed seeds and 512/128/128 samples, respectively. Split fingerprints
+use distinct fixed seeds and 4096/128/128 samples, respectively (revision2). Split fingerprints
 and generator version are recorded; tests verify no pixel-identical overlap.
 
 Train 2,000 steps, batch64, deterministic sampling, Adam lr0.003, beta1=0.9,
@@ -123,3 +124,20 @@ M2b may reuse the portable artifact/inference and existing admission/owned-resul
 logic, derive class metadata from the architecture, add capabilities only for real
 available execution, and exercise the real model from C and C# JIT/AOT. It begins
 only after M2a passes its complete review/merge gate.
+
+## Revision 2: training coverage (registered before the next run)
+
+The initial fixed512-sample experiment failed its unchanged mean-IoU gate with
+both backends: train0.816506, validation0.675745, test0.693798. Validation loss
+0.006152 was4.75x training loss0.001295; backend agreement and an independent
+Python box intersection calculation ruled out adapter/metric discrepancies.
+This is evidence of insufficient generalization with the first training pool.
+
+Change one learning variable: expand seed101 training samples512->4096.
+Topology, parameter initialization, sampler, Adam,2000 steps, batch64, loss and
+all acceptance thresholds remain identical. Full-dataset evaluation is chunked
+in batches<=512 without changing per-example math. Validation seed202 remains
+the development diagnostic. Retire the already-observed seed303 test results;
+register seed909/count128 as the new untouched final holdout before this run.
+Do not select epochs or tune against either final holdout. Report both the
+failed first configuration and this single coverage revision.

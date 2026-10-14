@@ -31,6 +31,7 @@ const ABI: Error = Error {
     status: FY_UNSUPPORTED_ABI,
     message: "unsupported required ABI major",
 };
+#[cfg(not(feature = "td1"))]
 const MODEL: Error = Error {
     status: FY_UNSUPPORTED_MODEL,
     message: "no supported model artifact format is installed",
@@ -48,16 +49,24 @@ const INTERNAL: Error = Error {
     message: "internal native operation failed",
 };
 
-#[cfg(not(feature = "contract-fixtures"))]
-const CAPABILITIES: &[FyCapability] = &[];
-#[cfg(feature = "contract-fixtures")]
-const CAPABILITIES: &[FyCapability] = &[FyCapability {
-    backend_id: crate::fixtures::FY_BACKEND_TEST_FIXTURE,
-    device_kind: FY_DEVICE_CPU,
-    device_index: 0,
-    flags: FY_CAP_COMPILED | FY_CAP_AVAILABLE | FY_CAP_TEST_ONLY,
-    precision_mask: 1,
-}];
+const CAPABILITIES: &[FyCapability] = &[
+    #[cfg(feature = "td1")]
+    FyCapability {
+        backend_id: FY_BACKEND_TD1_CPU,
+        device_kind: FY_DEVICE_CPU,
+        device_index: 0,
+        flags: FY_CAP_COMPILED | FY_CAP_AVAILABLE,
+        precision_mask: 1,
+    },
+    #[cfg(feature = "contract-fixtures")]
+    FyCapability {
+        backend_id: crate::fixtures::FY_BACKEND_TEST_FIXTURE,
+        device_kind: FY_DEVICE_CPU,
+        device_index: 0,
+        flags: FY_CAP_COMPILED | FY_CAP_AVAILABLE | FY_CAP_TEST_ONLY,
+        precision_mask: 1,
+    },
+];
 
 fn require_abi(major: u32) -> Result<(), Error> {
     if major == FY_ABI_MAJOR {
@@ -144,7 +153,7 @@ pub(super) unsafe fn entry(
     }
 }
 
-/// Validate a model-open request. Task 3 installs no artifact parser.
+/// Open a supported artifact with copied immutable parameters; TD1 is optional.
 ///
 /// # Safety
 /// out is a live aligned initialized pointer slot, initially null. Descriptor
@@ -180,8 +189,23 @@ pub unsafe extern "C" fn fy_model_open(
             if length > options.max_artifact_bytes {
                 return Err(LIMIT);
             }
-            // Do not parse, copy, execute, download, or accept fixture bytes.
-            Err(MODEL)
+            #[cfg(feature = "td1")]
+            {
+                // Caller guarantees the validated byte range is one live readable allocation.
+                let artifact = std::slice::from_raw_parts(bytes, length);
+                let model = Arc::new(Model::open(artifact, options.max_parser_steps)?);
+                let owned = Box::new(ModelHandle {
+                    model,
+                    #[cfg(feature = "contract-fixtures")]
+                    _live: crate::fixtures::Live::new(0),
+                });
+                out.write(Box::into_raw(owned).cast());
+                Ok(())
+            }
+            #[cfg(not(feature = "td1"))]
+            {
+                Err(MODEL)
+            }
         })
     }
 }

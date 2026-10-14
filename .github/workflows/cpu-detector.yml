@@ -28,9 +28,19 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
           rustup toolchain install 1.85.0 --profile minimal
       - name: Fetch pinned crates from the Cargo registry
-        run: cargo fetch --manifest-path experiments/cpu-detector/Cargo.toml --locked
+        run: |
+          cargo fetch --manifest-path experiments/cpu-detector/Cargo.toml --locked
+          cargo fetch --locked
+      - name: Install pinned .NET SDK for actual native consumers
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.401'
       - name: Execute real training and fresh-process inference gates
         run: python3 experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence
+      - name: Execute trained artifacts through C and C# JIT/Native AOT
+        run: |
+          python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/burn target/td1-evidence-burn
+          python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/candle target/td1-evidence-candle
       - name: Preserve commands, losses and metrics (no weight or pixel upload)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -40,4 +50,9 @@ jobs:
             experiments/cpu-detector/target/evidence/**/*.json
             experiments/cpu-detector/target/evidence/**/*.log
             experiments/cpu-detector/target/evidence/**/*.tsv
+            target/td1-evidence-*/commands.json
+            target/td1-evidence-*/summary.json
+            target/td1-evidence-*/*.log
+            target/td1-evidence-*/rust-layout.txt
+            target/td1-evidence-*/cases/*.txt
           if-no-files-found: error

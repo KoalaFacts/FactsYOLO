@@ -20,13 +20,17 @@ zero backend capabilities; validated `fy_model_open` requests return
 artifacts. There is no trained weight release, published SDK, or production detector
 accuracy/performance claim. A separate [CPU training experiment](docs/testing/cpu-detector.md)
 implements original TD1 training with Burn Flex and Candle, then loads its data-only
-artifact in a portable Rust reference. It is not yet connected to the C/C# API.
+artifact in a portable Rust reference. The optional `td1` native feature now
+loads that artifact through the same C ABI and unpublished C# JIT/AOT adapter;
+see [real-artifact native evidence](docs/testing/td1-native.md).
 
 ## Build and verify
 
-Install the pinned Rust toolchain through rustup, then run:
+Install the pinned Rust toolchain through rustup, fetch the locked optional
+dependency metadata once, then run the offline gates:
 
 ```sh
+cargo fetch --locked
 cargo test --workspace --locked --offline
 cargo test --workspace --locked --offline --release
 cargo test --workspace --features contract-fixtures --target-dir target/contract-fixtures --locked --offline
@@ -54,6 +58,19 @@ resource samples and executed .NET JIT/AOT. Dedicated `miri` and `layout32`
 commands supply interpreted Rust safety and compile-only i686 pointer-width
 coverage. Missing tools fail verification. See [M1 evidence and limits](docs/testing/m1-evidence.md)
 for exact commands, sampling budgets and the remaining real-detector design gate.
+
+Build the opt-in TD1 CPU model path without any training framework in the library:
+
+```sh
+cargo build -p facts-yolo --features td1 --locked --offline --release
+cargo test -p facts-yolo --features td1 --locked --offline
+```
+
+TD1 requires64x64 RGB/BGR/RGBA views, reports CPU backend1/F32/one thread and
+accepts only the checked FYTDv001 artifact. The default remains backend-free;
+private contract fixtures remain separately marked TEST_ONLY. Linux x64 actual
+trained-artifact C shared/static and C# JIT/AOT execution is verified; Windows
+has TD1 Rust contract coverage, not yet a real-artifact C/C# support claim.
 
 The native library builds as `rlib`, `cdylib`, and `staticlib`; Cargo publication
 is disabled. Rust CI exercises Linux x64 with 1.99.0 and the 1.85.0 floor, and

@@ -147,8 +147,26 @@ fn capabilities_report_only_the_compiled_build() {
         unsafe { fy_capabilities_copy(null_mut(), 0, &mut required, null_mut()) },
         FY_OK
     );
-    let count = usize::from(cfg!(feature = "contract-fixtures"));
-    assert_eq!(required, count);
+    let mut expected = Vec::new();
+    if cfg!(feature = "td1") {
+        expected.push(FyCapability {
+            backend_id: 1,
+            device_kind: FY_DEVICE_CPU,
+            device_index: 0,
+            flags: FY_CAP_COMPILED | FY_CAP_AVAILABLE,
+            precision_mask: 1,
+        });
+    }
+    if cfg!(feature = "contract-fixtures") {
+        expected.push(FyCapability {
+            backend_id: 0xffff0001,
+            device_kind: FY_DEVICE_CPU,
+            device_index: 0,
+            flags: FY_CAP_COMPILED | FY_CAP_AVAILABLE | FY_CAP_TEST_ONLY,
+            precision_mask: 1,
+        });
+    }
+    assert_eq!(required, expected.len());
     let sentinel = FyCapability {
         backend_id: 77,
         device_kind: 77,
@@ -156,25 +174,20 @@ fn capabilities_report_only_the_compiled_build() {
         flags: 77,
         precision_mask: 77,
     };
-    let mut record = sentinel;
+    let mut records = [sentinel; 2];
     assert_eq!(
-        unsafe { fy_capabilities_copy(&mut record, 1, &mut required, null_mut()) },
+        unsafe {
+            fy_capabilities_copy(
+                records.as_mut_ptr(),
+                records.len(),
+                &mut required,
+                null_mut(),
+            )
+        },
         FY_OK
     );
-    if count == 1 {
-        assert_eq!(
-            record,
-            FyCapability {
-                backend_id: 0xffff0001,
-                device_kind: FY_DEVICE_CPU,
-                device_index: 0,
-                flags: FY_CAP_COMPILED | FY_CAP_AVAILABLE | FY_CAP_TEST_ONLY,
-                precision_mask: 1
-            }
-        );
-    } else {
-        assert_eq!(record, sentinel);
-    }
+    assert_eq!(&records[..expected.len()], expected.as_slice());
+    assert!(records[expected.len()..].iter().all(|r| *r == sentinel));
 }
 
 #[test]
@@ -202,7 +215,7 @@ fn capability_failures_preserve_destinations_and_count_except_shortage() {
         unsafe { fy_capabilities_copy(&mut record, 1, null_mut(), null_mut()) },
         FY_INVALID_ARGUMENT
     );
-    let expected = if cfg!(feature = "contract-fixtures") {
+    let expected = if cfg!(any(feature = "contract-fixtures", feature = "td1")) {
         FY_BUFFER_TOO_SMALL
     } else {
         FY_OK
@@ -211,7 +224,10 @@ fn capability_failures_preserve_destinations_and_count_except_shortage() {
         unsafe { fy_capabilities_copy(&mut record, 0, &mut required, null_mut()) },
         expected
     );
-    assert_eq!(required, usize::from(cfg!(feature = "contract-fixtures")));
+    assert_eq!(
+        required,
+        usize::from(cfg!(feature = "contract-fixtures")) + usize::from(cfg!(feature = "td1"))
+    );
     assert_eq!(record.backend_id, 77);
 }
 

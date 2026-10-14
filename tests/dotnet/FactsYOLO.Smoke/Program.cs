@@ -189,12 +189,15 @@ internal static unsafe class Program
     }
     private static int Main(string[] args)
     {
-        if (args.Length != 4 || (args[2] != "normal" && args[2] != "fixture") ||
-            (args[3] != "jit" && args[3] != "aot")) return 2;
+        if ((args.Length != 4 && args.Length != 6) ||
+            (args[2] != "normal" && args[2] != "fixture" && args[2] != "td1") ||
+            (args[3] != "jit" && args[3] != "aot") ||
+            args.Length != (args[2] == "td1" ? 6 : 4)) return 2;
         Console.WriteLine($"{RuntimeInformation.FrameworkDescription}; {RuntimeInformation.ProcessArchitecture}; mode={args[3]}");
         try { Native.Initialize(args[0]); }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
         bool fixture = args[2] == "fixture";
+        bool td1 = args[2] == "td1";
         List<(string, Action)> tests =
         [
             ("execution-mode", () => Require(RuntimeFeature.IsDynamicCodeSupported == (args[3] == "jit"), "Wrong execution mode.")),
@@ -203,12 +206,13 @@ internal static unsafe class Program
             ("missing-library", () => Throws<FileNotFoundException>(() => Native.ValidatePath(args[0] + ".missing"))),
             ("capability-isolation", () => {
                 nuint count = 99;
-                Require(Native.Capabilities(null, 0, &count, null) == 0 && count == (fixture ? 1u : 0u), "Wrong backend count.");
+                Require(Native.Capabilities(null, 0, &count, null) == 0 && count == (fixture || td1 ? 1u : 0u), "Wrong backend count.");
                 Require(Native.HasExport("fy_test_model_create") == fixture, "Test factory leaked.");
                 Require(Native.HasExport("fy_test_resource_counts") == fixture, "Test counters leaked or absent.");
             }),
             ("unsupported-artifact", () => Error(4, () => Model.Open(Pixels)))
         ];
+        if (td1) tests.Add(("trained-artifact", () => Td1.Run(args[4],args[5])));
         if (fixture) tests.AddRange([
             ("counter-contract", CounterContract), ("independent-lifetimes", Lifetimes),
             ("copies-and-errors", Copies), ("native-faults", Faults),

@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/facts-yolo", "xtask"]
 resolver = "3"
+exclude = ["experiments/cpu-detector/model"]
 
 [workspace.package]
 version = "0.1.0"

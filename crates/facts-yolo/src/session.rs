@@ -108,21 +108,18 @@ impl Session {
     ) -> Result<OwnedResult, Error> {
         self.validate_detect(options)?;
         // Host validation is deliberately outside admission and cannot poison it.
-        #[cfg(feature = "contract-fixtures")]
-        if image.width() != 2 || image.height() != 2 {
-            return Err(INVALID);
-        }
+        self.model.validate_image(&image)?;
         self.execution.run(|| {
             #[cfg(feature = "contract-fixtures")]
             if self.model.is_blocking() {
                 self.control.block().map_err(Failure::Fatal)?;
             }
-            let (candidates, transform) = self.model.execute()?;
+            let (candidates, transform) = self.model.execute(&image)?;
             let source = (image.width(), image.height());
             // An invalid output or incomplete finalization carries no promise
             // that a future adapter's mutable state is safe to reuse.
             let finalized = finalize(
-                candidates,
+                &candidates,
                 transform,
                 source,
                 2,

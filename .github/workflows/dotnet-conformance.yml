@@ -53,6 +53,9 @@ jobs:
             $value = [Environment]::GetEnvironmentVariable($name)
             if ($value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
           }
+      - name: Fetch locked optional native dependencies
+        shell: bash
+        run: cargo fetch --locked
       - name: Execute JIT consumer
         shell: pwsh
         run: |

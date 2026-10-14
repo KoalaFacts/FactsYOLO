@@ -43,6 +43,7 @@ extern "C" {
 #define FY_RGB8 UINT32_C(1)
 #define FY_BGR8 UINT32_C(2)
 #define FY_RGBA8 UINT32_C(3)
+#define FY_BACKEND_TD1_CPU UINT32_C(1)
 #define FY_DEVICE_CPU UINT32_C(1)
 #define FY_DEVICE_GPU UINT32_C(2)
 #define FY_PRECISION_F32 UINT32_C(1)
@@ -53,8 +54,8 @@ extern "C" {
 #define FY_CAP_TEST_ONLY UINT32_C(4)
 
 /* Natural target C layout, never packed. All three prefix fields are inputs.
- * All eleven entry points exist; only explicit test builds have executable
- * fixture models. No trained detector or supported model format is installed. */
+ * All eleven entry points exist. Optional td1 builds execute FYTDv001 artifacts;
+ * private fixture builds are separately marked TEST_ONLY. Default has no backend. */
 typedef struct fy_abi_info {
     uint32_t struct_size, struct_version, required_flags;
     uint32_t abi_major, abi_minor;
@@ -137,15 +138,17 @@ FY_API int32_t FY_CALL fy_abi_query(fy_abi_info *out, fy_diagnostic *diag);
 /* NULL dst + zero capacity queries count successfully. A non-NULL insufficient
  * destination returns BUFFER_TOO_SMALL, writes required count only, and leaves
  * all records untouched. Other invalid arguments preserve count and records.
- * The normal M1 build reports zero capabilities. Test builds are explicit. */
+ * The default build reports zero; td1 reports CPU backend1 without TEST_ONLY. */
 FY_API int32_t FY_CALL fy_capabilities_copy(
     fy_capability *dst, size_t capacity, size_t *required, fy_diagnostic *diag);
 
 /* Owning output slots must be initialized to NULL. Nonempty slots are rejected
  * without replacing their value. Empty slots remain NULL on creation failure.
- * Model loading validates ABI/limits/buffers, then returns UNSUPPORTED_MODEL:
- * no artifact parser or real backend is installed yet, even in a test build.
- * Positive length and positive limits are mandatory; zero is not unlimited. */
+ * Positive length and positive limits are mandatory; zero is not unlimited.
+ * Optional td1 accepts only validated FYTDv001 (51284bytes), copying parameters.
+ * Its max_parser_steps unit is one artifact byte: at least51284 is required.
+ * Unsupported/corrupt artifacts return UNSUPPORTED_MODEL; limits return LIMIT_EXCEEDED.
+ * Default builds accept no artifact. No build accepts private fixture bytes. */
 FY_API int32_t FY_CALL fy_model_open(
     uint32_t required_abi_major, const uint8_t *bytes, size_t length,
     const fy_model_options *options, fy_model **out, fy_diagnostic *diag);

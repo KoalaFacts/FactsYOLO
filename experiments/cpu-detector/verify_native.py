@@ -59,7 +59,8 @@ def main():
         file=shared if kind=='shared' else library
         if windows:
             symbols=run(f'exports-{kind}',['dumpbin','/nologo','/exports',file])
-            names={match.group(1) for line in symbols.splitlines() if (match:=re.fullmatch(r'\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(fy_\w+)\s*',line))}
+            # MSVC may append " = symbol"; the public export is the name column.
+            names={match.group(1) for line in symbols.splitlines() if (match:=re.fullmatch(r'\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(fy_\w+)(?:\s+=\s+\S+)?\s*',line))}
         else:
             symbols=run(f'exports-{kind}',['nm','-D' if kind=='shared' else '-g','--defined-only',file])
             names={parts[-1] for line in symbols.splitlines() if len(parts:=line.split())==3 and parts[-2]=='T' and parts[-1].startswith('fy_')}

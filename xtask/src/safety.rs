@@ -50,10 +50,6 @@ pub(super) fn miri() -> Result<(), String> {
             "immutable_view_can_be_shared_between_threads",
             "--skip",
             "immutable_session_queries_can_overlap_while_owner_is_live",
-            "--skip",
-            "ten_thousand_create_release_cycles_return_counts_to_baseline",
-            "--skip",
-            "ten_thousand_backed_descriptors_match_u128_reference",
         ]),
     );
     std::fs::write(

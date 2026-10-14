@@ -75,13 +75,7 @@ fn compile(
     if cfg!(windows) {
         executable.set_extension("exe");
     }
-    let compiler = std::env::var_os("CC").unwrap_or_else(|| {
-        if cfg!(windows) {
-            "cl".into()
-        } else {
-            "cc".into()
-        }
-    });
+    let compiler = super::evidence::native_compiler();
     let mut command = Command::new(compiler);
     command.current_dir(directory);
     let includes = [

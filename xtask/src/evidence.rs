@@ -3,6 +3,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub(super) fn native_compiler() -> std::ffi::OsString {
+    std::env::var_os("CC").unwrap_or_else(|| if cfg!(windows) { "cl" } else { "cc" }.into())
+}
+
 pub(super) fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -96,29 +100,36 @@ pub(super) fn manifest(directory: &Path) -> Result<(), String> {
         "FACTSYOLO_BUILD_ID={:?}\n",
         std::env::var("FACTSYOLO_BUILD_ID").ok()
     ));
-    for (name, tool, arg) in [
-        ("dotnet", "dotnet", "--info"),
+    let mut tools = vec![
+        ("dotnet", "dotnet".into(), "--info"),
         (
             "native-compiler",
-            if cfg!(windows) { "cl" } else { "cc" },
+            native_compiler(),
             if cfg!(windows) { "/?" } else { "--version" },
         ),
         (
             "symbol-tool",
-            if cfg!(windows) { "dumpbin" } else { "nm" },
-            if cfg!(windows) { "/?" } else { "--version" },
+            if cfg!(windows) { "dumpbin" } else { "nm" }.into(),
+            if cfg!(windows) {
+                "/headers"
+            } else {
+                "--version"
+            },
         ),
-    ] {
+    ];
+    if let Some(compiler) = std::env::var_os("CC_I686") {
+        tools.push(("i686-compiler", compiler, "--version"));
+    }
+    for (name, tool, arg) in tools {
         // A standalone inventory records missing tools explicitly. The verify
         // preflight separately requires them; resource-only Rust jobs need not
         // have .NET installed merely to measure their process allocations.
-        match run(
-            directory,
-            name,
-            Command::new(tool)
-                .current_dir(root().join("tests/dotnet"))
-                .arg(arg),
-        ) {
+        let mut command = Command::new(tool);
+        command.current_dir(root().join("tests/dotnet")).arg(arg);
+        if name == "symbol-tool" && cfg!(windows) {
+            command.arg(std::env::current_exe().map_err(|error| error.to_string())?);
+        }
+        match run(directory, name, &mut command) {
             Ok(_) => text.push_str(&format!(
                 "{name}: recorded in {name}.stdout.log / {name}.stderr.log\n"
             )),

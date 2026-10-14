@@ -79,15 +79,15 @@ cases across eight classes: unsupported versions/flags, short records,
 physically short prefixes, misalignment, extension tails, invalid diagnostics,
 and valid controls. Rejected storage and output sentinels must be preserved.
 Every pointer derives from a live backing allocation. The prior 10,000-case
-image-descriptor/u128 oracle corpus also remains in ordinary Debug/Release tests.
+image-descriptor/u128 oracle corpus also runs under Miri and in ordinary
+Debug/Release tests.
 
 Miri uses pinned `nightly-2026-10-13`, its default safety/leak checking, and no
 MIRIFLAGS suppression. It interprets abi, images, lifetimes, results_ffi and the
 new complete descriptor corpus. Three named OS-thread tests are excluded from
-this single-thread descriptor/ownership gate. Two existing 10,000-cycle image/
-lifetime stress loops are also excluded from Miri to bound interpreter runtime;
-their ordinary tests still run, while the complete new 10,000-case ABI corpus
-and all shorter ownership/result tests are interpreted. C foreign calls,
+this single-thread descriptor/ownership gate. The existing 10,000-cycle image/
+lifetime stress loops, the complete new 10,000-case ABI corpus, and all shorter
+ownership/result tests are interpreted. C foreign calls,
 subprocess panic controls, native concurrency, RSS sampling and .NET remain
 covered by their real native gates, not claimed as Miri coverage. No sanitizers
 or production backend correctness are claimed by this task.

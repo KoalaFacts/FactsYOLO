@@ -6,29 +6,37 @@ pub(super) fn preflight() -> Result<(), String> {
     if !cfg!(any(target_os = "linux", windows)) || std::env::consts::ARCH != "x86_64" {
         return Err("mandatory local target is Linux/Windows x64".to_owned());
     }
-    let tools = if cfg!(windows) {
-        vec![
-            ("rustc", "--version"),
-            ("cargo", "--version"),
-            ("git", "--version"),
-            ("dotnet", "--version"),
-            ("cl", "/?"),
-            ("dumpbin", "/?"),
-        ]
-    } else {
-        vec![
-            ("rustc", "--version"),
-            ("cargo", "--version"),
-            ("git", "--version"),
-            ("dotnet", "--version"),
-            ("cc", "--version"),
-            ("nm", "--version"),
-        ]
-    };
-    for (tool, arg) in tools {
-        let output = Command::new(tool)
+    let tools = [
+        ("rustc", "rustc".into(), "--version"),
+        ("cargo", "cargo".into(), "--version"),
+        ("git", "git".into(), "--version"),
+        ("dotnet", "dotnet".into(), "--version"),
+        (
+            "native-compiler",
+            evidence::native_compiler(),
+            if cfg!(windows) { "/?" } else { "--version" },
+        ),
+        (
+            "symbol-tool",
+            if cfg!(windows) { "dumpbin" } else { "nm" }.into(),
+            if cfg!(windows) {
+                "/headers"
+            } else {
+                "--version"
+            },
+        ),
+    ];
+    for (tool, executable, arg) in tools {
+        let mut command = Command::new(executable);
+        command
             .current_dir(evidence::root().join("tests/dotnet"))
-            .arg(arg)
+            .arg(arg);
+        if tool == "symbol-tool" && cfg!(windows) {
+            // dumpbin /? returns LNK1100 even when installed. Reading this PE
+            // image verifies the real tool without accepting an error status.
+            command.arg(std::env::current_exe().map_err(|error| error.to_string())?);
+        }
+        let output = command
             .output()
             .map_err(|error| format!("mandatory tool {tool} unavailable: {error}"))?;
         if !output.status.success() {
@@ -78,11 +86,14 @@ pub(super) fn verify(worker: bool) -> Result<(), String> {
             .current_dir(evidence::root().join("tests/dotnet"))
             .arg("--info"),
     )?;
-    let compiler = if cfg!(windows) { "cl" } else { "cc" };
     evidence::run(
         &directory,
         "c-compiler",
-        Command::new(compiler).arg(if cfg!(windows) { "/?" } else { "--version" }),
+        Command::new(evidence::native_compiler()).arg(if cfg!(windows) {
+            "/?"
+        } else {
+            "--version"
+        }),
     )?;
     let result = (|| {
         for fixture in [false, true] {

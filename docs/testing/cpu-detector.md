@@ -84,7 +84,9 @@ latency. Neither candidate is selected for production by this comparison.
 
 ## Full-stage gate and next boundary
 
-The additive experiment workflow runs on Linux. Existing root CI on Linux/Windows
+The additive experiment workflow runs on Linux x64 and Windows x64. Each host
+trains and consumes its own ephemeral outputs; the observed Linux numbers above
+remain a Linux measurement, not a cross-host bitwise guarantee. Existing root CI on Linux/Windows
 and local Rust/C/C# JIT/Native AOT, Miri and compiler-only i686 checks must also
 pass. A clean final head, independent review, all available CI and zero unresolved
 review threads are required before merging. Missing prerequisites or failed local

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -17,8 +18,11 @@ ROOT=Path(__file__).resolve().parents[2]
 def main():
     if len(sys.argv)!=3:
         raise ValueError('usage: verify_native.py <passed-training-directory> <new-evidence-directory>')
-    if platform.system()!='Linux' or platform.machine()!='x86_64':
-        raise ValueError('real C/C# TD1 gate currently requires Linux x64')
+    windows=platform.system()=='Windows'
+    supported=(platform.system()=='Linux' and platform.machine()=='x86_64') or (windows and platform.machine().lower() in ('amd64','x86_64'))
+    if not supported:
+        raise ValueError('real C/C# TD1 gate requires Linux x64 or Windows x64')
+    rid='win-x64' if windows else 'linux-x64'
     source=Path(sys.argv[1]).resolve()
     destination=Path(sys.argv[2]).resolve()
     report=json.loads((source/'metrics.json').read_text())
@@ -48,10 +52,17 @@ def main():
     common=['--locked','--offline','--no-default-features','--features','td1','--target-dir',target]
     run('native-build',['cargo','build','-p','facts-yolo','--release',*common])
     release=target/'release'
+    shared=release/('facts_yolo.dll' if windows else 'libfacts_yolo.so')
+    libraries=[('shared',release/'facts_yolo.dll.lib')] if windows else [('shared',shared),('static',release/'libfacts_yolo.a')]
     expected=set((ROOT/'tests/c/public-symbols.txt').read_text().splitlines())
-    for kind,file,flags in [('shared',release/'libfacts_yolo.so',['-D']),('static',release/'libfacts_yolo.a',['-g'])]:
-        symbols=run(f'exports-{kind}',['nm',*flags,'--defined-only',file])
-        names={parts[-1] for line in symbols.splitlines() if len(parts:=line.split())==3 and parts[-2]=='T' and parts[-1].startswith('fy_')}
+    for kind,library in libraries:
+        file=shared if kind=='shared' else library
+        if windows:
+            symbols=run(f'exports-{kind}',['dumpbin','/nologo','/exports',file])
+            names={match.group(1) for line in symbols.splitlines() if (match:=re.fullmatch(r'\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(fy_\w+)\s*',line))}
+        else:
+            symbols=run(f'exports-{kind}',['nm','-D' if kind=='shared' else '-g','--defined-only',file])
+            names={parts[-1] for line in symbols.splitlines() if len(parts:=line.split())==3 and parts[-2]=='T' and parts[-1].startswith('fy_')}
         if names!=expected:
             raise RuntimeError(f'{kind} public export set differs: {names.symmetric_difference(expected)}')
     layout=run('rust-layout',['cargo','run','-p','facts-yolo','--example','abi_layout','--quiet',*common],stdout_only=True)
@@ -65,10 +76,16 @@ def main():
         text='0\n' if p is None else '1\n'+' '.join(map(str,[p['class'],p['score'],*p['corners']]))+'\n'
         (cases/f'expected-{i}.txt').write_text(text)
         shutil.copyfile(source/f'sample-{i}.rgb',cases/f'sample-{i}.rgb')
-    for kind,library in [('shared',release/'libfacts_yolo.so'),('static',release/'libfacts_yolo.a')]:
-        executable=destination/f'c-{kind}'
-        flags=['-DFY_STATIC'] if kind=='static' else []
-        run(f'c-build-{kind}',[os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror',*flags,'-I',ROOT/'include',ROOT/'tests/c/td1.c',library,'-Wl,-rpath,'+str(release),'-ldl','-lpthread','-lm','-o',executable])
+    for kind,library in libraries:
+        executable=destination/(f'c-{kind}.exe' if windows else f'c-{kind}')
+        if windows:
+            # Keep the portable consumer's bounded standard-C file I/O; /W4 /WX still apply.
+            run(f'c-build-{kind}',[os.environ.get('CC','cl'),'/nologo','/std:c11','/W4','/WX','/TC','/D_CRT_SECURE_NO_WARNINGS',
+                                  '/I'+str(ROOT/'include'),ROOT/'tests/c/td1.c','/Fe:'+str(executable),'/Fo:'+str(destination/f'c-{kind}.obj'),'/link',library])
+            shutil.copyfile(shared,destination/shared.name)
+        else:
+            flags=['-DFY_STATIC'] if kind=='static' else []
+            run(f'c-build-{kind}',[os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror',*flags,'-I',ROOT/'include',ROOT/'tests/c/td1.c',library,'-Wl,-rpath,'+str(release),'-ldl','-lpthread','-lm','-o',executable])
         for i in range(6):
             run(f'c-{kind}-{i}',[executable,artifact,cases/f'sample-{i}.rgb',cases/f'expected-{i}.txt'])
     managed_root=ROOT/'tests/dotnet'
@@ -78,13 +95,14 @@ def main():
     project=managed_root/'FactsYOLO.Smoke/FactsYOLO.Smoke.csproj'
     for mode in ['jit','aot']:
         output=destination/f'managed-{mode}'
-        extra=['-r','linux-x64','--self-contained','true','-p:PublishAot=true'] if mode=='aot' else []
+        extra=['-r',rid,'--self-contained','true','-p:PublishAot=true'] if mode=='aot' else []
         run(f'build-{mode}',['dotnet','publish' if mode=='aot' else 'build',project,'-c','Release','-o',output,*extra],managed_root)
-        executable=['dotnet',output/'FactsYOLO.Smoke.dll'] if mode=='jit' else [output/'FactsYOLO.Smoke']
-        run(f'run-{mode}',[*executable,release/'libfacts_yolo.so',layout_path,'td1',mode,artifact,cases],managed_root)
+        executable=['dotnet',output/'FactsYOLO.Smoke.dll'] if mode=='jit' else [output/('FactsYOLO.Smoke.exe' if windows else 'FactsYOLO.Smoke')]
+        run(f'run-{mode}',[*executable,shared,layout_path,'td1',mode,artifact,cases],managed_root)
     summary={'passed':True,'source_commit':head,'source_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
              'training_backend':report['backend'],'artifact_sha256':hashlib.sha256(artifact.read_bytes()).hexdigest(),
-             'heldout_samples':6,'c_link_modes':['shared','static'],'managed_execution_modes':['jit','aot'],'platform':platform.platform()}
+             'heldout_samples':6,'c_link_modes':[kind for kind,_ in libraries],'managed_execution_modes':['jit','aot'],
+             'runtime_identifier':rid,'platform':platform.platform()}
     (destination/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
     print(json.dumps(summary,indent=2))
 

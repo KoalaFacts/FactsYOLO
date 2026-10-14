@@ -61,6 +61,7 @@ jobs:
         with:
           dotnet-version: '10.0.401'
       - name: Execute real training and fresh-process inference gates
+        # Git Bash prepends its GNU link.exe; preserve the discovered MSVC PATH.
         shell: pwsh
         run: |
           ${{ matrix.python }} experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence

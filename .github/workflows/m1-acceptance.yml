@@ -49,6 +49,9 @@ jobs:
             $value = [Environment]::GetEnvironmentVariable($name)
             if ($value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
           }
+      - name: Fetch locked optional native dependencies
+        shell: bash
+        run: cargo fetch --locked
       - name: Execute every mandatory local-target gate
         shell: pwsh
         run: |
@@ -86,8 +89,13 @@ jobs:
         run: |
           rustup toolchain install 1.99.0 --profile minimal
           rustup toolchain install nightly-2026-10-13 --profile minimal --component miri
+      - name: Fetch locked optional native dependencies
+        shell: bash
+        run: cargo fetch --locked
       - name: Interpret backed descriptors and ownership under Miri
         run: cargo run -p xtask --locked --offline -- miri
+      - name: Interpret actual TD1 model parsing, images and ownership
+        run: cargo +nightly-2026-10-13 miri test -p facts-yolo --features td1 --test td1 --locked --offline
       - name: Preserve evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -122,6 +130,9 @@ jobs:
           rustup target add i686-unknown-linux-gnu --toolchain 1.99.0
           sudo apt-get update
           sudo apt-get install --no-install-recommends gcc-multilib
+      - name: Fetch locked optional native dependencies
+        shell: bash
+        run: cargo fetch --locked
       - name: Compare ELF32 compiler records (no execution support claim)
         run: cargo run -p xtask --locked --offline -- layout32
       - name: Preserve evidence

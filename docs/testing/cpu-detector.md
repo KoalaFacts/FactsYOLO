@@ -90,3 +90,7 @@ pass. A clean final head, independent review, all available CI and zero unresolv
 review threads are required before merging. Missing prerequisites or failed local
 checks cannot be replaced with CI success. C/C# real-artifact integration belongs
 to the separately reviewed following stage after this one merges.
+
+The following integration stage adds an opt-in native path; see
+[TD1 C/C# integration](td1-native.md). The M2a numbers above remain the original
+training evidence and do not imply that default builds enable a model backend.

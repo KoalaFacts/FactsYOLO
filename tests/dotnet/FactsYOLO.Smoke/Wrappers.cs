@@ -15,7 +15,7 @@ internal sealed unsafe class Model : IDisposable
             FyModelOptions options = new()
             {
                 struct_size = (uint)sizeof(FyModelOptions), struct_version = 1,
-                max_artifact_bytes = 1024 * 1024, max_parser_steps = 10000
+                max_artifact_bytes = 1024 * 1024, max_parser_steps = 65536
             };
             fixed (byte* pointer = bytes)
                 Status.Check(Native.ModelOpen(1, pointer, (nuint)bytes.Length, &options, &raw, null));

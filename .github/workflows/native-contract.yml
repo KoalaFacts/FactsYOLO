@@ -57,6 +57,9 @@ jobs:
             $value = [Environment]::GetEnvironmentVariable($name)
             if ($value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
           }
+      - name: Fetch locked optional native dependencies
+        shell: bash
+        run: cargo fetch --locked
       - name: Fixture tests in isolated target directory
         run: |
           cargo test --workspace --no-fail-fast --features contract-fixtures --target-dir target/contract-fixtures --locked --offline
@@ -65,6 +68,13 @@ jobs:
         run: cargo test --workspace --no-fail-fast --locked --offline
       - name: Release tests
         run: cargo test --workspace --no-fail-fast --locked --offline --release
+      - name: TD1 and combined native contracts
+        run: |
+          cargo test -p facts-yolo --features td1 --target-dir target/td1-tests --locked --offline
+          cargo test -p facts-yolo --features td1 --target-dir target/td1-tests --locked --offline --release
+          cargo test -p facts-yolo --all-features --target-dir target/combined-tests --locked --offline
+          cargo test -p facts-yolo --all-features --target-dir target/combined-tests --locked --offline --release
+          cargo clippy -p facts-yolo --all-targets --all-features --target-dir target/combined-tests --locked --offline -- -D warnings
       - name: Build native libraries
         run: |
           cargo build -p facts-yolo --locked --offline --release

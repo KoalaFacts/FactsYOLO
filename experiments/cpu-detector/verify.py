@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""Run the additive CPU experiment gates, preserving commands and actual results."""
+import json
+import os
+from pathlib import Path
+import platform
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parent
+REPO = ROOT.parent.parent
+MANIFEST = str(ROOT / "Cargo.toml")
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise ValueError("usage: python3 experiments/cpu-detector/verify.py <new-evidence-directory>")
+    evidence = Path(sys.argv[1]).resolve()
+    evidence.mkdir(parents=True, exist_ok=False)
+    env = os.environ.copy()
+    env["RAYON_NUM_THREADS"] = "1"
+    env["FACTSYOLO_BUILD_ID"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    commands = []
+
+    def run(label, arguments, *, expected_success=True):
+        print(f"{label}: {' '.join(map(str, arguments))}", flush=True)
+        started = time.monotonic()
+        with (evidence / f"{label}.log").open("w") as log:
+            result = subprocess.run(list(map(str, arguments)), cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
+        commands.append({"label": label, "argv": list(map(str, arguments)), "exit": result.returncode, "seconds": time.monotonic()-started})
+        (evidence / "commands.json").write_text(json.dumps(commands, indent=2)+"\n")
+        if (result.returncode == 0) != expected_success:
+            raise RuntimeError(f"unexpected exit {result.returncode}: {label}; see {evidence / (label+'.log')}")
+        return (evidence / f"{label}.log").read_text()
+
+    common = ["--manifest-path", MANIFEST, "--locked", "--offline"]
+    run("format", ["cargo", "fmt", "--manifest-path", MANIFEST, "--all", "--", "--check"])
+    run("clippy", ["cargo", "clippy", *common, "--workspace", "--all-targets", "--", "-D", "warnings"])
+    run("tests-debug", ["cargo", "test", *common, "--workspace"])
+    run("tests-release", ["cargo", "test", *common, "--workspace", "--release"])
+    run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
+    run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
+    binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
+    reports = {}
+    for backend in ["burn", "candle"]:
+        output = evidence / backend
+        run(f"train-{backend}", [binary, "train", backend, output])
+        report = json.loads((output / "metrics.json").read_text())
+        if report["passed"] is not True or report["source_commit"] != env["FACTSYOLO_BUILD_ID"]:
+            raise RuntimeError(f"training report failed or stale: {backend}")
+        reports[backend] = report
+        for i in range(6):
+            result = json.loads(run(f"infer-{backend}-{i}", [binary, "infer", output / "model.fytd", output / f"sample-{i}.rgb"]))
+            if result != report["predictions"][i]["prediction"]:
+                raise RuntimeError(f"fresh process inference disagrees: {backend}/{i}")
+        corrupted = bytearray((output / "model.fytd").read_bytes())
+        corrupted[-1] ^= 1
+        bad = output / "corrupt.fytd"
+        bad.write_bytes(corrupted)
+        run(f"reject-corrupt-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
+        bad.write_bytes(b"\x00" * 65537)
+        run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
+        bad.unlink()
+    summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),
+               "rayon_threads": 1, "cpu_count": os.cpu_count(), "results": {k: {f:v for f,v in r.items() if f!="predictions"} for k,r in reports.items()}}
+    (evidence / "summary.json").write_text(json.dumps(summary, indent=2)+"\n")
+    print(json.dumps(summary, indent=2))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        sys.exit(1)

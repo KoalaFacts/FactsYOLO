@@ -3,3 +3,5 @@
 /.superpowers/
 /tests/dotnet/**/bin/
 /tests/dotnet/**/obj/
+
+/experiments/cpu-detector/target/

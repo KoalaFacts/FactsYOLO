@@ -14,11 +14,13 @@ Linux and Windows. An unpublished C# smoke adapter uses LibraryImport, SafeHandl
 and scoped lifetime leases; its JIT and Native AOT executables are tested on both
 platforms. These are conformance tools, not released C#/Go/TypeScript SDKs.
 
-**No real model format or compute backend is installed.** The normal build reports
+**The default native build has no real model backend.** It reports
 zero backend capabilities; validated `fy_model_open` requests return
 `FY_UNSUPPORTED_MODEL`. Even test builds do not accept fixture bytes as model
-artifacts. There is no trained weight release, training implementation, published
-SDK, or detector accuracy/performance benchmark yet.
+artifacts. There is no trained weight release, published SDK, or production detector
+accuracy/performance claim. A separate [CPU training experiment](docs/testing/cpu-detector.md)
+implements original TD1 training with Burn Flex and Candle, then loads its data-only
+artifact in a portable Rust reference. It is not yet connected to the C/C# API.
 
 ## Build and verify
 
@@ -77,7 +79,8 @@ FactsYOLO will implement its own detection models and training/inference logic;
 it is not intended to be merely a wrapper around another YOLO product.
 It will not depend on Ultralytics software or distribute its model weights.
 General-purpose tensor and hardware-compute libraries can be evaluated separately.
-No compute framework has been selected or added at this stage.
+Burn Flex and Candle are experimental training candidates in an independent
+workspace. No production compute framework has been selected.
 
 ## Intended design direction
 

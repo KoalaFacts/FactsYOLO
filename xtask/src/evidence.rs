@@ -117,8 +117,12 @@ pub(super) fn manifest(directory: &Path) -> Result<(), String> {
             },
         ),
     ];
-    if let Some(compiler) = std::env::var_os("CC_I686") {
-        tools.push(("i686-compiler", compiler, "--version"));
+    if cfg!(target_os = "linux") {
+        tools.push((
+            "i686-compiler",
+            std::env::var_os("CC_I686").unwrap_or_else(|| "cc".into()),
+            "--version",
+        ));
     }
     for (name, tool, arg) in tools {
         // A standalone inventory records missing tools explicitly. The verify

@@ -17,3 +17,7 @@ contract-fixtures = []
 
 [lints]
 workspace = true
+
+[[example]]
+name = "resource_probe"
+required-features = ["contract-fixtures"]

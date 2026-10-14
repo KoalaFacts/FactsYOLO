@@ -18,7 +18,7 @@ FactsYOLO-authored license terms.
 
 ## Runtime and build dependencies
 
-The task 1 Cargo lockfile contains only the project-owned `facts-yolo` and `xtask`
+The M1 Cargo lockfile contains only the project-owned `facts-yolo` and `xtask`
 workspace packages, with no external Cargo dependencies. The implementation
 uses Rust's standard library. Rust toolchains, their bundled components, and
 platform/system link dependencies retain their own terms; zero external Cargo
@@ -26,10 +26,33 @@ dependencies is not a claim of zero binary redistribution obligations.
 
 Rust 1.99.0 is the pinned build toolchain and 1.85.0 is tested as the minimum.
 Git, GCC and the GitHub-hosted Linux/Windows build environments are development
-tools, not bundled FactsYOLO runtime packages. The workflow uses no third-party
-Actions and requests read-only repository permissions. No native ML runtime,
+tools, not bundled FactsYOLO runtime packages. Workflows request read-only repository permissions.
+The development-only pinned Actions and safety tooling are recorded below. No native ML runtime,
 GPU SDK, image/video codec, or downloaded model has been added. Burn remains an
 evaluation candidate, not an approved or bundled dependency.
+
+Development-only tools added/used by the M1 acceptance gate:
+
+- .NET SDK 10.0.401 / runtime 10.0.12 from Microsoft; the unpublished consumer
+  uses no explicit PackageReference. SDK Native AOT/compiler/runtime packs and
+  their transitive components retain Microsoft's bundled notices. See the
+  [.NET source/license](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT)
+  and [third-party notices](https://github.com/dotnet/runtime/blob/main/THIRD-PARTY-NOTICES.TXT).
+- `actions/setup-dotnet` at `26b0ec14cb23fa6904739307f278c14f94c95bf1` and
+  `actions/upload-artifact` at `ea165f8d65b6e75b540449e92b4886f43607fa02` use
+  MIT licenses in their upstream repositories. Their bundled JavaScript/toolkit
+  dependencies and notices remain part of the Actions, not FactsYOLO packages.
+- Rust `nightly-2026-10-13` (rustc 1.101.0-nightly, e9bbadf68) with Miri and
+  rust-src is development-only. [Miri](https://github.com/rust-lang/miri) is
+  MIT OR Apache-2.0; sysroot preparation builds Rust's bundled standard-library
+  dependencies under their upstream notices. It adds no dependency to Cargo.lock.
+- GNU GCC/binutils and platform headers compile the i686 object probes. These
+  build tools are not redistributed by this repository; their own licenses and
+  runtime-library exceptions remain applicable. No 32-bit runtime is published.
+
+No third-party source or license text from these tools is vendored here. This
+inventory does not certify a distributable binary SBOM; any future packaging
+must account for the exact linked runtime/native components and their notices.
 
 Before adding a dependency, record its exact version/source, SPDX license where
 available, required notices, transitive/native components, build features, and

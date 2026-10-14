@@ -78,6 +78,11 @@ artifacts establish the acceptance result for each PR revision. The existing
 Linux/Windows M1 gates remain mandatory. Windows additionally runs TD1 Rust tests;
 actual trained-artifact C/C# support is currently demonstrated on Linux x64 only.
 
+The [historical TD1 v1 gate](td1-v1-compatibility.md) additionally uses fixed,
+independently encoded synthetic bytes to check format/parameter compatibility,
+version and exact-budget errors, score0.5 and failure recovery. These test vectors
+add no trained weights, model architecture, platform or SDK support claim.
+
 The experiment lockfile pins `time` to 0.3.47 after checking
 [RUSTSEC-2026-0009](https://rustsec.org/advisories/RUSTSEC-2026-0009.html),
 which affects RFC2822 parsing before that release. `time` is an unselected optional

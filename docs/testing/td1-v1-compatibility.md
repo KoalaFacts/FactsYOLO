@@ -14,8 +14,9 @@ a trained-weight distribution, or evidence of natural-image accuracy.
   followed by bytes56..end; it detects corruption, not publisher authenticity.
 - Architecture1: 64x64 RGB, 8x8 block means divided by255, row/column/channel
   order,192->64 ReLU->7. Parameter order W1[192,64], b1[64], W2[64,7], b2[7].
-  Output0 is background,1/2 map to class0/1; the first class wins exact logit
-  ties. Background or score<0.5 produces no detection. Four sigmoid outputs are
+  Output0 is background,1/2 map to class0/1; the lowest output index wins exact logit
+  ties (background first, then class0, then class1). Background or score<0.5
+  produces no detection. Four sigmoid outputs are
   normalized cx/cy/w/h, converted to clipped pixel-edge corners. At most one box.
 - Native ABI remains experimental1.0 with descriptor version1 and the same
   eleven exports. Unknown ABI majors, descriptor versions and required flags

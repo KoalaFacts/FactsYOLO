@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(feature = "td1")]
+#[path = "../../../tests/compat/td1_v1_vectors.rs"]
+mod historical;
 use facts_yolo::ffi::{handles::*, results::*, types::*};
 use fy_tiny_model::{B1, Model, PARAMETERS};
 use std::ptr::null_mut;
@@ -342,4 +344,181 @@ fn actual_capability_is_cpu_and_unsupported_device_does_not_create_session() {
         );
         assert!(out.is_null());
     }
+}
+
+fn historical_open(bytes: &[u8], options: &FyModelOptions, major: u32, expected: i32) {
+    let mut out = null_mut();
+    let status = unsafe {
+        fy_model_open(
+            major,
+            bytes.as_ptr(),
+            bytes.len(),
+            options,
+            &mut out,
+            null_mut(),
+        )
+    };
+    assert_eq!(status, expected);
+    if status == FY_OK {
+        assert!(!out.is_null());
+        assert_eq!(unsafe { fy_model_release(&mut out, null_mut()) }, FY_OK);
+    }
+    assert!(
+        out.is_null(),
+        "failed creation/release must preserve the empty slot"
+    );
+}
+
+#[test]
+fn historical_model_versions_and_numeric_statuses() {
+    for vector in historical::VECTORS {
+        let expected = if vector.accepted {
+            FY_OK
+        } else {
+            FY_UNSUPPORTED_MODEL
+        };
+        historical_open(&vector.bytes(), &options(), 1, expected);
+    }
+    // A malformed artifact must not leave global/partial state that prevents
+    // later valid creation. These are fixed synthetic bytes, not trained weights.
+    historical_open(
+        &historical::vector("red-gate").bytes(),
+        &options(),
+        1,
+        FY_OK,
+    );
+}
+
+#[test]
+fn historical_model_budgets_and_precedence() {
+    let good = historical::vector("red-gate").bytes();
+    for parser_budget in [false, true] {
+        for (budget, expected) in [
+            (0, FY_INVALID_ARGUMENT),
+            (51_283, FY_LIMIT_EXCEEDED),
+            (51_284, FY_OK),
+            (51_285, FY_OK),
+        ] {
+            let mut o = options();
+            if parser_budget {
+                o.max_parser_steps = budget;
+            } else {
+                o.max_artifact_bytes = budget;
+            }
+            historical_open(&good, &o, 1, expected);
+        }
+    }
+    let mut o = options();
+    o.max_parser_steps = 51_283;
+    historical_open(
+        &historical::vector("schema-two").bytes(),
+        &o,
+        1,
+        FY_UNSUPPORTED_MODEL,
+    );
+    historical_open(
+        &historical::vector("architecture-two").bytes(),
+        &o,
+        1,
+        FY_LIMIT_EXCEEDED,
+    );
+    o.max_artifact_bytes = 51_283;
+    historical_open(
+        &historical::vector("schema-two").bytes(),
+        &o,
+        1,
+        FY_LIMIT_EXCEEDED,
+    );
+    // ABI and descriptor errors keep their existing categories, separate from
+    // schema/architecture rejection. All pointers refer to real live storage.
+    historical_open(&good, &options(), 2, FY_UNSUPPORTED_ABI);
+    let mut o = options();
+    o.struct_version = 2;
+    historical_open(&good, &o, 1, FY_UNSUPPORTED_ABI);
+    o = options();
+    o.required_flags = 1;
+    historical_open(&good, &o, 1, FY_UNSUPPORTED_FEATURE);
+    historical_open(&good, &options(), 1, FY_OK);
+}
+
+#[test]
+fn historical_half_score_identity_and_recovery() {
+    let bytes = historical::vector("half-score").bytes();
+    let c = Context::new(&bytes);
+    let pixels = vec![0; 12_288];
+    let valid = image(&pixels, FY_RGB8, 192);
+    let mut invalid = valid;
+    invalid.width = 63;
+    let mut out = c.run(&valid, 0.5);
+    let before = out;
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                c.session,
+                &invalid,
+                &detect_options(0.5),
+                &mut out,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
+    assert_eq!(out, before);
+    release(out);
+    out = null_mut();
+    assert_eq!(
+        unsafe {
+            fy_detect(
+                c.session,
+                &invalid,
+                &detect_options(0.5),
+                &mut out,
+                null_mut(),
+            )
+        },
+        FY_INVALID_ARGUMENT
+    );
+    assert!(out.is_null());
+    for threshold in [f32::NAN, -f32::EPSILON, 1.0 + f32::EPSILON] {
+        assert_eq!(
+            unsafe {
+                fy_detect(
+                    c.session,
+                    &valid,
+                    &detect_options(threshold),
+                    &mut out,
+                    null_mut(),
+                )
+            },
+            FY_INVALID_ARGUMENT
+        );
+        assert!(out.is_null());
+    }
+    let result = c.run(&valid, 0.5);
+    let detections = copy(result);
+    assert_eq!(detections.len(), 1);
+    assert_eq!(detections[0].class_id, 0);
+    assert_eq!(detections[0].score, 0.5);
+    assert_eq!(
+        [
+            detections[0].x_min,
+            detections[0].y_min,
+            detections[0].x_max,
+            detections[0].y_max
+        ],
+        [16.0, 16.0, 48.0, 48.0]
+    );
+    let mut info: FyResultInfo = unsafe { std::mem::zeroed() };
+    info.struct_size = size_of::<FyResultInfo>() as u32;
+    info.struct_version = 1;
+    assert_eq!(
+        unsafe { fy_result_describe(result, &mut info, null_mut()) },
+        FY_OK
+    );
+    assert_eq!(&info.model_id, &bytes[24..56]);
+    release(result);
+    let above = f32::from_bits(0.5_f32.to_bits() + 1);
+    let result = c.run(&valid, above);
+    assert!(copy(result).is_empty());
+    release(result);
 }

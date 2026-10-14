@@ -72,6 +72,10 @@ private contract fixtures remain separately marked TEST_ONLY. Linux x64 actual
 trained-artifact C shared/static and C# JIT/AOT execution is verified; Windows
 has TD1 Rust contract coverage, not yet a real-artifact C/C# support claim.
 
+The [TD1 v1 compatibility gate](docs/testing/td1-v1-compatibility.md) pins synthetic
+historical bytes and boundary behavior independently of the current serializer.
+It preserves the experimental format and ABI; it does not establish a stable SDK release.
+
 The native library builds as `rlib`, `cdylib`, and `staticlib`; Cargo publication
 is disabled. Rust CI exercises Linux x64 with 1.99.0 and the 1.85.0 floor, and
 Windows x64 with 1.99.0. C conformance runs Linux shared/static and Windows DLL

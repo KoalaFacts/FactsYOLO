@@ -27,6 +27,13 @@ FY_API int32_t FY_CALL fy_test_model_create(
 FY_API int32_t FY_CALL fy_test_session_wait_running(
     const fy_session *session, uint32_t timeout_ms);
 FY_API int32_t FY_CALL fy_test_session_resume(const fy_session *session);
+
+/* Test-only object counts, in order: public model handles, retained model states,
+ * sessions, completed results. destination has four live writable size_t slots;
+ * capacity must equal four. Invalid arguments leave the destination unchanged.
+ * A coherent multi-count snapshot requires quiescent allocations or a test latch.
+ * Not RSS, allocator-peak or GPU-memory evidence. Never a production API. */
+FY_API int32_t FY_CALL fy_test_resource_counts(size_t *destination, size_t capacity);
 #ifdef __cplusplus
 }
 #endif

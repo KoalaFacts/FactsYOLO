@@ -43,3 +43,25 @@ pub unsafe extern "C" fn fy_test_session_resume(session: *const FySession) -> i3
         })
     }
 }
+
+/// Copy model-handle, retained-model, session and result counts for tests.
+/// Multi-counter snapshots require quiescent allocations or a controlled latch.
+/// These are object counts, not allocator/RSS/GPU measurements.
+///
+/// # Safety
+/// Accepted destination storage is aligned, writable, actually allocated for
+/// four usize values and externally synchronized. Capacity must be exactly four.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fy_test_resource_counts(destination: *mut usize, capacity: usize) -> i32 {
+    unsafe {
+        entry(null_mut(), || {
+            if capacity != 4 || destination.is_null() || !destination.is_aligned() {
+                return Err(INVALID);
+            }
+            let counts = crate::fixtures::resource_counts();
+            // SAFETY: caller supplies four writable slots; source is independent.
+            std::ptr::copy_nonoverlapping(counts.as_ptr(), destination, counts.len());
+            Ok(())
+        })
+    }
+}

@@ -66,6 +66,19 @@ jobs:
         run: |
           ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/burn target/td1-evidence-burn
           ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/candle target/td1-evidence-candle
+      - name: Show command diagnostics when a gate fails
+        if: failure()
+        run: |
+          ${{ matrix.python }} - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.stdout.reconfigure(encoding='utf-8')
+          logs = [*Path('experiments/cpu-detector/target/evidence').glob('*.log'),
+                  *Path('target').glob('td1-evidence-*/*.log')]
+          for log in sorted(logs):
+              print(f'{log}:', flush=True)
+              print('\n'.join(log.read_text(encoding='utf-8', errors='replace').splitlines()[-80:]), flush=True)
+          PY
       - name: Preserve commands, losses and metrics (no weight or pixel upload)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

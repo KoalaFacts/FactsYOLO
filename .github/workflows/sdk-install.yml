@@ -7,7 +7,8 @@ permissions:
   contents: read
 env:
   RUSTUP_TOOLCHAIN: '1.99.0'
-  FACTSYOLO_BUILD_ID: ${{ github.sha }}
+  SDK_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  FACTSYOLO_BUILD_ID: ${{ github.event.pull_request.head.sha || github.sha }}
   CARGO_TERM_COLOR: never
   RAYON_NUM_THREADS: '1'
 jobs:
@@ -31,9 +32,9 @@ jobs:
           git init .
           git config core.autocrlf false
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin "$SDK_SOURCE_COMMIT"
           git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$SDK_SOURCE_COMMIT"
       - name: Install exact compiler and original standard-library notices
         shell: bash
         run: rustup toolchain install 1.99.0 --profile minimal --component rust-docs
@@ -76,9 +77,9 @@ jobs:
           git init .
           git config core.autocrlf false
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin "$SDK_SOURCE_COMMIT"
           git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$SDK_SOURCE_COMMIT"
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: '10.0.401'
@@ -117,9 +118,9 @@ jobs:
           git init .
           git config core.autocrlf false
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin "$SDK_SOURCE_COMMIT"
           git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$SDK_SOURCE_COMMIT"
       - name: Install existing experiment toolchains
         shell: bash
         run: |

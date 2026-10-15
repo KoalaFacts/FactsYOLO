@@ -121,7 +121,7 @@ def main(feed, training, evidence):
         sdk_key = f"FactsYOLO.LocalTest/{metadata['version']}"
         if restored["libraries"][sdk_key]["type"] != "package" or any(v["type"] == "project" for v in restored["libraries"].values()):
             raise ValueError("restore included a project instead of an installed SDK package")
-        if set(restored["packageFolders"]) != {str(Path(env["NUGET_PACKAGES"])) + os.sep}:
+        if {Path(p).resolve() for p in restored["packageFolders"]} != {Path(env["NUGET_PACKAGES"]).resolve()}:
             raise ValueError("restore used a non-isolated package directory")
         cached = Path(env["NUGET_PACKAGES"]) / "factsyolo.localtest" / metadata["version"] / package.name.lower()
         if sha256(cached) != metadata["sha256"] or sha256(publish / runtime_library) != native_hash:

@@ -170,7 +170,7 @@ def stage(output):
     (directory / "cargo-inventory.json").write_text(json.dumps(inventory, indent=2) + "\n")
     packages = [{"SPDXID": f"SPDXRef-Cargo-{i}", "name": p["name"], "versionInfo": p["version"],
                  "downloadLocation": p["source"] if p["source"].startswith("https:") else "NOASSERTION",
-                 "filesAnalyzed": False, "licenseDeclared": p["license"] or "NOASSERTION", "licenseConcluded": "NOASSERTION",
+                 "filesAnalyzed": False, "licenseDeclared": (p["license"] or "NOASSERTION").replace("MIT/Apache-2.0", "MIT OR Apache-2.0"), "licenseConcluded": "NOASSERTION",
                  "copyrightText": "NOASSERTION", "comment": ", ".join(p["roles"])} for i, p in enumerate(inventory)]
     sbom = {"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT",
             "name": f"FactsYOLO-local-{rid}", "documentNamespace": f"https://spdx.org/spdxdocs/factsyolo-{commit}-{rid}-{sha256(library)}",

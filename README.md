@@ -24,6 +24,11 @@ artifact in a portable Rust reference. The optional `td1` native feature now
 loads that artifact through the same C ABI and unpublished C# JIT/AOT adapter;
 see [real-artifact native evidence](docs/testing/td1-native.md).
 
+An experimental [local C# SDK installation gate](docs/testing/dotnet-sdk.md)
+packages the existing ABI for isolated net10.0 consumers. Its temporary test
+package is not published; Linux/Windows assets must form one identically hashed
+package before cross-platform installation acceptance can be claimed.
+
 ## Build and verify
 
 Install the pinned Rust toolchain through rustup, fetch the locked optional

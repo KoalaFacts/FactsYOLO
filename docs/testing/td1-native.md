@@ -15,8 +15,14 @@ This is a small synthetic single-object model, not a general YOLO product claim.
 
 ## Reproduce real training and native consumers
 
-Use Linux x64, the pinned Rust1.99 and .NET10.0.401 SDK, Rust1.85, Python3 and
-C compiler/binutils. Fetch exact locked packages from the official registry once:
+Use Linux x64 or Windows x64, the pinned Rust1.99 and .NET10.0.401 SDK, Rust1.85
+and Python3. Linux uses a C compiler/binutils; Windows uses the existing MSVC
+x64 tools and Windows SDK in a Visual Studio developer PowerShell. Do not run
+the Windows build through Git Bash: its GNU `link.exe` can shadow MSVC's linker.
+The [CI workflow](../../.github/workflows/cpu-detector.yml) discovers the installed
+MSVC environment in the same way as the existing Windows conformance jobs.
+Fetch exact locked packages from the official registry once (use `python` in
+place of `python3` on the Windows runner):
 
 ```sh
 cargo fetch --locked
@@ -28,12 +34,18 @@ python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/targe
 
 All destinations must be new. Native verification requires a passed fixed-budget
 training report for the current commit; old or failed reports are rejected. It
-builds `--no-default-features --features td1`, checks exact normal export sets for
-shared/static libraries, and executes six held-out samples from each candidate
-(including background) through C shared/static and C# JIT/Native AOT. The actual
+builds `--no-default-features --features td1`, checks exact normal export sets,
+and executes six held-out samples from each candidate (including background).
+Linux covers C shared/static libraries; Windows covers the C DLL/import-library
+path, matching the existing C target matrix. Both execute C# JIT/Native AOT with
+the host's `linux-x64` or `win-x64` runtime identifier. The actual
 managed runtime mode is asserted at runtime. Coordinates/score match the portable
 reference at abs1e-4+relative1e-4; class/count match exactly. Reference files contain
 predictions from saved/reloaded training outputs, not hardcoded fixture boxes.
+Each CI host trains both candidates and consumes its own saved artifacts within
+the same job. No model is transferred through workflow artifacts. Training can
+have small floating-point differences between hosts; exact reload is checked on
+each host, without a promise of cross-host bitwise training identity.
 
 Every consumer also checks artifact rejection, shape failure followed by reuse,
 RGB/BGR/RGBA with stride padding, score threshold, model release before session
@@ -75,8 +87,10 @@ Initial local C and managed consumers rejected the normal backend-free library;
 with TD1, both Burn/Candle trained artifacts passed C shared/static and managed
 JIT/AOT. These observations are preflight evidence; final-head commands and CI
 artifacts establish the acceptance result for each PR revision. The existing
-Linux/Windows M1 gates remain mandatory. Windows additionally runs TD1 Rust tests;
-actual trained-artifact C/C# support is currently demonstrated on Linux x64 only.
+Linux/Windows M1 gates remain mandatory. The additive consumer matrix now also
+executes actual Windows x64 C DLL and C# JIT/AOT consumers, using the same test
+sources, model, format and ABI as Linux. Windows static C remains outside the
+existing target matrix; no ARM, GPU, SDK release or natural-image claim is added.
 
 The [historical TD1 v1 gate](td1-v1-compatibility.md) additionally uses fixed,
 independently encoded synthetic bytes to check format/parameter compatibility,

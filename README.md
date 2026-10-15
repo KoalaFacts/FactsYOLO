@@ -68,9 +68,10 @@ cargo test -p facts-yolo --features td1 --locked --offline
 
 TD1 requires64x64 RGB/BGR/RGBA views, reports CPU backend1/F32/one thread and
 accepts only the checked FYTDv001 artifact. The default remains backend-free;
-private contract fixtures remain separately marked TEST_ONLY. Linux x64 actual
-trained-artifact C shared/static and C# JIT/AOT execution is verified; Windows
-has TD1 Rust contract coverage, not yet a real-artifact C/C# support claim.
+private contract fixtures remain separately marked TEST_ONLY. Real-artifact CI
+exercises C shared/static consumers on Linux x64 and C DLL consumers on Windows
+x64, plus C# JIT/AOT on both. Each host trains and consumes its own ephemeral
+artifacts; Windows static C and cross-host bitwise training identity are not claimed.
 
 The [TD1 v1 compatibility gate](docs/testing/td1-v1-compatibility.md) pins synthetic
 historical bytes and boundary behavior independently of the current serializer.

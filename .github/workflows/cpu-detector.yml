@@ -12,8 +12,19 @@ env:
   RAYON_NUM_THREADS: '1'
 jobs:
   train-save-reload:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: python3
+          - os: windows-2022
+            python: python
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Fetch exact public commit without credentials
         run: |
@@ -27,6 +38,20 @@ jobs:
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
           rustup toolchain install 1.85.0 --profile minimal
+      - name: Discover existing Windows native tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'MSVC x64 tools unavailable' }
+          & (Join-Path $installation 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          foreach ($name in @('PATH','INCLUDE','LIB','LIBPATH','VCToolsInstallDir','VCINSTALLDIR','WindowsSdkDir','WindowsSDKVersion','UniversalCRTSdkDir','UCRTVersion')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ($value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
+          }
+          Get-Command cl, dumpbin | Format-Table Name, Source
       - name: Fetch pinned crates from the Cargo registry
         run: |
           cargo fetch --manifest-path experiments/cpu-detector/Cargo.toml --locked
@@ -36,16 +61,36 @@ jobs:
         with:
           dotnet-version: '10.0.401'
       - name: Execute real training and fresh-process inference gates
-        run: python3 experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence
-      - name: Execute trained artifacts through C and C# JIT/Native AOT
+        # Git Bash prepends its GNU link.exe; preserve the discovered MSVC PATH.
+        shell: pwsh
         run: |
-          python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/burn target/td1-evidence-burn
-          python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/candle target/td1-evidence-candle
+          ${{ matrix.python }} experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Execute trained artifacts through C and C# JIT/Native AOT
+        shell: pwsh
+        run: |
+          ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/burn target/td1-evidence-burn
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/candle target/td1-evidence-candle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Show command diagnostics when a gate fails
+        if: failure()
+        run: |
+          ${{ matrix.python }} - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.stdout.reconfigure(encoding='utf-8')
+          logs = [*Path('experiments/cpu-detector/target/evidence').glob('*.log'),
+                  *Path('target').glob('td1-evidence-*/*.log')]
+          for log in sorted(logs):
+              print(f'{log}:', flush=True)
+              print('\n'.join(log.read_text(encoding='utf-8', errors='replace').splitlines()[-80:]), flush=True)
+          PY
       - name: Preserve commands, losses and metrics (no weight or pixel upload)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: cpu-detector-evidence
+          name: cpu-detector-evidence-${{ matrix.os }}
           path: |
             experiments/cpu-detector/target/evidence/**/*.json
             experiments/cpu-detector/target/evidence/**/*.log

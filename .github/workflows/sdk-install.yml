@@ -1,0 +1,182 @@
+name: Local SDK installation
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+env:
+  RUSTUP_TOOLCHAIN: '1.99.0'
+  FACTSYOLO_BUILD_ID: ${{ github.sha }}
+  CARGO_TERM_COLOR: never
+  RAYON_NUM_THREADS: '1'
+jobs:
+  native-assets:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rid: linux-x64
+            python: python3
+          - os: windows-2022
+            rid: win-x64
+            python: python
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install exact compiler and original standard-library notices
+        shell: bash
+        run: rustup toolchain install 1.99.0 --profile minimal --component rust-docs
+      - name: Discover existing Windows native tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'MSVC x64 tools unavailable' }
+          & (Join-Path $installation 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          foreach ($name in @('PATH','INCLUDE','LIB','LIBPATH','VCToolsInstallDir','VCINSTALLDIR','WindowsSdkDir','WindowsSDKVersion','UniversalCRTSdkDir','UCRTVersion')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ($value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
+          }
+      - name: Fetch locked crates
+        shell: pwsh
+        run: cargo fetch --locked
+      - name: Stage actual native binary, provenance and licenses
+        shell: pwsh
+        run: |
+          ${{ matrix.python }} sdk/dotnet/native_assets.py target/sdk-assets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Transfer temporary test assets (no weights or pixels)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdk-native-${{ matrix.rid }}
+          path: target/sdk-assets/
+          retention-days: 1
+          if-no-files-found: error
+  pack-once:
+    needs: native-assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.401'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: sdk-native-*
+          path: target/sdk-assets
+          merge-multiple: true
+      - name: Verify input rejection regressions and pack exactly once
+        run: |
+          python3 -m unittest discover -s tests/sdk-install -p test_packaging.py -v
+          python3 sdk/dotnet/build_package.py target/sdk-assets target/sdk-feed
+      - name: Transfer one temporary local-feed package to both hosts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdk-local-package
+          path: target/sdk-feed/
+          retention-days: 1
+          if-no-files-found: error
+  detached-consumer:
+    needs: pack-once
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: python3
+          - os: windows-2022
+            python: python
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install existing experiment toolchains
+        shell: bash
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.85.0 --profile minimal
+      - name: Discover existing Windows native tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'MSVC x64 tools unavailable' }
+          & (Join-Path $installation 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          foreach ($name in @('PATH','INCLUDE','LIB','LIBPATH','VCToolsInstallDir','VCINSTALLDIR','WindowsSdkDir','WindowsSDKVersion','UniversalCRTSdkDir','UCRTVersion')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ($value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
+          }
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.401'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: sdk-local-package
+          path: target/sdk-feed
+      - name: Generate host-local model evidence with the existing verifier
+        shell: pwsh
+        run: |
+          cargo fetch --manifest-path experiments/cpu-detector/Cargo.toml --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ${{ matrix.python }} experiments/cpu-detector/verify.py target/sdk-training
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install identical package outside checkout and execute JIT/NativeAOT
+        shell: pwsh
+        run: |
+          ${{ matrix.python }} tests/sdk-install/verify.py target/sdk-feed target/sdk-training target/sdk-install-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Show failed command diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          ${{ matrix.python }} - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.stdout.reconfigure(encoding='utf-8')
+          for log in sorted([*Path('target/sdk-training').glob('*.log'), *Path('target/sdk-install-evidence').glob('*.log')]):
+              print(str(log) + ':')
+              print('\n'.join(log.read_text(encoding='utf-8', errors='replace').splitlines()[-80:]))
+          PY
+      - name: Preserve text evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdk-install-evidence-${{ matrix.os }}
+          path: |
+            target/sdk-install-evidence/*.json
+            target/sdk-install-evidence/*.log
+            target/sdk-training/**/*.json
+            target/sdk-training/*.log
+          if-no-files-found: error

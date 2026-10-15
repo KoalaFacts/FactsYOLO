@@ -33,6 +33,6 @@ internal static unsafe class Diagnostics
         int end = bytes.IndexOf((byte)0);
         string message = Encoding.UTF8.GetString(bytes[..(end < 0 ? Capacity : end)]);
         throw new FactsYoloException(status, message, diagnostic->required_bytes,
-            diagnostic->required_bytes > Capacity);
+            diagnostic->required_bytes >= Capacity);
     }
 }

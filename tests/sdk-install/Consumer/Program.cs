@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Runtime.CompilerServices;
 using FactsYOLO;
 
 static void Require(bool value, string message)
@@ -40,6 +41,7 @@ static void Compare(Detection[] actual, string file)
 
 try
 {
+    Console.WriteLine($"MODE {(RuntimeFeature.IsDynamicCodeSupported ? "jit" : "aot")}");
     RuntimeInfo runtime = NativeRuntime.Query();
     Console.WriteLine($"RUNTIME rid={runtime.RuntimeIdentifier} abi={runtime.AbiMajor}.{runtime.AbiMinor} build={runtime.BuildId} path={runtime.NativeLibraryPath}");
     if (args.Length == 1 && args[0] == "probe") return 0;
@@ -123,6 +125,9 @@ try
 }
 catch (Exception error)
 {
+    for (Exception? current = error; current is not null; current = current.InnerException)
+        if (current is FactsYoloException native)
+            Console.Error.WriteLine($"NATIVE_FAILURE status={native.Status} required={native.RequiredDiagnosticBytes} truncated={native.IsDiagnosticTruncated} chars={native.NativeDiagnostic.Length}");
     Console.Error.WriteLine(error.ToString());
     return 1;
 }

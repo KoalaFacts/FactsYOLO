@@ -70,6 +70,10 @@ def verify_bundle(directory, rid, commit):
 
 
 def verify_assets(directory, commit):
+    if not directory.is_dir() or {p.name for p in directory.iterdir()} != set(RIDS):
+        raise ValueError("asset root must contain exactly linux-x64 and win-x64 directories")
+    if any(not p.is_dir() or p.is_symlink() for p in directory.iterdir()):
+        raise ValueError("asset root contains a non-directory or symbolic link")
     return {rid: verify_bundle(directory / rid, rid, commit) for rid in RIDS}
 
 

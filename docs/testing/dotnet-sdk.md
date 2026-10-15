@@ -54,6 +54,14 @@ Loader rejection tests use test-only C stubs, never inference fixtures or packag
 assets. A valid native library in the working directory must not rescue a missing
 or broken installed asset.
 
+A separate synchronized ownership test compiles the exact SDK lease/SafeHandle
+source into a test-only executable. It holds an admitted lease across Dispose,
+uses the retained actual TD1 model to create a native session after Dispose, and
+asserts exactly one physical model release after the lease ends. It runs with JIT
+and AOT and adds no accessors/fixture imports to the shipped assembly. The public
+consumer's 32 scheduling/disposal attempts are stress checks, not proof of an
+admitted-operation overlap by themselves.
+
 The CI workflow builds both RID assets, packs once, and supplies the identical
 archive to Linux/Windows consumers. Pull-request jobs use the explicit PR head
 for native source provenance, so the same package can be verified locally.

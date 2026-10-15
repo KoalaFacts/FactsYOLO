@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
+    <RollForward>Disable</RollForward>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <!-- Test the exact ownership implementation without adding test accessors or
+       fixture imports to the distributable SDK. Separate from package consumer. -->
+  <ItemGroup>
+    <Compile Include="../../../sdk/dotnet/FactsYOLO/Handles.cs" Link="Sdk/Handles.cs" />
+    <Compile Include="../../../sdk/dotnet/FactsYOLO/Native.cs" Link="Sdk/Native.cs" />
+    <Compile Include="../../../sdk/dotnet/FactsYOLO/NativeTypes.cs" Link="Sdk/NativeTypes.cs" />
+  </ItemGroup>
+</Project>

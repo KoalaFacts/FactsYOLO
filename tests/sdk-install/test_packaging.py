@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 
@@ -96,6 +97,29 @@ class Packaging(unittest.TestCase):
         self.mutate("linux-x64", lambda m: m["files"].update({"../outside": "0" * 64}))
         with self.assertRaisesRegex(ValueError, "path"):
             self.api.verify_assets(self.root, self.commit)
+
+    def test_unreviewed_bundle_root_file_rejected(self):
+        (self.root / "unreviewed.bin").write_bytes(b"not covered by either RID manifest")
+        with self.assertRaisesRegex(ValueError, "root"):
+            self.api.verify_assets(self.root, self.commit)
+
+    def test_unreviewed_bundle_root_directory_rejected(self):
+        (self.root / "unreviewed").mkdir()
+        with self.assertRaisesRegex(ValueError, "root"):
+            self.api.verify_assets(self.root, self.commit)
+
+
+class WindowsFixtureExports(unittest.TestCase):
+    @unittest.skipIf(__import__('os').name == 'nt', 'Linux preprocessor check; Windows runs actual cl/link gate')
+    def test_missing_export_is_not_declared_dllexport(self):
+        import re
+        # Preprocess the real Windows declaration branch without compiling a
+        # pretend Windows DLL. MSVC forbids undefined dllexport declarations.
+        output = subprocess.check_output(['cc', '-E', '-P', '-D_WIN32', '-DMISSING_EXPORT',
+                                          '-I', str(ROOT / 'include'), str(ROOT / 'tests/sdk-install/loader_fixture.c')], text=True)
+        exports = set(re.findall(r'__declspec\s*\(\s*dllexport\s*\)\s+int32_t\s+(?:__cdecl\s+)?(fy_\w+)', output))
+        expected = set((ROOT / 'tests/c/public-symbols.txt').read_text().splitlines()) - {'fy_result_release'}
+        self.assertEqual(exports, expected)
 
 
 if __name__ == "__main__":

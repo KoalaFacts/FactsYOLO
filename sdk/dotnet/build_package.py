@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pack exactly one temporary dual-RID package; never upload/publish it."""
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -43,10 +44,14 @@ def main(assets, output):
                 if hashlib.sha256(archive.read(entry)).hexdigest() != digest:
                     raise ValueError(f"packaged inventory hash differs: {entry}")
             required.add(f"buildinfo/{rid}/manifest.json")
+            if hashlib.sha256(archive.read(f"buildinfo/{rid}/manifest.json")).hexdigest() != sha256(assets / rid / "manifest.json"):
+                raise ValueError("packaged manifest differs")
         if not required.issubset(names):
             raise ValueError(f"package entries missing: {required - set(names)}")
-        if any(n.endswith((".fytd", ".rgb", ".a", ".lib")) for n in names):
-            raise ValueError("unexpected model/pixel/static/import asset in package")
+        metadata_entries = {"[Content_Types].xml", "_rels/.rels", "FactsYOLO.LocalTest.nuspec"}
+        properties = {n for n in names if re.fullmatch(r"package/services/metadata/core-properties/[a-f0-9]+\.psmdcp", n)}
+        if len(properties) != 1 or set(names) != required | metadata_entries | properties:
+            raise ValueError(f"unexpected package entries: {set(names) - required - metadata_entries - properties}")
     summary = {"source_commit": commit, "package": package.name, "version": version,
                "sha256": sha256(package), "rids": list(RIDS), "local_test_only": True}
     (output / "package.json").write_text(json.dumps(summary, indent=2) + "\n")

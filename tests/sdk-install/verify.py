@@ -130,6 +130,15 @@ def main(feed, training, evidence):
         for backend, cases, _ in models:
             run(f"run-{mode}-{backend}", [*execute, cases / "model.fytd", cases, commit, native_hash], cwd=unrelated,
                 contains=[f"MODE {mode}", "PASS public SDK sample 5", "PASS public SDK: 32"])
+        # Separate ownership-source regression: the detached public consumer
+        # above remains package-only. No test hooks ship in the SDK assembly.
+        ownership = evidence / f"ownership-{mode}"
+        run(f"ownership-publish-{mode}", ["dotnet", "publish", ROOT / "tests/sdk-install/Ownership/Ownership.csproj",
+            "-c", "Release", "-r", rid, "-o", ownership, "--self-contained", "true" if mode == "aot" else "false",
+            f"-p:PublishAot={'true' if mode == 'aot' else 'false'}", "--configfile", config])
+        ownership_command = ["dotnet", ownership / "Ownership.dll"] if mode == "jit" else [ownership / ("Ownership.exe" if os.name == "nt" else "Ownership")]
+        run(f"ownership-run-{mode}", [*ownership_command, publish / runtime_library, models[0][1] / "model.fytd", mode],
+            cwd=unrelated, contains=[f"PASS {mode} admitted SDK lease survives Dispose", "exactly one model release"])
         loader_negatives(mode, publish, runtime_library, unrelated, evidence, run)
     summary = {"passed": True, "source_commit": commit, "source_dirty": False, "rid": rid,
                "package_sha256": metadata["sha256"], "native_sha256": native_hash,

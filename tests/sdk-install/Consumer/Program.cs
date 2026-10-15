@@ -120,7 +120,7 @@ try
         });
         session.Dispose(); model.Dispose(); call.GetAwaiter().GetResult();
     }
-    Console.WriteLine("PASS public SDK: 32 operation/dispose races and repeated ownership cycles");
+    Console.WriteLine("PASS public SDK: 32 disposal/admission attempts (admitted overlap is tested separately)");
     return 0;
 }
 catch (Exception error)

@@ -34,6 +34,13 @@ nupkg and `package.json` with its SHA256. Do not build a different package on ea
 OS using the same ID/version. Transfer this **same feed** to both consumer hosts.
 No native file is manually copied into the consumer's output.
 
+The packaging tests include an actual ordinary `dotnet pack` with the pinned
+SDK, followed by the same archive-entry validator used by the SDK packer. Exactly
+one core-properties entry is allowed: SDK 10.0.401's `nuget.psmdcp` or the legacy
+hexadecimal filename. Duplicate entries, unsafe paths and unlisted content remain
+rejected. This small managed-only regression creates no native assets and does
+not substitute for the dual-platform package installation gate.
+
 On each host use the unchanged existing training verifier to generate current
 source Burn/Candle models and six held-out examples locally, then install/run:
 

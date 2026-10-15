@@ -10,6 +10,25 @@ import zipfile
 from native_assets import ROOT, RIDS, capture, clean_commit, sha256, verify_assets
 
 
+def verify_package_entries(names, required):
+    """Check the archive allowlist independently of native bundle validation."""
+    if len(names) != len(set(names)):
+        raise ValueError("duplicate package entries")
+    for name in names:
+        if "\\" in name or ":" in name or any(part in ("", ".", "..") for part in name.split("/")):
+            raise ValueError(f"unsafe package path: {name}")
+    if not required.issubset(names):
+        raise ValueError(f"package entries missing: {required - set(names)}")
+    metadata_entries = {"[Content_Types].xml", "_rels/.rels", "FactsYOLO.LocalTest.nuspec"}
+    # SDK 10.0.401 uses the fixed name; older packers used a hex identifier.
+    properties = {n for n in names if re.fullmatch(r"package/services/metadata/core-properties/(?:nuget|[a-f0-9]+)\.psmdcp", n)}
+    if len(properties) != 1:
+        raise ValueError("expected exactly one known package core-properties entry")
+    expected = required | metadata_entries | properties
+    if set(names) != expected:
+        raise ValueError(f"package entries differ: missing={expected - set(names)}, unexpected={set(names) - expected}")
+
+
 def main(assets, output):
     commit = clean_commit()
     manifests = verify_assets(assets, commit)
@@ -27,8 +46,6 @@ def main(assets, output):
     package = output / f"FactsYOLO.LocalTest.{version}.nupkg"
     with zipfile.ZipFile(package) as archive:
         names = archive.namelist()
-        if len(names) != len(set(names)):
-            raise ValueError("duplicate package entries")
         required = {"ref/net10.0/FactsYOLO.dll", "runtimes/any/lib/net10.0/FactsYOLO.dll", "LICENSE", "NOTICE", "README.md"}
         for rid, manifest in manifests.items():
             entry = f"runtimes/{rid}/native/{RIDS[rid][1]}"
@@ -46,12 +63,7 @@ def main(assets, output):
             required.add(f"buildinfo/{rid}/manifest.json")
             if hashlib.sha256(archive.read(f"buildinfo/{rid}/manifest.json")).hexdigest() != sha256(assets / rid / "manifest.json"):
                 raise ValueError("packaged manifest differs")
-        if not required.issubset(names):
-            raise ValueError(f"package entries missing: {required - set(names)}")
-        metadata_entries = {"[Content_Types].xml", "_rels/.rels", "FactsYOLO.LocalTest.nuspec"}
-        properties = {n for n in names if re.fullmatch(r"package/services/metadata/core-properties/[a-f0-9]+\.psmdcp", n)}
-        if len(properties) != 1 or set(names) != required | metadata_entries | properties:
-            raise ValueError(f"unexpected package entries: {set(names) - required - metadata_entries - properties}")
+        verify_package_entries(names, required)
     summary = {"source_commit": commit, "package": package.name, "version": version,
                "sha256": sha256(package), "rids": list(RIDS), "local_test_only": True}
     (output / "package.json").write_text(json.dumps(summary, indent=2) + "\n")

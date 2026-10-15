@@ -4,13 +4,88 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("native_assets", ROOT / "sdk/dotnet/native_assets.py")
+sys.path.insert(0, str(ROOT / "sdk/dotnet"))
+from build_package import verify_package_entries
+
+
+class PackageEntries(unittest.TestCase):
+    required = {"lib/net10.0/PackProbe.dll", "README.md", "LICENSE", "NOTICE"}
+    metadata = {"[Content_Types].xml", "_rels/.rels", "FactsYOLO.LocalTest.nuspec"}
+    prefix = "package/services/metadata/core-properties/"
+
+    def entries(self, *properties):
+        return sorted(self.required | self.metadata) + [self.prefix + name for name in properties]
+
+    def test_fixed_nuget_properties_name_accepted(self):
+        verify_package_entries(self.entries("nuget.psmdcp"), self.required)
+
+    def test_legacy_hex_properties_name_accepted(self):
+        verify_package_entries(self.entries("0123456789abcdef.psmdcp"), self.required)
+
+    def test_exactly_one_known_properties_entry_required(self):
+        for names in [(), ("nuget.psmdcp", "abcd.psmdcp"), ("abcd.psmdcp", "0123.psmdcp"),
+                      ("other.psmdcp",), ("nuget.psmdcp.extra",), ("NUGET.psmdcp",)]:
+            with self.subTest(names=names), self.assertRaises(ValueError):
+                verify_package_entries(self.entries(*names), self.required)
+
+    def test_duplicate_entries_rejected(self):
+        for name in ["LICENSE", self.prefix + "nuget.psmdcp"]:
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "duplicate"):
+                verify_package_entries(self.entries("nuget.psmdcp") + [name], self.required)
+
+    def test_missing_or_extra_entries_rejected(self):
+        for name in ["model.fytd", "runtimes/win-x64/native/facts_yolo.dll", self.prefix + "extra.txt"]:
+            with self.subTest(extra=name), self.assertRaises(ValueError):
+                verify_package_entries(self.entries("nuget.psmdcp") + [name], self.required)
+        for name in self.required | self.metadata:
+            with self.subTest(missing=name), self.assertRaises(ValueError):
+                verify_package_entries([n for n in self.entries("nuget.psmdcp") if n != name], self.required)
+
+    def test_unsafe_paths_rejected_even_if_allowlisted(self):
+        for name in ["", "/absolute", "../outside", "path/../outside", "path/./file",
+                     "path//file", "path/", "C:/outside", "path\\file"]:
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "path"):
+                verify_package_entries(self.entries("abcd.psmdcp") + [name], self.required | {name})
+
+    def test_normal_dotnet_pack_metadata_is_accepted(self):
+        # Exercise the actual pinned SDK, not a fabricated ZIP or Windows asset.
+        with tempfile.TemporaryDirectory(prefix="factsyolo-pack-regression-") as temp:
+            root = Path(temp)
+            shutil.copyfile(ROOT / "sdk/dotnet/global.json", root / "global.json")
+            for name in ["LICENSE", "NOTICE"]:
+                shutil.copyfile(ROOT / name, root / name)
+            (root / "README.md").write_text("Local metadata regression only; never publish.\n")
+            (root / "NuGet.Config").write_text("<configuration><packageSources><clear/></packageSources></configuration>\n")
+            project = root / "PackProbe.csproj"
+            project.write_text('''<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><TargetFramework>net10.0</TargetFramework>
+<PackageId>FactsYOLO.LocalTest</PackageId><PackageVersion>0.0.0-pack-regression</PackageVersion>
+<PackageReadmeFile>README.md</PackageReadmeFile><PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+<Description>Local metadata validation regression only.</Description></PropertyGroup>
+<ItemGroup><None Include="README.md;LICENSE;NOTICE" Pack="true" PackagePath="/" /></ItemGroup>
+</Project>''')
+            version = subprocess.check_output(["dotnet", "--version"], cwd=root, text=True).strip()
+            self.assertEqual(version, "10.0.401")
+            command = ["dotnet", "pack", str(project), "-c", "Release", "-o", str(root / "feed"),
+                       "--configfile", str(root / "NuGet.Config")]
+            result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, timeout=180)
+            print(f"ordinary dotnet pack regression: {command!r}\n{result.stdout}", flush=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            with zipfile.ZipFile(root / "feed/FactsYOLO.LocalTest.0.0.0-pack-regression.nupkg") as archive:
+                names = archive.namelist()
+            self.assertIn(self.prefix + "nuget.psmdcp", names)
+            verify_package_entries(names, self.required)
 
 
 class Packaging(unittest.TestCase):

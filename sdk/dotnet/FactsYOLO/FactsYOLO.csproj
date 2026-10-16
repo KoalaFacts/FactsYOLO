@@ -14,10 +14,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/KoalaFacts/FactsYOLO</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <BuildOutputTargetFolder>runtimes/any/lib</BuildOutputTargetFolder>
+    <BuildOutputTargetFolder>lib</BuildOutputTargetFolder>
   </PropertyGroup>
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <None Include="$(TargetPath)" Pack="true" PackagePath="ref/net10.0/" />
     <None Include="../../../LICENSE;../../../NOTICE" Pack="true" PackagePath="/" />
     <None Include="../README.md" Pack="true" PackagePath="/" />
     <None Include="$(NativeAssetsRoot)/linux-x64/libfacts_yolo.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />

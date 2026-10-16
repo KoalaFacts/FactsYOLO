@@ -123,6 +123,11 @@ def main(feed, training, evidence):
             raise ValueError("restore included a project instead of an installed SDK package")
         if {Path(p).resolve() for p in restored["packageFolders"]} != {Path(env["NUGET_PACKAGES"]).resolve()}:
             raise ValueError("restore used a non-isolated package directory")
+        selected = restored["targets"][f"net10.0/{rid}"][sdk_key]
+        if set(selected.get("compile", {})) != {"lib/net10.0/FactsYOLO.dll"} or set(selected.get("runtime", {})) != {"lib/net10.0/FactsYOLO.dll"}:
+            raise ValueError("restored managed SDK layout differs")
+        if set(selected.get("native", {})) != {f"runtimes/{rid}/native/{runtime_library}"}:
+            raise ValueError("restored native SDK layout differs")
         cached = Path(env["NUGET_PACKAGES"]) / "factsyolo.localtest" / metadata["version"] / package.name.lower()
         if sha256(cached) != metadata["sha256"] or sha256(publish / runtime_library) != native_hash:
             raise ValueError("installed package/native hash differs")

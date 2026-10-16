@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("native_assets", ROOT / "sdk/dotnet/native_assets.py")
 sys.path.insert(0, str(ROOT / "sdk/dotnet"))
 from build_package import verify_package_entries
+from pack_linux_probe import pack_linux_probe
 
 
 class PackageEntries(unittest.TestCase):
@@ -195,6 +197,22 @@ class WindowsFixtureExports(unittest.TestCase):
         exports = set(re.findall(r'__declspec\s*\(\s*dllexport\s*\)\s+int32_t\s+(?:__cdecl\s+)?(fy_\w+)', output))
         expected = set((ROOT / 'tests/c/public-symbols.txt').read_text().splitlines()) - {'fy_result_release'}
         self.assertEqual(exports, expected)
+
+
+class RealSdkLayout(unittest.TestCase):
+    def test_real_sdk_linux_layout_packs_with_warnings_as_errors(self):
+        # CI has staged real bundles before this test. Local runs can select a
+        # verified Linux bundle explicitly; missing inputs fail rather than skip.
+        assets = Path(os.environ.get("FACTSYOLO_SDK_TEST_LINUX_ASSETS", ROOT / "target/sdk-assets/linux-x64"))
+        with tempfile.TemporaryDirectory(prefix="factsyolo-real-sdk-pack-") as temp:
+            try:
+                result = pack_linux_probe(assets, Path(temp) / "probe")
+            except RuntimeError as error:
+                self.fail(str(error))
+            names = set(result["payload_sha256"])
+            self.assertIn("lib/net10.0/FactsYOLO.dll", names)
+            self.assertIn("runtimes/linux-x64/native/libfacts_yolo.so", names)
+            self.assertFalse(any(n.startswith(("ref/", "runtimes/any/", "runtimes/win-x64/")) for n in names))
 
 
 if __name__ == "__main__":

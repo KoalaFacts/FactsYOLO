@@ -46,7 +46,7 @@ def main(assets, output):
     package = output / f"FactsYOLO.LocalTest.{version}.nupkg"
     with zipfile.ZipFile(package) as archive:
         names = archive.namelist()
-        required = {"ref/net10.0/FactsYOLO.dll", "runtimes/any/lib/net10.0/FactsYOLO.dll", "LICENSE", "NOTICE", "README.md"}
+        required = {"lib/net10.0/FactsYOLO.dll", "LICENSE", "NOTICE", "README.md"}
         for rid, manifest in manifests.items():
             entry = f"runtimes/{rid}/native/{RIDS[rid][1]}"
             required.add(entry)

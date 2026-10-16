@@ -40,7 +40,7 @@ compatibility claims.
 
 ## Package and provenance
 
-Use ref/net10.0 and runtimes/any/lib/net10.0 for managed assets, and
+Use lib/net10.0 for the managed assembly, and
 runtimes/{linux-x64,win-x64}/native for shared libraries. Package no import/static
 library, model or pixel data. Stage each native binary with exact source commit,
 SHA256, toolchain, selected Cargo dependency inventory, export set and platform
@@ -49,6 +49,13 @@ license texts and per-target SBOM/inventory with explicit coverage limits for
 Rust standard library and external system runtimes. Do not mislabel a Cargo tree
 as a complete linked-binary SBOM. Packing fails on absent/mismatched RID assets,
 fixture exports, hash/provenance mismatch or absent notices.
+
+The reviewed 2026-10-16 layout correction replaces duplicate ref/runtimes-any
+managed entries with the standard lib entry. Strict packing of the former
+layout fails NU5131; adding only legacy references metadata fails NU5018.
+Warnings remain errors. Supported consumers remain SDK-style net10.0 projects
+using PackageReference with an explicit supported RID; packages.config support
+and additional native platforms are not introduced by the lib layout.
 
 ## Acceptance
 

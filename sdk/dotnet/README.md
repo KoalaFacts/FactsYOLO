@@ -6,6 +6,9 @@ It wraps experimental C ABI 1.0; no stable managed API is promised.
 
 The package selects Linux x64 or Windows x64 native assets for a net10.0 process.
 Use an explicit `linux-x64` or `win-x64` runtime identifier when publishing.
+Use an SDK-style net10.0 project with PackageReference. The managed assembly is
+at `lib/net10.0/FactsYOLO.dll`; native libraries remain under their RID-specific
+`runtimes/*/native` paths. This layout does not add packages.config support.
 Managed AnyCPU does not add ARM, x86, macOS, musl or older-Linux support.
 Linux dynamic dependencies and GLIBC symbol requirements, or Windows PE import
 dependencies, are recorded per target under `buildinfo/`. NativeAOT consumers

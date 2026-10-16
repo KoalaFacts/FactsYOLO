@@ -41,6 +41,16 @@ hexadecimal filename. Duplicate entries, unsafe paths and unlisted content remai
 rejected. This small managed-only regression creates no native assets and does
 not substitute for the dual-platform package installation gate.
 
+A second regression builds the actual SDK into an isolated output directory,
+reads its evaluated managed pack items, and strictly packs a Linux-only projection
+with a real verified native bundle. It requires `target/sdk-assets/linux-x64`
+(already staged in CI), or a local path set via
+`FACTSYOLO_SDK_TEST_LINUX_ASSETS`. Missing real assets fail the test. The expected
+managed entry is `lib/net10.0/FactsYOLO.dll`, used for compilation and runtime;
+native entries remain RID-specific. No NU5131 suppression or relaxed warning
+policy is used. This projection isolates the layout regression and does not
+replace the actual production project's dual-RID pack gate or Windows execution.
+
 On each host use the unchanged existing training verifier to generate current
 source Burn/Candle models and six held-out examples locally, then install/run:
 

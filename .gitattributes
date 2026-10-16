@@ -1,0 +1,2 @@
+# Preserve byte-hashed upstream notices verbatim, including on autocrlf checkouts.
+sdk/dotnet/runtime-notices/** -text

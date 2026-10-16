@@ -113,6 +113,23 @@ def selected_inventory(target):
     return [(packages[key], sorted(roles)) for key, roles in sorted(selected.items())]
 
 
+def stage_runtime_notices(destination, toolchain):
+    """Supplement omissions in the pinned toolchain's upstream std report."""
+    source = ROOT / "sdk/dotnet/runtime-notices"
+    inventory = json.loads((source / "inventory.json").read_text())
+    version = dict(line.split(": ", 1) for line in toolchain.splitlines() if ": " in line)
+    if (version.get("release"), version.get("commit-hash")) != (inventory["rust_release"], inventory["rust_commit"]):
+        raise ValueError("runtime notice inventory requires review for this Rust toolchain")
+    actual = {p.relative_to(source).as_posix() for p in source.rglob("*") if p.is_file()}
+    if actual != set(inventory["files"]) | {"inventory.json"}:
+        raise ValueError("runtime notice file set differs")
+    for name, digest in inventory["files"].items():
+        path = source / name
+        if path.is_symlink() or not path.resolve().is_relative_to(source.resolve()) or sha256(path) != digest:
+            raise ValueError(f"runtime notice hash or path differs: {name}")
+    shutil.copytree(source, destination)
+
+
 def stage(output):
     commit = clean_commit()
     if platform.machine().lower() not in ("x86_64", "amd64") or platform.system() not in ("Linux", "Windows"):
@@ -171,6 +188,7 @@ def stage(output):
         raise ValueError("Rust standard-library copyright report missing; install official rust-docs component")
     shutil.copytree(docs / "licenses", directory / "licenses/rust-standard-library/licenses")
     shutil.copyfile(std_notices, directory / "licenses/rust-standard-library/COPYRIGHT-library.html")
+    stage_runtime_notices(directory / "licenses/rust-runtime-supplement", toolchain)
     (directory / "cargo-inventory.json").write_text(json.dumps(inventory, indent=2) + "\n")
     packages = [{"SPDXID": f"SPDXRef-Cargo-{i}", "name": p["name"], "versionInfo": p["version"],
                  "downloadLocation": p["source"] if p["source"].startswith("https:") else "NOASSERTION",
@@ -179,7 +197,7 @@ def stage(output):
     sbom = {"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT",
             "name": f"FactsYOLO-local-{rid}", "documentNamespace": f"https://spdx.org/spdxdocs/factsyolo-{commit}-{rid}-{sha256(library)}",
             "creationInfo": {"creators": ["Tool: FactsYOLO-local-native-assets"], "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
-            "comment": "Source/build inventory, not a complete linked-object SBOM. Cargo native-source entries may include dead-stripped code; build-only entries are tools, not shipped dependencies. Rust standard-library source notices are included conservatively; target-specific linked subset is not resolved. External OS libraries remain prerequisites, see system-dependencies.txt. This local test package is not release-cleared.",
+            "comment": "Source/build inventory, not a complete linked-object SBOM. Cargo native-source entries may include dead-stripped code; build-only entries are tools, not shipped dependencies. Rust standard-library source notices and the pinned rust-runtime-supplement/inventory.json are included conservatively; target-specific linked subset is not resolved. External OS libraries remain prerequisites, see system-dependencies.txt. This local test package is not release-cleared.",
             "packages": packages,
             "files": [{"SPDXID": "SPDXRef-NativeFile", "fileName": library_name,
                        "checksums": [{"algorithm": "SHA256", "checksumValue": sha256(library)}],

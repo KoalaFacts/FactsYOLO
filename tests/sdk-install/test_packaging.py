@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +19,70 @@ SPEC = importlib.util.spec_from_file_location("native_assets", ROOT / "sdk/dotne
 sys.path.insert(0, str(ROOT / "sdk/dotnet"))
 from build_package import verify_package_entries
 from pack_linux_probe import pack_linux_probe
+import native_assets
+
+
+class RustRuntimeNotices(unittest.TestCase):
+    def test_pinned_runtime_notices_cover_observed_missing_components(self):
+        toolchain = subprocess.check_output(["rustc", "-vV"], cwd=ROOT, text=True)
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "supplement"
+            native_assets.stage_runtime_notices(destination, toolchain)
+            for name in ("addr2line-0.27.1", "adler2-2.0.1", "object-0.39.1",
+                         "miniz_oxide-0.9.1", "memchr-2.8.3", "compiler_builtins-0.1.160"):
+                with self.subTest(component=name):
+                    texts = [p for p in (destination / name).rglob("*") if p.is_file()]
+                    self.assertTrue(texts, name)
+                    self.assertTrue(any("Permission is hereby granted" in p.read_text() for p in texts), name)
+            self.assertIn("LLVM Exceptions", (destination / "compiler_builtins-0.1.160/LICENSE.txt").read_text())
+            self.assertIn("Copyright 2013-2014 RAD Game Tools", (destination / "miniz_oxide-0.9.1/LICENSE").read_text())
+
+    def test_memchr_includes_both_declared_license_alternatives(self):
+        toolchain = subprocess.check_output(["rustc", "-vV"], cwd=ROOT, text=True)
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "supplement"
+            native_assets.stage_runtime_notices(destination, toolchain)
+            unlicense = destination / "memchr-2.8.3/UNLICENSE"
+            self.assertTrue(unlicense.is_file(), "the versioned memchr notices must include its declared Unlicense alternative")
+            self.assertIn("This is free and unencumbered software released into the public domain", unlicense.read_text())
+
+    def test_other_toolchain_requires_new_notice_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for version in ("1.100.0", "1.99.0"):
+                with self.subTest(version=version), self.assertRaisesRegex(ValueError, "runtime notice.*toolchain"):
+                    native_assets.stage_runtime_notices(Path(temp) / "supplement", f"release: {version}\ncommit-hash: unknown\n")
+
+    def test_modified_upstream_notice_is_rejected(self):
+        toolchain = subprocess.check_output(["rustc", "-vV"], cwd=ROOT, text=True)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            copied = root / "sdk/dotnet/runtime-notices"
+            shutil.copytree(ROOT / "sdk/dotnet/runtime-notices", copied)
+            (copied / "miniz_oxide-0.9.1/LICENSE").write_text("missing upstream attribution")
+            with patch.object(native_assets, "ROOT", root), self.assertRaisesRegex(ValueError, "runtime notice hash"):
+                native_assets.stage_runtime_notices(root / "output", toolchain)
+            self.assertFalse((root / "output").exists())
+
+    def test_git_autocrlf_checkout_preserves_upstream_notice_bytes(self):
+        # Exercise Git conversion on Linux too; this is not Windows execution.
+        toolchain = subprocess.check_output(["rustc", "-vV"], cwd=ROOT, text=True)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = root / "repository"
+            repository.mkdir()
+            shutil.copytree(ROOT / "sdk/dotnet/runtime-notices", repository / "sdk/dotnet/runtime-notices")
+            if (ROOT / ".gitattributes").exists():
+                shutil.copyfile(ROOT / ".gitattributes", repository / ".gitattributes")
+            for command in (["git", "init", "-q"], ["git", "-c", "core.autocrlf=false", "add", "--all"]):
+                subprocess.run(command, cwd=repository, check=True, capture_output=True)
+            checkout = root / "checkout"
+            subprocess.run(["git", "-c", "core.autocrlf=true", "checkout-index", "--all",
+                            f"--prefix={checkout.as_posix()}/"], cwd=repository, check=True, capture_output=True)
+            with patch.object(native_assets, "ROOT", checkout):
+                try:
+                    native_assets.stage_runtime_notices(root / "output", toolchain)
+                except ValueError as error:
+                    self.fail(f"Git line-ending conversion changed an upstream notice: {error}")
 
 
 class PackageEntries(unittest.TestCase):
@@ -212,6 +277,13 @@ class RealSdkLayout(unittest.TestCase):
             names = set(result["payload_sha256"])
             self.assertIn("lib/net10.0/FactsYOLO.dll", names)
             self.assertIn("runtimes/linux-x64/native/libfacts_yolo.so", names)
+            for component, license_file in [("addr2line-0.27.1", "LICENSE-MIT"),
+                                            ("adler2-2.0.1", "LICENSE-MIT"),
+                                            ("object-0.39.1", "LICENSE-MIT"),
+                                            ("miniz_oxide-0.9.1", "LICENSE"),
+                                            ("memchr-2.8.3", "LICENSE-MIT"),
+                                            ("compiler_builtins-0.1.160", "LICENSE.txt")]:
+                self.assertIn(f"buildinfo/linux-x64/licenses/rust-runtime-supplement/{component}/{license_file}", names)
             self.assertFalse(any(n.startswith(("ref/", "runtimes/any/", "runtimes/win-x64/")) for n in names))
 
 

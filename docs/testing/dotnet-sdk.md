@@ -98,7 +98,12 @@ Original code is Apache-2.0. Package LICENSE/NOTICE and per-crate license copies
 are included. Target SPDX2.3 records are source/build inventories with the exact
 native binary hash: they distinguish native-source and build-only Cargo entries
 but do not determine the dead-stripped linked subset. The original Rust standard
-library copyright report/license files are included conservatively. External
+library copyright report/license files and a pinned
+[runtime supplement](../../sdk/dotnet/runtime-notices/inventory.json) are included
+conservatively; the supplement covers observed omissions in Rust 1.99.0's report.
+Staging rejects a different rustc release/commit until its notices are reviewed.
+The [Linux binary audit](linux-sdk-redistribution.md) records the actual 07e1cc2
+ELF requirements and the limits of that evidence. External
 system prerequisites are recorded separately. A complete linked-binary SBOM,
 redistribution audit and supported-OS matrix remain required before public release.
 No inference SDK dependency on Burn/Candle is added; those remain test/training

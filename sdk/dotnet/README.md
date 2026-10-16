@@ -39,6 +39,9 @@ Original SDK/native code is Apache-2.0. LICENSE/NOTICE and selected dependency
 license texts accompany the package. SPDX files are **source/build inventories**,
 not complete linked-object SBOMs or release clearance. Build-only dependencies,
 conservatively included Rust standard-library source notices and external OS
-requirements are identified separately. No Burn/Candle training framework ships
+requirements are identified separately. `buildinfo/*/licenses/rust-runtime-supplement/`
+contains pinned upstream notices omitted or incorrectly versioned in the Rust
+1.99.0 report, with exact source/archive hashes in `inventory.json`.
+No Burn/Candle training framework ships
 in the selected native dependency graph. A public binary release still needs a
 complete redistribution and supported-OS audit.

@@ -7,7 +7,10 @@ runtime, C ABI, training/inference implementation and original CI are unchanged.
 Passing this gate does not freeze the managed API or promise a stable SDK release.
 
 The `.NET 11 consumer compatibility` workflow runs on PRs changing its workflows,
-tooling or the existing consumer, ownership or loader test sources it reuses.
+tooling, package/native inputs, training inputs or the existing consumer,
+ownership and loader test sources it reuses. This includes the entire dotnet SDK
+and SDK-install helper directories, native crates/headers, Cargo/toolchain files,
+native export inventory and package notices.
 The separate `.NET 11 manual compatibility` entry supports manual dispatch.
 Both call one worker: the PR entry pins the PR head, while the manual entry pins
 only the selected workflow revision (`github.sha`) and accepts no custom ref.
@@ -54,7 +57,10 @@ SHA-512 is still checked. No SDK installer bypass or warning suppression is used
 
 ## What is checked
 
-The public Program.cs is copied unchanged outside the checkout. Only the detached
+The public Program.cs is copied unchanged outside the checkout. Additional implicit
+C# sources (including nested files) are rejected before copying, so future baseline
+consumer changes cannot silently lose code; generated root bin/obj outputs are
+excluded. The same inventory guard applies to the ownership probe. Only the detached
 project's target framework/runtime and its global.json select RC2. Restore uses
 PackageReference, a fresh global/HTTP cache, a source-mapped local test feed and
 official nuget.org for .NET tool packs. It must select `lib/net10.0/FactsYOLO.dll`

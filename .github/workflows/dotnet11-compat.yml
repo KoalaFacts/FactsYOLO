@@ -3,11 +3,20 @@ on:
   pull_request:
     paths:
       - '.github/workflows/dotnet11-*.yml'
+      - '.cargo/**'
+      - '.gitattributes'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'crates/**'
+      - 'include/**'
+      - 'experiments/cpu-detector/**'
+      - 'sdk/dotnet/**'
+      - 'tests/c/public-symbols.txt'
       - 'tests/dotnet11/**'
-      - 'tests/sdk-install/Consumer/**'
-      - 'tests/sdk-install/Ownership/**'
-      - 'tests/sdk-install/verify.py'
-      - 'tests/sdk-install/loader_fixture.c'
+      - 'tests/sdk-install/**'
 permissions:
   contents: read
 jobs:

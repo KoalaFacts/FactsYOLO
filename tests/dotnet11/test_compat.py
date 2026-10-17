@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
+import fnmatch
 import hashlib
 import io
 from pathlib import Path
+import re
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -15,6 +18,43 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PreviewCompatibility(unittest.TestCase):
+    def test_extra_implicitly_compiled_source_is_not_silently_omitted(self):
+        for kind in ['Consumer', 'Ownership']:
+            for extra in ['Extra.cs', 'nested/Extra.cs', 'Extra.CS']:
+                with self.subTest(kind=kind, extra=extra), tempfile.TemporaryDirectory() as temp:
+                    source = Path(temp) / kind
+                    shutil.copytree(ROOT / 'tests/sdk-install' / kind, source,
+                                    ignore=shutil.ignore_patterns('bin', 'obj'))
+                    added = source / extra; added.parent.mkdir(exist_ok=True)
+                    added.write_text('internal class Extra {}')
+                    with self.assertRaisesRegex(ValueError, 'implicit source inventory'):
+                        prepare_project(source, Path(temp) / 'copy', ROOT)
+
+    def test_generated_bin_and_obj_sources_are_not_consumer_inputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / 'Consumer'
+            shutil.copytree(ROOT / 'tests/sdk-install/Consumer', source,
+                            ignore=shutil.ignore_patterns('bin', 'obj'))
+            for generated in ['bin', 'obj']:
+                (source / generated).mkdir()
+                (source / generated / 'Generated.cs').write_text('generated output')
+            prepare_project(source, Path(temp) / 'copy', ROOT)
+            self.assertFalse((Path(temp) / 'copy/obj').exists())
+
+    def test_package_and_helper_changes_trigger_preview_workflow(self):
+        workflow = (ROOT / '.github/workflows/dotnet11-compat.yml').read_text()
+        patterns = re.findall(r"^      - '([^']+)'$", workflow, re.MULTILINE)
+        inputs = ['sdk/dotnet/FactsYOLO/Model.cs', 'sdk/dotnet/build_package.py',
+                  'sdk/dotnet/native_assets.py', 'sdk/dotnet/global.json',
+                  'tests/sdk-install/test_loader_fixtures.py', 'tests/sdk-install/test_packaging.py',
+                  'crates/facts-yolo/src/lib.rs', 'include/facts_yolo.h',
+                  'experiments/cpu-detector/model/src/lib.rs', 'tests/c/public-symbols.txt',
+                  'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitattributes', 'LICENSE', 'NOTICE']
+        for name in inputs:
+            with self.subTest(path=name):
+                self.assertTrue(any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns), name)
+        self.assertFalse(any(fnmatch.fnmatchcase('docs/unrelated.md', pattern) for pattern in patterns))
+
     def test_loader_dotnet_uses_verified_absolute_executable(self):
         installed = Path('/verified/sdk/dotnet.exe')
         self.assertEqual(preview_command(['dotnet', 'Consumer.dll'], installed), [str(installed), 'Consumer.dll'])

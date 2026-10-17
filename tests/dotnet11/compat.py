@@ -31,10 +31,13 @@ def prepare_project(source, destination, repository):
     runtime = tree.find('.//RuntimeFrameworkVersion')
     if framework is None or framework.text != 'net10.0' or runtime is None or runtime.text != '10.0.12':
         raise ValueError('stable consumer baseline changed; review preview retargeting')
-    implicit_sources = {path.relative_to(source).as_posix() for path in source.rglob('*')
-                        if path.is_file() and path.suffix.lower() == '.cs'
-                        and path.relative_to(source).parts[0] not in ('bin', 'obj')}
-    if implicit_sources != {'Program.cs'}:
+    source_paths = [path for path in source.rglob('*')
+                    if path.relative_to(source).parts[0] not in ('bin', 'obj')]
+    # MSBuild follows directory links, while Path.rglob does not. Reject links,
+    # including broken ones, before accepting the detached source inventory.
+    implicit_sources = {path.relative_to(source).as_posix() for path in source_paths
+                        if path.is_file() and path.suffix.lower() == '.cs'}
+    if any(path.is_symlink() for path in source_paths) or implicit_sources != {'Program.cs'}:
         raise ValueError('stable consumer implicit source inventory changed; review preview copying')
     framework.text = SETTINGS['framework']
     runtime.text = SETTINGS['runtime']

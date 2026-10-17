@@ -18,6 +18,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PreviewCompatibility(unittest.TestCase):
+    def test_linked_implicit_source_directory_is_not_silently_omitted(self):
+        for kind in ['Consumer', 'Ownership']:
+            for target_exists in [True, False]:
+                with self.subTest(kind=kind, target_exists=target_exists), tempfile.TemporaryDirectory() as temp:
+                    source = Path(temp) / kind
+                    shutil.copytree(ROOT / 'tests/sdk-install' / kind, source,
+                                    ignore=shutil.ignore_patterns('bin', 'obj'))
+                    target = Path(temp) / 'shared'
+                    if target_exists:
+                        target.mkdir()
+                        (target / 'Extra.cs').write_text('internal class Extra {}')
+                    (source / 'Linked').symlink_to(target, target_is_directory=True)
+                    with self.assertRaisesRegex(ValueError, 'implicit source inventory'):
+                        prepare_project(source, Path(temp) / 'copy', ROOT)
+
     def test_extra_implicitly_compiled_source_is_not_silently_omitted(self):
         for kind in ['Consumer', 'Ownership']:
             for extra in ['Extra.cs', 'nested/Extra.cs', 'Extra.CS']:
@@ -49,6 +64,7 @@ class PreviewCompatibility(unittest.TestCase):
                   'tests/sdk-install/test_loader_fixtures.py', 'tests/sdk-install/test_packaging.py',
                   'crates/facts-yolo/src/lib.rs', 'include/facts_yolo.h',
                   'experiments/cpu-detector/model/src/lib.rs', 'tests/c/public-symbols.txt',
+                  'tests/compat/td1_v1_vectors.rs', 'xtask/Cargo.toml',
                   'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitattributes', 'LICENSE', 'NOTICE']
         for name in inputs:
             with self.subTest(path=name):

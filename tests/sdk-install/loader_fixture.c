@@ -25,6 +25,7 @@
 extern int fy_dependency_probe(void);
 #endif
 int32_t FY_CALL fy_abi_query(fy_abi_info *out, fy_diagnostic *diag) {
+    int32_t status = FY_OK;
 #if defined(WITH_DEPENDENCY)
     out->abi_major = (uint32_t)fy_dependency_probe();
 #elif defined(DIAGNOSTIC_BOUNDARY)
@@ -34,12 +35,12 @@ int32_t FY_CALL fy_abi_query(fy_abi_info *out, fy_diagnostic *diag) {
     if (diag->capacity) diag->data[count] = 0;
     diag->required_bytes = 1024;
     (void)out;
-    return FY_UNSUPPORTED_MODEL;
+    status = FY_UNSUPPORTED_MODEL;
 #else
     out->abi_major = 2;
 #endif
     (void)diag;
-    return FY_OK;
+    return status;
 }
 int32_t FY_CALL fy_capabilities_copy(fy_capability *a,size_t b,size_t *c,fy_diagnostic *d) { (void)a;(void)b;(void)c;(void)d;return 12; }
 int32_t FY_CALL fy_model_open(uint32_t a,const uint8_t *b,size_t c,const fy_model_options *d,fy_model **e,fy_diagnostic *f) { (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;return 12; }

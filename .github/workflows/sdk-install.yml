@@ -146,6 +146,11 @@ jobs:
         with:
           name: sdk-local-package
           path: target/sdk-feed
+      - name: Compile every loader fixture with strict host warnings
+        shell: pwsh
+        run: |
+          ${{ matrix.python }} tests/sdk-install/test_loader_fixtures.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Generate host-local model evidence with the existing verifier
         shell: pwsh
         run: |

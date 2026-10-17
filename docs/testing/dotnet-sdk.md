@@ -60,6 +60,13 @@ This catches duplicated recursive buildinfo paths without creating a second
 shared package or weakening warnings. The full pack and both installed consumers
 remain separate required gates.
 
+Before training, each consumer host also runs
+`python3 tests/sdk-install/test_loader_fixtures.py -v` (`python` on Windows).
+This compiles all four loader-fixture variants using the actual host compiler
+with warnings as errors, including MSVC `/W4 /WX`. It catches platform compiler
+failures early; it does not link or execute fixtures and does not replace the
+installed consumer's full JIT/AOT rejection checks.
+
 On each host use the unchanged existing training verifier to generate current
 source Burn/Candle models and six held-out examples locally, then install/run:
 

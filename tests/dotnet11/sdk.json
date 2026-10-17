@@ -1,0 +1,17 @@
+{
+  "sdk": "11.0.100-rc.2.26504.105",
+  "runtime": "11.0.0-rc.2.26504.105",
+  "framework": "net11.0",
+  "release_date": "2026-10-13",
+  "metadata_url": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/11.0/releases.json",
+  "assets": {
+    "linux-x64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/11.0.100-rc.2.26504.105/dotnet-sdk-11.0.100-rc.2.26504.105-linux-x64.tar.gz",
+      "sha512": "54e9463339337cef68f455e97dadac0a9e1b49416a3b15504b577144b24ae4b4eed4e7ba3bac507650b61edf704e977b4627d3804f4c2688cc5bd69b4f2eecdd"
+    },
+    "win-x64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/11.0.100-rc.2.26504.105/dotnet-sdk-11.0.100-rc.2.26504.105-win-x64.zip",
+      "sha512": "cd7ebd21e99290e295dcf7d4874c4c102e96668b0e0bf4e8d42aa91e8d7d7c876613a0e813bf8dfdf50d458ed1cb990b5c91431fd48cc9cc1893652d5038775a"
+    }
+  }
+}

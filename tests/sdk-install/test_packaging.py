@@ -254,15 +254,24 @@ class Packaging(unittest.TestCase):
 
 class WindowsFixtureExports(unittest.TestCase):
     @unittest.skipIf(__import__('os').name == 'nt', 'Linux preprocessor check; Windows runs actual cl/link gate')
-    def test_missing_export_is_not_declared_dllexport(self):
+    def test_windows_export_directives_match_defined_fixture_functions(self):
         import re
-        # Preprocess the real Windows declaration branch without compiling a
-        # pretend Windows DLL. MSVC forbids undefined dllexport declarations.
-        output = subprocess.check_output(['cc', '-E', '-P', '-D_WIN32', '-DMISSING_EXPORT',
-                                          '-I', str(ROOT / 'include'), str(ROOT / 'tests/sdk-install/loader_fixture.c')], text=True)
-        exports = set(re.findall(r'__declspec\s*\(\s*dllexport\s*\)\s+int32_t\s+(?:__cdecl\s+)?(fy_\w+)', output))
-        expected = set((ROOT / 'tests/c/public-symbols.txt').read_text().splitlines()) - {'fy_result_release'}
-        self.assertEqual(exports, expected)
+        # Check the real Windows branch's linker contract without pretending to
+        # execute MSVC. Header declarations and definitions must retain identical
+        # linkage, and the missing function must never be requested for export.
+        public = set((ROOT / 'tests/c/public-symbols.txt').read_text().splitlines())
+        for variant in ['MISSING_EXPORT', 'WRONG_ABI', 'DIAGNOSTIC_BOUNDARY', 'WITH_DEPENDENCY']:
+            with self.subTest(variant=variant):
+                output = subprocess.check_output(['cc', '-E', '-P', '-D_WIN32', f'-D{variant}',
+                                                  '-I', str(ROOT / 'include'), str(ROOT / 'tests/sdk-install/loader_fixture.c')], text=True)
+                exports = re.findall(r'#pragma\s+comment\s*\(\s*linker\s*,\s*"/export:(fy_\w+)"\s*\)', output)
+                definitions = re.findall(r'int32_t\s+__cdecl\s+(fy_\w+)\([^;{]*\)\s*\{', output)
+                expected = public - ({'fy_result_release'} if variant == 'MISSING_EXPORT' else set())
+                self.assertNotRegex(output, r'__declspec\s*\(\s*dll(?:import|export)\s*\)')
+                self.assertEqual(len(exports), len(set(exports)))
+                self.assertEqual(len(definitions), len(set(definitions)))
+                self.assertEqual(set(exports), expected)
+                self.assertEqual(set(definitions), expected)
 
 
 class RealSdkLayout(unittest.TestCase):

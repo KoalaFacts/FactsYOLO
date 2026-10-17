@@ -50,8 +50,9 @@ Development-only tools added/used by the M1 acceptance gate:
   build tools are not redistributed by this repository; their own licenses and
   runtime-library exceptions remain applicable. No 32-bit runtime is published.
 
-No third-party source or license text from these tools is vendored here. This
-inventory does not certify a distributable binary SBOM; any future packaging
+No third-party tool implementation is vendored here. Pinned runtime license
+texts used by SDK packaging are recorded below. This inventory does not certify
+a distributable binary SBOM; any future packaging
 must account for the exact linked runtime/native components and their notices.
 
 Before adding a dependency, record its exact version/source, SPDX license where
@@ -113,3 +114,23 @@ for redistribution. No external C/GPU library is added by this optional graph;
 Rust/std/system runtime obligations still apply. No binary release/license-copy
 bundle is produced in this stage; packaging still requires a binary SBOM and
 upstream notice copies. Root and portable MSRV remain1.85.
+
+## Pinned Rust runtime notices for the local SDK
+
+The 07e1cc2 Linux native library contains Rust standard-library compilation units
+that are absent or incorrectly versioned in Rust 1.99.0's packaged
+`COPYRIGHT-library.html`. The SDK staging script preserves that original report
+and adds the unmodified upstream license files in
+[runtime-notices](sdk/dotnet/runtime-notices/inventory.json): addr2line 0.27.1,
+adler2 2.0.1, object 0.39.1, miniz_oxide 0.9.1, memchr 2.8.3 and
+compiler_builtins 0.1.160 (including its bundled libm notices).
+
+The inventory records exact official archives, SHA-256 checksums, declared
+license expressions and the pinned Rust source commit. It supplements the
+upstream report; it does not add Cargo dependencies or change any dependency's
+license. Staging checks the rustc release/commit and copied file hashes. A
+toolchain upgrade requires refreshing this evidence. These notices are included
+conservatively for both existing RIDs; their inclusion does not claim Windows
+execution or a complete linked-object SBOM. See the
+[Linux binary audit](docs/testing/linux-sdk-redistribution.md) for observed
+components and the distinction between bundled code and OS prerequisites.

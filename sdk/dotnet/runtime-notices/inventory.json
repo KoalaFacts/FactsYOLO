@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "rust_release": "1.99.0",
+  "rust_commit": "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+  "library_lock": {
+    "url": "https://raw.githubusercontent.com/rust-lang/rust/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/Cargo.lock",
+    "sha256": "53d9ccff0c906de434b65af90d5c30063894b940fc839261f1fb06ef2e69e3d3"
+  },
+  "scope": "Supplement to the official COPYRIGHT-library.html. These compilation units were observed in the 07e1cc2 Linux TD1 binary. Versions are from the pinned rust-src/library/Cargo.lock and compiler-builtins manifest, with addr2line/miniz_oxide also identified by embedded source paths. Included conservatively for both existing RIDs; this is not evidence of Windows execution or a complete linked-object SBOM. memchr 2.8.3 replaces the report's obsolete 2.8.0 attribution for this toolchain. Original reports and license alternatives are preserved.",
+  "packages": [
+    {
+      "name": "addr2line",
+      "version": "0.27.1",
+      "license": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/gimli-rs/addr2line",
+      "url": "https://static.crates.io/crates/addr2line/addr2line-0.27.1.crate",
+      "sha256": "e567177890eb1617b1f774005b66b26b2377afd138a2ca37aae7d8f0c81429d4"
+    },
+    {
+      "name": "adler2",
+      "version": "2.0.1",
+      "license": "0BSD OR MIT OR Apache-2.0",
+      "repository": "https://github.com/oyvindln/adler2",
+      "url": "https://static.crates.io/crates/adler2/adler2-2.0.1.crate",
+      "sha256": "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+    },
+    {
+      "name": "memchr",
+      "version": "2.8.3",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/memchr",
+      "url": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate",
+      "sha256": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+    },
+    {
+      "name": "miniz_oxide",
+      "version": "0.9.1",
+      "license": "MIT OR Zlib OR Apache-2.0",
+      "repository": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide",
+      "url": "https://static.crates.io/crates/miniz_oxide/miniz_oxide-0.9.1.crate",
+      "sha256": "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+    },
+    {
+      "name": "object",
+      "version": "0.39.1",
+      "license": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/gimli-rs/object",
+      "url": "https://static.crates.io/crates/object/object-0.39.1.crate",
+      "sha256": "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"
+    },
+    {
+      "name": "compiler_builtins",
+      "version": "0.1.160",
+      "license": "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)",
+      "repository": "https://github.com/rust-lang/compiler-builtins",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.xz",
+      "sha256": "3f1f9b7ed48f4596fc87889b7b3c61747336a55c9c22db1ab0c697e0aadb77aa",
+      "archive_paths": [
+        "rust-src-1.99.0/rust-src/lib/rustlib/src/rust/library/compiler-builtins/LICENSE.txt",
+        "rust-src-1.99.0/rust-src/lib/rustlib/src/rust/library/compiler-builtins/libm/LICENSE.txt"
+      ]
+    }
+  ],
+  "files": {
+    "addr2line-0.27.1/LICENSE-APACHE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "addr2line-0.27.1/LICENSE-MIT": "e99d88d232bf57d70f0fb87f6b496d44b6653f99f8a63d250a54c61ea4bcde40",
+    "adler2-2.0.1/LICENSE-0BSD": "861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17",
+    "adler2-2.0.1/LICENSE-APACHE": "8ada45cd9f843acf64e4722ae262c622a2b3b3007c7310ef36ac1061a30f6adb",
+    "adler2-2.0.1/LICENSE-MIT": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+    "compiler_builtins-0.1.160/LICENSE.txt": "ab6eec6caf0fa5775e411c7a8bc6a45c4ef2956b0980b157ab74fc5cd62a928b",
+    "compiler_builtins-0.1.160/libm/LICENSE.txt": "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7",
+    "memchr-2.8.3/COPYING": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+    "memchr-2.8.3/LICENSE-MIT": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+    "memchr-2.8.3/UNLICENSE": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+    "miniz_oxide-0.9.1/LICENSE": "4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b",
+    "miniz_oxide-0.9.1/LICENSE-APACHE.md": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+    "miniz_oxide-0.9.1/LICENSE-MIT.md": "799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d",
+    "miniz_oxide-0.9.1/LICENSE-ZLIB.md": "0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39",
+    "object-0.39.1/LICENSE-APACHE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "object-0.39.1/LICENSE-MIT": "0b74dfa0bcee5c420c6b7f67b4b2658f9ab8388c97b8e733975f2cecbdd668a6"
+  }
+}

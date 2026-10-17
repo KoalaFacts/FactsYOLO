@@ -3,5 +3,10 @@
 /.superpowers/
 /tests/dotnet/**/bin/
 /tests/dotnet/**/obj/
+/sdk/dotnet/**/bin/
+/sdk/dotnet/**/obj/
+/tests/sdk-install/**/bin/
+/tests/sdk-install/**/obj/
+__pycache__/
 
 /experiments/cpu-detector/target/

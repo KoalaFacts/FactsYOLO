@@ -15,7 +15,7 @@ import time
 import zipfile
 from xml.sax.saxutils import escape
 
-from compat import SETTINGS, prepare_project
+from compat import SETTINGS, prepare_project, preview_command, validate_training_report
 from install_sdk import host_rid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -80,6 +80,7 @@ def main(feed, training, sdk, evidence):
     commands = []
 
     def run(label, args, cwd=project, expected=0, contains=()):
+        args = preview_command(args, dotnet)
         started = time.monotonic()
         result = subprocess.run(list(map(str, args)), cwd=cwd, env=env, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=900)
@@ -102,8 +103,7 @@ def main(feed, training, sdk, evidence):
     for backend in ['burn', 'candle']:
         source = training / backend
         report = json.loads((source / 'metrics.json').read_text())
-        if report.get('passed') is not True or report.get('source_commit') != commit or report.get('steps') != 2000 or report.get('test_seed') != 909:
-            raise ValueError('require passed current-source Burn/Candle training')
+        validate_training_report(report, backend, commit)
         cases = detached / backend; cases.mkdir()
         shutil.copyfile(source / 'model.fytd', cases / 'model.fytd')
         for i, prediction in enumerate(report['predictions'][:6]):

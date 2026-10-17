@@ -8,13 +8,29 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 
-from compat import prepare_project
+from compat import prepare_project, preview_command, validate_training_report
 from install_sdk import unpack_verified
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class PreviewCompatibility(unittest.TestCase):
+    def test_loader_dotnet_uses_verified_absolute_executable(self):
+        installed = Path('/verified/sdk/dotnet.exe')
+        self.assertEqual(preview_command(['dotnet', 'Consumer.dll'], installed), [str(installed), 'Consumer.dll'])
+        self.assertEqual(preview_command([installed, '--version'], installed), [str(installed), '--version'])
+        self.assertEqual(preview_command(['Consumer.exe', 'model'], installed), ['Consumer.exe', 'model'])
+
+    def test_copied_burn_report_cannot_satisfy_candle_training(self):
+        report = {'passed': True, 'source_commit': 'head', 'steps': 2000, 'test_seed': 909, 'backend': 'burn-flex-0.22.0'}
+        validate_training_report(report, 'burn', 'head')
+        with self.assertRaisesRegex(ValueError, 'backend'):
+            validate_training_report(report, 'candle', 'head')
+        report['backend'] = 'candle-cpu-0.11.0'
+        validate_training_report(report, 'candle', 'head')
+        with self.assertRaisesRegex(ValueError, 'backend'):
+            validate_training_report(report, 'burn', 'head')
+
     def test_public_consumer_keeps_package_reference_and_program(self):
         with tempfile.TemporaryDirectory() as temp:
             source = ROOT / 'tests/sdk-install/Consumer'

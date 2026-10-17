@@ -1,0 +1,10 @@
+name: .NET 11 manual compatibility
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    uses: ./.github/workflows/dotnet11-worker.yml
+    with:
+      source_commit: ${{ github.sha }}

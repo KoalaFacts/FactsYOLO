@@ -1,0 +1,28 @@
+name: .NET 11 consumer compatibility
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dotnet11-*.yml'
+      - '.cargo/**'
+      - '.gitattributes'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'xtask/Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'crates/**'
+      - 'include/**'
+      - 'experiments/cpu-detector/**'
+      - 'sdk/dotnet/**'
+      - 'tests/c/public-symbols.txt'
+      - 'tests/compat/**'
+      - 'tests/dotnet11/**'
+      - 'tests/sdk-install/**'
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    uses: ./.github/workflows/dotnet11-worker.yml
+    with:
+      source_commit: ${{ github.event.pull_request.head.sha }}

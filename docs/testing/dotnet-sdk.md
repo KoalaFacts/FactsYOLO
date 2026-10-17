@@ -51,6 +51,15 @@ native entries remain RID-specific. No NU5131 suppression or relaxed warning
 policy is used. This projection isolates the layout regression and does not
 replace the actual production project's dual-RID pack gate or Windows execution.
 
+The production-nuspec regression requires both real bundles under
+`target/sdk-assets`, or a local root selected by `FACTSYOLO_SDK_TEST_ASSETS`.
+It runs the production project's nuspec generation targets with
+`ContinuePackingAfterGeneratingNuspec=false`, checks every generated payload
+path against both verified inventories, and asserts that it creates no nupkg.
+This catches duplicated recursive buildinfo paths without creating a second
+shared package or weakening warnings. The full pack and both installed consumers
+remain separate required gates.
+
 On each host use the unchanged existing training verifier to generate current
 source Burn/Candle models and six held-out examples locally, then install/run:
 

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -265,6 +266,40 @@ class WindowsFixtureExports(unittest.TestCase):
 
 
 class RealSdkLayout(unittest.TestCase):
+    def test_production_nuspec_preserves_exact_two_rid_inventory_paths(self):
+        # Generate the production nuspec from both real bundles without packing
+        # a second archive: the workflow still creates one shared package.
+        assets = Path(os.environ.get("FACTSYOLO_SDK_TEST_ASSETS", ROOT / "target/sdk-assets")).resolve()
+        commit = native_assets.capture(["git", "rev-parse", "HEAD"]).strip()
+        manifests = native_assets.verify_assets(assets, commit)
+        with tempfile.TemporaryDirectory(prefix="factsyolo-production-nuspec-") as temp:
+            root = Path(temp)
+            command = ["dotnet", "msbuild", str(ROOT / "sdk/dotnet/FactsYOLO/FactsYOLO.csproj"),
+                       "-restore", "-target:_GetRestoreProjectStyle;GenerateNuspec", "-p:Configuration=Release",
+                       "-p:IsPackable=true", "-p:PackageVersion=0.0.0-nuspec-regression",
+                       f"-p:NativeAssetsRoot={assets}", f"-p:RepositoryCommit={commit}",
+                       f"-p:ArtifactsPath={root / 'artifacts'}", "-p:UseArtifactsOutput=true",
+                       f"-p:NuspecOutputPath={root / 'nuspec'}", f"-p:PackageOutputPath={root / 'feed'}",
+                       "-p:ContinuePackingAfterGeneratingNuspec=false"]
+            result = subprocess.run(command, cwd=ROOT / "sdk/dotnet", text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
+            print(f"production nuspec regression: {command!r}\n{result.stdout}", flush=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            specs = list((root / "nuspec").glob("*.nuspec"))
+            self.assertEqual(len(specs), 1)
+            files = [element.attrib for element in ET.parse(specs[0]).getroot().iter()
+                     if element.tag.rsplit("}", 1)[-1] == "file"]
+            targets = [entry["target"].replace("\\", "/") for entry in files]
+            expected = {"lib/net10.0/FactsYOLO.dll", "/LICENSE", "/NOTICE", "/README.md"}
+            for rid, manifest in manifests.items():
+                expected.add(f"runtimes/{rid}/native/{manifest['library']}")
+                expected.update(f"buildinfo/{rid}/{name}" for name in manifest["files"]
+                                if name != manifest["library"])
+                expected.add(f"buildinfo/{rid}/manifest.json")
+            self.assertEqual(len(targets), len(set(targets)), "duplicate production nuspec paths")
+            self.assertEqual(set(targets), expected)
+            self.assertFalse(list(root.rglob("*.nupkg")), "the regression must not create a second package")
+
     def test_real_sdk_linux_layout_packs_with_warnings_as_errors(self):
         # CI has staged real bundles before this test. Local runs can select a
         # verified Linux bundle explicitly; missing inputs fail rather than skip.

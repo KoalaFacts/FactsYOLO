@@ -21,8 +21,9 @@
     <None Include="../README.md" Pack="true" PackagePath="/" />
     <None Include="$(NativeAssetsRoot)/linux-x64/libfacts_yolo.so" Pack="true" PackagePath="runtimes/linux-x64/native/" />
     <None Include="$(NativeAssetsRoot)/win-x64/facts_yolo.dll" Pack="true" PackagePath="runtimes/win-x64/native/" />
-    <None Include="$(NativeAssetsRoot)/linux-x64/**/*" Exclude="$(NativeAssetsRoot)/linux-x64/**/*.dll;$(NativeAssetsRoot)/linux-x64/**/*.so" Pack="true" PackagePath="buildinfo/linux-x64/%(RecursiveDir)" />
-    <None Include="$(NativeAssetsRoot)/win-x64/**/*" Exclude="$(NativeAssetsRoot)/win-x64/**/*.dll;$(NativeAssetsRoot)/win-x64/**/*.so" Pack="true" PackagePath="buildinfo/win-x64/%(RecursiveDir)" />
+    <!-- NuGet preserves the recursive include's relative path below PackagePath. -->
+    <None Include="$(NativeAssetsRoot)/linux-x64/**/*" Exclude="$(NativeAssetsRoot)/linux-x64/**/*.dll;$(NativeAssetsRoot)/linux-x64/**/*.so" Pack="true" PackagePath="buildinfo/linux-x64/" />
+    <None Include="$(NativeAssetsRoot)/win-x64/**/*" Exclude="$(NativeAssetsRoot)/win-x64/**/*.dll;$(NativeAssetsRoot)/win-x64/**/*.so" Pack="true" PackagePath="buildinfo/win-x64/" />
   </ItemGroup>
   <Target Name="RequireLocalPackageInputs" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' == 'true'">
     <Error Condition="'$(NativeAssetsRoot)' == '' Or !Exists('$(NativeAssetsRoot)/linux-x64/manifest.json') Or !Exists('$(NativeAssetsRoot)/win-x64/manifest.json')" Text="Use build_package.py with both verified native asset bundles." />

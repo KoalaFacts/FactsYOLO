@@ -6,10 +6,15 @@ is built with SDK 10.0.401, and must not be published. The shipped SDK, default
 runtime, C ABI, training/inference implementation and original CI are unchanged.
 Passing this gate does not freeze the managed API or promise a stable SDK release.
 
-The separate `.NET 11 consumer compatibility` workflow supports manual dispatch.
-It also runs on PRs changing its workflow/tooling or the existing consumer,
-ownership or loader test sources it reuses. It has no main-push trigger and adds
-no branch-protection requirement. The normal net10.0 workflow remains independent.
+The `.NET 11 consumer compatibility` workflow runs on PRs changing its workflows,
+tooling or the existing consumer, ownership or loader test sources it reuses.
+The separate `.NET 11 manual compatibility` entry supports manual dispatch.
+Both call one worker: the PR entry pins the PR head, while the manual entry pins
+only the selected workflow revision (`github.sha`) and accepts no custom ref.
+The worker checks the full SHA and rejects a dispatch revision mismatch before
+fetching code, keeping PR inputs out of the manual execution context.
+Neither entry has a main-push trigger or adds a branch-protection requirement.
+The normal net10.0 workflow remains independent.
 
 ## Toolchain and package inputs
 

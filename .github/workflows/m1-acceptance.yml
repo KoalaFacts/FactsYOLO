@@ -72,7 +72,7 @@ jobs:
             target/normal/release/verified-exports.txt
             target/contract-fixtures/release/verified-exports.txt
           if-no-files-found: error
-  safety:
+  miri-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -94,8 +94,6 @@ jobs:
         run: cargo fetch --locked
       - name: Interpret backed descriptors and ownership under Miri
         run: cargo run -p xtask --locked --offline -- miri
-      - name: Interpret actual TD1 model parsing, images and ownership
-        run: cargo +nightly-2026-10-13 miri test -p facts-yolo --features td1 --test td1 --locked --offline
       - name: Preserve evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -111,6 +109,53 @@ jobs:
             target/normal/release/verified-exports.txt
             target/contract-fixtures/release/verified-exports.txt
           if-no-files-found: error
+  miri-td1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install exact stable and Miri toolchains
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup toolchain install nightly-2026-10-13 --profile minimal --component miri
+      - name: Fetch locked optional native dependencies
+        shell: bash
+        run: cargo fetch --locked
+      - name: Interpret actual TD1 model parsing, images and ownership
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p target/miri-td1-evidence
+          cargo +nightly-2026-10-13 miri test -p facts-yolo --features td1 --test td1 --locked --offline 2>&1 | tee target/miri-td1-evidence/tests.log
+      - name: Preserve TD1 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: m1-miri-td1
+          path: target/miri-td1-evidence/tests.log
+          if-no-files-found: error
+  safety:
+    # Keep the existing gate name; neither suite may fail, cancel or skip.
+    needs: [miri-contracts, miri-td1]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require both Miri suites
+        env:
+          CONTRACT_RESULT: ${{ needs.miri-contracts.result }}
+          TD1_RESULT: ${{ needs.miri-td1.result }}
+        run: |
+          test "$CONTRACT_RESULT" = success
+          test "$TD1_RESULT" = success
   layout32:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

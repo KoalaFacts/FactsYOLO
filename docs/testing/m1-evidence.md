@@ -39,6 +39,15 @@ objects and compares 123 little-endian u32 values (the existing 113 records,
 including size/alignment pairs), against current and frozen C headers. It asserts
 four-byte pointers. It does not execute i686 code or establish 32-bit runtime support.
 
+The descriptor/ownership and complete TD1 Miri suites run in independent jobs,
+each retaining the 25-minute limit. Successful TD1 runs have taken about
+21 minutes on hosted runners; sharing that budget with toolchain setup and the
+earlier suite left little margin. The existing `safety` check waits for both jobs
+and runs even when a dependency fails, is cancelled or is skipped. It succeeds
+only when both jobs succeed. Commands, pinned toolchains and test coverage are
+unchanged. TD1 output is also retained in the `m1-miri-td1` artifact; pipeline
+failure propagation prevents the log capture from hiding a test failure.
+
 ## Resource workload and interpretation
 
 The example `resource_probe`, built only with `contract-fixtures`, runs in a

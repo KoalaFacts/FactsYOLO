@@ -87,6 +87,15 @@ Loader rejection tests use test-only C stubs, never inference fixtures or packag
 assets. A valid native library in the working directory must not rescue a missing
 or broken installed asset.
 
+The real-model consumer also copies empty and nonempty results into a 65,536-record
+destination slice. It checks the copied records, unchanged tail and surrounding
+canaries, and less than 64 KiB of managed allocation for the warmed copy call.
+The destination is allocated before measurement. `CopyTo` queries the immutable
+native result count under the same lifetime lease and bounds temporary storage by
+the smaller of that count and the caller's capacity; a short destination still
+receives the original native error. This is a result-copy resource regression,
+not an inference allocation benchmark or a stable SDK performance promise.
+
 A separate synchronized ownership test compiles the exact SDK lease/SafeHandle
 source into a test-only executable. It holds an admitted lease across Dispose,
 uses the retained actual TD1 model to create a native session after Dispose, and

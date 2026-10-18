@@ -35,7 +35,12 @@ public sealed unsafe class Result : IDisposable
         using Lease lease = lifetime.Acquire();
         byte* buffer = stackalloc byte[Diagnostics.Capacity];
         FyDiagnostic diagnostic = Diagnostics.Create(buffer);
-        CopyWithLease(lease.Pointer, destination, &diagnostic);
+        nuint required = 0;
+        Diagnostics.Check(Native.ResultCopy(lease.Pointer, null, 0, &required, &diagnostic), &diagnostic);
+        // The immutable result count bounds scratch storage, even for a large caller span.
+        // A short span still reaches the native copy and preserves its original error.
+        int capacity = required < (nuint)destination.Length ? (int)required : destination.Length;
+        CopyWithLease(lease.Pointer, destination[..capacity], &diagnostic);
     }
     private static void CopyWithLease(nint result, Span<Detection> destination, FyDiagnostic* diagnostic)
     {

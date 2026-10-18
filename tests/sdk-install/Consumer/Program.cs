@@ -39,6 +39,25 @@ static void Compare(Detection[] actual, string file)
         Close(a.XMax, expected[3]) && Close(a.YMax, expected[4]), "Prediction differs");
 }
 
+static void CheckBoundedCopyTo(Result result, Detection[] expected)
+{
+    const int capacity = 65536;
+    Detection sentinel = new(-1, -2, -3, -4, -5, uint.MaxValue);
+    Detection[] storage = Enumerable.Repeat(sentinel, capacity + 2).ToArray();
+    Span<Detection> destination = storage.AsSpan(1, capacity);
+    // Warm the public operation before measuring only the oversized copy itself.
+    result.CopyTo(new Detection[expected.Length]);
+    long before = GC.GetAllocatedBytesForCurrentThread();
+    result.CopyTo(destination);
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+    Require(destination[..expected.Length].SequenceEqual(expected), "Oversized copy changed detections");
+    Require(storage[0] == sentinel, "Copy changed leading canary");
+    for (int index = expected.Length + 1; index < storage.Length; index++)
+        Require(storage[index] == sentinel, "Copy changed destination tail or trailing canary");
+    Console.WriteLine($"COPY_BOUNDARY count={expected.Length} capacity={capacity} allocated={allocated}");
+    Require(allocated < 65536, "CopyTo scratch allocation scales with oversized destination capacity");
+}
+
 try
 {
     Console.WriteLine($"MODE {(RuntimeFeature.IsDynamicCodeSupported ? "jit" : "aot")}");
@@ -74,6 +93,7 @@ try
         using Result result = session.Detect(pixels, 64, 64, 192, PixelFormat.Rgb8);
         Compare(result.Copy(), expected);
         Detection[] copied = new Detection[result.Copy().Length]; result.CopyTo(copied); Compare(copied, expected);
+        CheckBoundedCopyTo(result, copied);
         if (copied.Length > 0)
         {
             FactsYoloException shortage = Error(8, () => result.CopyTo(Span<Detection>.Empty));

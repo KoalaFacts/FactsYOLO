@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "sdk/dotnet"))
 from native_assets import clean_commit, sha256, verify_assets  # noqa: E402
 sys.path.insert(0, str(ROOT / "tests/sdk-install"))
 import copy_ownership  # noqa: E402
+import session_busy  # noqa: E402
 
 
 def main(feed, training, evidence):
@@ -148,6 +149,7 @@ def main(feed, training, evidence):
             cwd=unrelated, contains=[f"PASS {mode} admitted SDK lease survives Dispose", "exactly one model release"])
         loader_negatives(mode, publish, runtime_library, unrelated, evidence, run)
         copy_ownership.verify(mode, rid, evidence, config, run)
+        session_busy.verify(mode, rid, evidence, config, run)
     summary = {"passed": True, "source_commit": commit, "source_dirty": False, "rid": rid,
                "package_sha256": metadata["sha256"], "native_sha256": native_hash,
                "models": {backend: digest for backend, _, digest in models}, "heldout_samples_per_model": 6,

@@ -104,6 +104,20 @@ and AOT and adds no accessors/fixture imports to the shipped assembly. The publi
 consumer's 32 scheduling/disposal attempts are stress checks, not proof of an
 admitted-operation overlap by themselves.
 
+A second source-linked executable tests the exact `Result.CopyTo` and lease
+sources against a controlled, test-only `Native` boundary. Separate query/copy
+barriers pause an admitted call while the same Result is disposed twice. New
+copies must be rejected, the admitted copy must preserve data and destination
+tail/canaries, and the boundary's unmanaged records must be physically freed
+exactly once after the operation. A detached negative-control source copy ends
+the lease after the count query; both schedules must fail specifically for
+premature release, before dereferencing freed memory. Baseline and negative
+control run in JIT/NativeAOT on both hosts, including optional RC2 consumers.
+This is deterministic managed ownership evidence using a controlled boundary,
+not real native inference or a PackageReference consumer. Production SDK source
+and public APIs contain no test hooks; the actual installed-package checks above
+remain separate.
+
 The CI workflow builds both RID assets, packs once, and supplies the identical
 archive to Linux/Windows consumers. Pull-request jobs use the explicit PR head
 for native source provenance, so the same package can be verified locally.

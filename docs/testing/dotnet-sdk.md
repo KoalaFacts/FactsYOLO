@@ -118,6 +118,20 @@ not real native inference or a PackageReference consumer. Production SDK source
 and public APIs contain no test hooks; the actual installed-package checks above
 remain separate.
 
+A third source-linked executable covers the production `Session.Detect` BUSY
+contract with a test-only `Native` boundary. A barrier holds the first call while
+a dedicated second worker must complete with status 6 before that barrier is
+released. It preserves the UTF-8 diagnostic text, required-byte count and
+truncation flag, and must reach the BUSY boundary exactly once. After resumption,
+the first result remains usable and the same session can detect again. Both
+complete and truncated diagnostics run in JIT/NativeAOT, including RC2.
+Detached source mutants swallow BUSY, serialize the whole Detect call, or retry
+BUSY; each must fail for its specific contract violation. The serialization
+watchdog tests completion while the first call is paused, not a millisecond
+latency promise. Cleanup always resumes and joins both workers. This proves the
+managed wrapper contract against a simulated boundary; the separate installed
+package consumers still verify actual trained-model/native detection.
+
 The CI workflow builds both RID assets, packs once, and supplies the identical
 archive to Linux/Windows consumers. Pull-request jobs use the explicit PR head
 for native source provenance, so the same package can be verified locally.

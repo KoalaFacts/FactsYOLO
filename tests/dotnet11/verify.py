@@ -153,6 +153,7 @@ def main(feed, training, sdk, evidence):
             contains=[f'PASS {mode} admitted SDK lease survives Dispose', 'exactly one model release'])
         stable.loader_negatives(mode, publish, library, unrelated, evidence, run)
         stable.copy_ownership.verify(mode, rid, evidence, config, run, SETTINGS['framework'], SETTINGS['runtime'])
+        stable.session_busy.verify(mode, rid, evidence, config, run, SETTINGS['framework'], SETTINGS['runtime'])
     summary = {'passed': True, 'source_commit': commit, 'source_dirty': False, 'rid': rid,
                'package_sha256': metadata['sha256'], 'native_sha256': native_hash,
                'consumer_sdk': SETTINGS['sdk'], 'consumer_runtime': SETTINGS['runtime'], 'consumer_framework': SETTINGS['framework'],

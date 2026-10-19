@@ -9,6 +9,7 @@ import unittest
 import json
 import sys
 import ctypes
+import struct
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "sdk/dotnet"))
@@ -16,6 +17,53 @@ import native_assets
 
 
 class LoaderFixtureCompilation(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "ELF hash lookup requires the Linux loader")
+    def test_elf_hash_lookup_with_actual_host_libraries(self):
+        with tempfile.TemporaryDirectory(prefix="factsyolo-hash-regression-") as temp:
+            directory = Path(temp)
+            source = directory / "fixture.c"
+            source.write_text("\n".join(f"int {name}(void) {{ return 0; }}"
+                                        for name in native_assets.PUBLIC_EXPORTS))
+            for style in ["gnu", "sysv", "both"]:
+                library = directory / (style + ".so")
+                command = ["cc", "-shared", "-fPIC", "-Wall", "-Wextra", "-Werror", str(source),
+                           "-Wl,--hash-style=" + style, "-o", str(library)]
+                result = subprocess.run(command, text=True, capture_output=True, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(native_assets.exported_names(library, "linux-x64"), native_assets.PUBLIC_EXPORTS)
+                lookup = [sys.executable, "-c", "import ctypes,sys; ctypes.CDLL(sys.argv[1]).fy_detect", str(library)]
+                self.assertEqual(subprocess.run(lookup, capture_output=True, timeout=10).returncode, 0)
+                original = library.read_bytes()
+                data = bytearray(original)
+                start = struct.unpack_from("<Q", data, 40)[0]
+                size, count = struct.unpack_from("<HH", data, 58)
+                sections = [struct.unpack_from("<IIQQQQIIQQ", data, start + i * size) for i in range(count)]
+                kind = 5 if style == "sysv" else 0x6ffffff6
+                table = next(s for s in sections if s[1] == kind)
+                if style == "sysv":
+                    buckets, entries = struct.unpack_from("<II", data, table[4])
+                    offset, length = table[4] + 8, buckets * 4
+                else:
+                    words = struct.unpack_from("<I", data, table[4] + 8)[0]
+                    offset, length = table[4] + 16, words * 8
+                data[offset:offset + length] = bytes(length)
+                library.write_bytes(data)
+                result = subprocess.run(lookup, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("undefined symbol: fy_detect", result.stderr)
+                with self.assertRaisesRegex(ValueError, "unreachable through runtime hash"):
+                    native_assets.exported_names(library, "linux-x64")
+                print(f"HOST_HASH_EXPORT_AUDIT style={style} ordinary_lookup_failed correctly_rejected", flush=True)
+                if style == "sysv":
+                    for value in [1, entries + 1]:
+                        data = bytearray(original)
+                        for entry in range(buckets):
+                            struct.pack_into("<I", data, table[4] + 8 + entry * 4, value)
+                        struct.pack_into("<I", data, table[4] + 8 + buckets * 4 + 4, 1)
+                        library.write_bytes(data)
+                        with self.assertRaisesRegex(ValueError, "invalid ELF export SysV hash chain"):
+                            native_assets.exported_names(library, "linux-x64")
+
     def test_host_compiled_fixture_cannot_hide_extra_exports_in_manifest(self):
         # Compile genuine host libraries; these stubs are not inference models.
         rid = "win-x64" if os.name == "nt" else "linux-x64"

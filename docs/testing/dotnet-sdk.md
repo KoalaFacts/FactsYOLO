@@ -152,10 +152,19 @@ are rejected, including non-default versions whose unchanged symbol-table name
 cannot be resolved by ordinary `dlsym`. A Linux host-compiled `.symver` fixture
 checks the actual lookup failure and bundle rejection; imported dependency
 versions remain supported. See the [GNU symbol-version table specification](https://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-generic/symversion.html).
+ELF section inventories must agree with the runtime dynamic tags and unique load
+segment mappings. Each API name must be reachable through the active GNU hash
+(including bloom bits) or SysV hash; a SysV table cannot rescue a bad GNU lookup.
+Function addresses must be nonzero and contained in executable sections and load
+segments. PE names must remain strictly sorted for lookup, and function addresses
+must lie within executable, file-backed image ranges. Host-compiled GNU/SysV/both
+fixtures compare ordinary loader lookups with audit rejection; staged ELF/PE
+mutations cover invalid addresses, table ordering, decoys and hash corruption.
 Real staged ELF/PE mutations and host-compiled C stubs exercise rejection; these
 are binary validation fixtures, not detection evidence. This is a conservative
 audit of the current toolchain outputs, not general executable validation,
-publisher authentication or release clearance. Format references are the
+publisher authentication or release clearance. It does not validate relocations,
+initializers, dependency loading or the behavior of resolved functions. Format references are the
 [ELF symbol-table specification](https://gabi.xinuos.com/elf/05-symtab.html) and
 [Microsoft PE specification](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format).
 

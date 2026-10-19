@@ -60,6 +60,142 @@ def exported_names(path, rid):
                     or version[5] != symbols[5] // 24 * 2):
                 raise ValueError("invalid ELF symbol version table")
             span(version[4], version[5])
+        # Section headers are only an inventory. Lookup uses PT_DYNAMIC and
+        # virtual addresses mapped through PT_LOAD, so require agreement.
+        program_offset = unpack("<Q", 32)[0]
+        program_size, program_count = unpack("<HH", 54)
+        if program_size != 56 or not 0 < program_count < 0xffff:
+            raise ValueError("invalid ELF export program table")
+        span(program_offset, program_size * program_count)
+        programs = [unpack("<IIQQQQQQ", program_offset + i * 56) for i in range(program_count)]
+        loads = [p for p in programs if p[0] == 1]
+        for p in loads:
+            if p[5] > p[6] or p[3] + p[6] > 1 << 64:
+                raise ValueError("invalid ELF export load segment")
+            span(p[2], p[5])
+        ranges = sorted((p[3], p[3] + p[6]) for p in loads if p[6])
+        if any(a[1] > b[0] for a, b in zip(ranges, ranges[1:])):
+            raise ValueError("overlapping ELF export load mappings")
+
+        def mapped(address, size, executable=False):
+            matches = []
+            for p in loads:
+                delta = address - p[3]
+                if 0 <= delta < p[5] and size <= p[5] - delta:
+                    if executable and not p[1] & 1:
+                        raise ValueError("ELF export is not executable")
+                    matches.append(p[2] + delta)
+            if len(matches) != 1:
+                raise ValueError("ELF export address is not uniquely file-backed")
+            return matches[0]
+
+        dynamic = [p for p in programs if p[0] == 2]
+        if len(dynamic) != 1 or not dynamic[0][5] or dynamic[0][5] % 16:
+            raise ValueError("invalid ELF export dynamic segment")
+        dynamic = dynamic[0]
+        if mapped(dynamic[3], dynamic[5]) != dynamic[2]:
+            raise ValueError("ELF export dynamic segment mapping differs")
+        tags = {}
+        lookup_tags = {4, 5, 6, 10, 11, 0x6ffffef5, 0x6ffffff0}
+        for offset in range(dynamic[2], dynamic[2] + dynamic[5], 16):
+            tag, value = unpack("<qQ", offset)
+            if tag == 0:
+                break
+            if tag in lookup_tags:
+                if tag in tags:
+                    raise ValueError("duplicate ELF export dynamic tag")
+                tags[tag] = value
+        else:
+            raise ValueError("unterminated ELF export dynamic segment")
+
+        def runtime_table(tag, table):
+            if tags.get(tag) != table[3] or mapped(table[3], table[5]) != table[4]:
+                raise ValueError("ELF export section differs from runtime table")
+
+        runtime_table(6, symbols)
+        runtime_table(5, strings)
+        if tags.get(11) != 24 or tags.get(10) != strings[5]:
+            raise ValueError("ELF export runtime table size differs")
+        if bool(versions) != (0x6ffffff0 in tags):
+            raise ValueError("ELF export version table differs from runtime")
+        if versions:
+            runtime_table(0x6ffffff0, versions[0])
+
+        hashes = {}
+        for tag, kind in [(0x6ffffef5, 0x6ffffff6), (4, 5)]:
+            tables = [s for s in sections if s[1] == kind]
+            if len(tables) > 1 or bool(tables) != (tag in tags):
+                raise ValueError("ELF export hash table differs from runtime")
+            if tables:
+                table = tables[0]
+                if table[6] != sections.index(symbols):
+                    raise ValueError("invalid ELF export hash symbol link")
+                runtime_table(tag, table)
+                hashes[tag] = table
+        symbol_count = symbols[5] // 24
+
+        def symbol_name(index):
+            name = unpack("<I", symbols[4] + index * 24)[0]
+            if name >= strings[5]:
+                raise ValueError("ELF export name outside string table")
+            return string(strings[4] + name, strings[4] + strings[5])
+
+        if 0x6ffffef5 in hashes:
+            table = hashes[0x6ffffef5]
+            buckets, first, words, shift = unpack("<IIII", table[4])
+            if not buckets or not words or words & (words - 1) or shift >= 32 or first > symbol_count:
+                raise ValueError("invalid ELF export GNU hash header")
+            bloom = table[4] + 16
+            bucket = bloom + words * 8
+            chain = bucket + buckets * 4
+            if chain + (symbol_count - first) * 4 > table[4] + table[5]:
+                raise ValueError("ELF export GNU hash outside table")
+
+            def lookup(text):
+                hashed = 5381
+                for byte in text.encode("ascii"):
+                    hashed = (hashed * 33 + byte) & 0xffffffff
+                word = unpack("<Q", bloom + ((hashed // 64) & (words - 1)) * 8)[0]
+                mask = (1 << (hashed % 64)) | (1 << ((hashed >> shift) % 64))
+                if word & mask != mask:
+                    return None
+                index = unpack("<I", bucket + (hashed % buckets) * 4)[0]
+                if index == 0:
+                    return None
+                while first <= index < symbol_count:
+                    value = unpack("<I", chain + (index - first) * 4)[0]
+                    if value | 1 == hashed | 1 and symbol_name(index) == text:
+                        return index
+                    if value & 1:
+                        return None
+                    index += 1
+                raise ValueError("invalid ELF export GNU hash chain")
+        elif 4 in hashes:
+            table = hashes[4]
+            buckets, count = unpack("<II", table[4])
+            if not buckets or count != symbol_count or 8 + 4 * (buckets + count) > table[5]:
+                raise ValueError("invalid ELF export SysV hash header")
+            bucket = table[4] + 8
+            chain = bucket + buckets * 4
+
+            def lookup(text):
+                hashed = 0
+                for byte in text.encode("ascii"):
+                    hashed = (hashed << 4) + byte
+                    high = hashed & 0xf0000000
+                    hashed = (hashed ^ (high >> 24)) & ~high
+                index = unpack("<I", bucket + (hashed % buckets) * 4)[0]
+                seen = set()
+                while index:
+                    if index >= count or index in seen:
+                        raise ValueError("invalid ELF export SysV hash chain")
+                    seen.add(index)
+                    if symbol_name(index) == text:
+                        return index
+                    index = unpack("<I", chain + index * 4)[0]
+                return None
+        else:
+            raise ValueError("missing ELF export runtime hash table")
         for index, offset in enumerate(range(symbols[4], symbols[4] + symbols[5], 24)):
             name, info, visibility, section, value, size = unpack("<IBBHQQ", offset)
             if name >= strings[5]:
@@ -74,6 +210,15 @@ def exported_names(path, rid):
                         raise ValueError("versioned FactsYOLO ELF export is unsupported")
                     if info & 15 != 2 or not 0 < section < section_count:
                         raise ValueError("FactsYOLO ELF export is not a defined function")
+                    code = sections[section]
+                    delta = value - code[3]
+                    length = max(size, 1)
+                    if (not value or code[1] != 1 or code[2] & 6 != 6
+                            or delta < 0 or delta >= code[5] or length > code[5] - delta
+                            or mapped(value, length, True) != code[4] + delta):
+                        raise ValueError("ELF export is outside executable section")
+                    if lookup(text) != index:
+                        raise ValueError("ELF export is unreachable through runtime hash")
                     names.append(text)
     elif rid == "win-x64":
         pe = unpack("<I", 60)[0]
@@ -92,15 +237,33 @@ def exported_names(path, rid):
             raise ValueError("missing PE export directory")
         start = optional + optional_size
         span(start, section_count * 40)
-        sections = [unpack("<IIII", start + i * 40 + 8) for i in range(section_count)]
+        sections = [(*unpack("<IIII", start + i * 40 + 8), unpack("<I", start + i * 40 + 36)[0])
+                    for i in range(section_count)]
+        image_size = unpack("<I", optional + 56)[0]
+        header_size = unpack("<I", optional + 60)[0]
+        ranges = []
+        for virtual_size, virtual, raw_size, raw, flags in sections:
+            extent = virtual_size or raw_size
+            if extent:
+                if virtual < header_size or virtual + extent > image_size:
+                    raise ValueError("PE export section outside image bounds")
+                ranges.append((virtual, virtual + extent))
+        ranges.sort()
+        if any(a[1] > b[0] for a, b in zip(ranges, ranges[1:])):
+            raise ValueError("overlapping PE export section mappings")
 
-        def rva(address, size):
+        def rva(address, size, executable=False):
+            if address >= image_size or size > image_size - address:
+                raise ValueError("PE export RVA outside image")
             matches = []
-            for virtual_size, virtual, raw_size, raw in sections:
+            for virtual_size, virtual, raw_size, raw, flags in sections:
                 delta = address - virtual
-                if 0 <= delta < raw_size and size <= raw_size - delta:
+                extent = min(virtual_size or raw_size, raw_size)
+                if 0 <= delta < extent and size <= extent - delta:
                     span(raw, raw_size)
-                    matches.append((raw + delta, raw + raw_size))
+                    if executable and not flags & 0x20000000:
+                        raise ValueError("PE export is not executable")
+                    matches.append((raw + delta, raw + min(extent, image_size - virtual)))
             if len(matches) != 1:
                 raise ValueError("PE export RVA is not uniquely file-backed")
             return matches[0]
@@ -112,9 +275,13 @@ def exported_names(path, rid):
         address_table, _ = rva(addresses, functions * 4)
         name_table, _ = rva(pointers, count * 4)
         ordinal_table, _ = rva(ordinals, count * 2)
+        previous = None
         for i in range(count):
             pointer, end = rva(unpack("<I", name_table + 4 * i)[0], 1)
             text = string(pointer, end)
+            if previous is not None and previous >= text:
+                raise ValueError("PE export names are not strictly sorted")
+            previous = text
             ordinal = unpack("<H", ordinal_table + 2 * i)[0]
             if ordinal >= functions:
                 raise ValueError("PE export ordinal outside address table")
@@ -122,7 +289,7 @@ def exported_names(path, rid):
             if text.startswith("fy_"):
                 if not address or directory <= address < directory + directory_size:
                     raise ValueError("FactsYOLO PE export is absent or forwarded")
-                rva(address, 1)
+                rva(address, 1, True)
                 names.append(text)
     else:
         raise ValueError("unsupported native export RID")

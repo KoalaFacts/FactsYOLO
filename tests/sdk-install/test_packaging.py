@@ -239,7 +239,7 @@ class Packaging(unittest.TestCase):
                     self.assertIn(old, data)
                     data[:] = data.replace(old, replacement)
                 self.replace_binary(rid, rename)
-                with self.assertRaisesRegex(ValueError, "exports"):
+                with self.assertRaisesRegex(ValueError, "export"):
                     self.api.verify_bundle(self.root / rid, rid, self.commit)
 
     def test_invalid_export_tables_rejected_even_with_matching_hashes(self):
@@ -290,6 +290,149 @@ class Packaging(unittest.TestCase):
         self.mutate("linux-x64", lambda m: m.update(licenses=[]))
         with self.assertRaisesRegex(ValueError, "license"):
             self.api.verify_assets(self.root, self.commit)
+
+    @staticmethod
+    def elf_sections(data):
+        start = struct.unpack_from("<Q", data, 40)[0]
+        size, count = struct.unpack_from("<HH", data, 58)
+        return [(start + i * size, struct.unpack_from("<IIQQQQIIQQ", data, start + i * size))
+                for i in range(count)]
+
+    @staticmethod
+    def pe_exports(data):
+        pe = struct.unpack_from("<I", data, 60)[0]
+        count = struct.unpack_from("<H", data, pe + 6)[0]
+        start = pe + 24 + struct.unpack_from("<H", data, pe + 20)[0]
+        sections = [(start + i * 40, struct.unpack_from("<IIII", data, start + i * 40 + 8))
+                    for i in range(count)]
+        def offset(rva):
+            return next(raw + rva - virtual for _, (_, virtual, size, raw) in sections
+                        if virtual <= rva < virtual + size)
+        export = offset(struct.unpack_from("<I", data, pe + 24 + 112)[0])
+        return sections, export, offset
+
+    def reject_mutations(self, rid, mutations):
+        original = (self.root / rid / self.api.RIDS[rid][1]).read_bytes()
+        for name, mutate in mutations:
+            with self.subTest(mutation=name):
+                def change(data):
+                    data[:] = original
+                    mutate(data)
+                self.replace_binary(rid, change)
+                with self.assertRaisesRegex(ValueError, "export"):
+                    self.api.verify_bundle(self.root / rid, rid, self.commit)
+
+    def test_pe_function_export_requires_executable_section(self):
+        def move_to_data(data):
+            sections, export, offset = self.pe_exports(data)
+            target = next(virtual for entry, (_, virtual, size, _) in sections
+                          if size and not struct.unpack_from("<I", data, entry + 36)[0] & 0x20000000)
+            addresses = offset(struct.unpack_from("<I", data, export + 28)[0])
+            struct.pack_into("<I", data, addresses, target)
+        def shrink_image(data):
+            pe = struct.unpack_from("<I", data, 60)[0]
+            struct.pack_into("<I", data, pe + 24 + 56, 1)
+        def overlap(data):
+            sections, _, _ = self.pe_exports(data)
+            _, (size, virtual, _, _) = next(s for s in sections
+                if struct.unpack_from("<I", data, s[0] + 36)[0] & 0x20000000)
+            entry, _ = sections[-1]
+            struct.pack_into("<IIII", data, entry + 8, 2, virtual + size - 1, 0, 0)
+        self.reject_mutations("win-x64", [("non-executable RVA", move_to_data), ("outside image", shrink_image),
+                                          ("partial zero-fill overlap", overlap)])
+
+    def test_pe_export_names_must_remain_sorted_for_binary_search(self):
+        def swap(data):
+            _, export, offset = self.pe_exports(data)
+            names = offset(struct.unpack_from("<I", data, export + 32)[0])
+            first, second = struct.unpack_from("<II", data, names)
+            struct.pack_into("<II", data, names, second, first)
+        self.reject_mutations("win-x64", [("unsorted names", swap)])
+
+    def test_elf_function_export_requires_real_executable_address(self):
+        def mutate(data, kind):
+            sections = self.elf_sections(data)
+            _, symbols = next(s for s in sections if s[1][1] == 11)
+            strings = sections[symbols[6]][1]
+            for offset in range(symbols[4], symbols[4] + symbols[5], 24):
+                name = strings[4] + struct.unpack_from("<I", data, offset)[0]
+                if data[name:name + 10] == b"fy_detect\0":
+                    entry, section = sections[struct.unpack_from("<H", data, offset + 6)[0]]
+                    if kind == "non-executable section":
+                        struct.pack_into("<Q", data, entry + 8, section[2] & ~4)
+                    elif kind == "zero-fill load overlap":
+                        start = struct.unpack_from("<Q", data, 32)[0]
+                        width, count = struct.unpack_from("<HH", data, 54)
+                        program = next(start + i * width for i in range(count)
+                                       if struct.unpack_from("<I", data, start + i * width)[0] == 0x6474e551)
+                        value = struct.unpack_from("<Q", data, offset + 8)[0] & ~4095
+                        struct.pack_into("<IIQQQQQQ", data, program, 1, 6, 0, value, 0, 0, 4096, 4096)
+                    else:
+                        struct.pack_into("<Q", data, offset + 8, 0 if kind == "zero" else section[3] + section[5])
+                    return
+            self.fail("missing fy_detect")
+        self.reject_mutations("linux-x64", [(name, lambda data, n=name: mutate(data, n))
+                                            for name in ["zero", "outside section", "non-executable section",
+                                                         "zero-fill load overlap"]])
+
+    def test_elf_hash_lookup_must_reach_required_exports(self):
+        def mutate(data, kind):
+            _, section = next(s for s in self.elf_sections(data) if s[1][1] == 0x6ffffff6)
+            start = section[4]
+            buckets, _, words, _ = struct.unpack_from("<IIII", data, start)
+            bloom = start + 16
+            bucket = bloom + words * 8
+            if kind == "bloom":
+                data[bloom:bucket] = bytes(words * 8)
+            elif kind == "buckets":
+                data[bucket:bucket + buckets * 4] = bytes(buckets * 4)
+            elif kind == "bad bloom count":
+                struct.pack_into("<I", data, start + 8, 3)
+            elif kind == "bad shift":
+                struct.pack_into("<I", data, start + 12, 32)
+            else:
+                chain = bucket + buckets * 4
+                for offset in range(chain, start + section[5], 4):
+                    value = struct.unpack_from("<I", data, offset)[0]
+                    struct.pack_into("<I", data, offset, value | 1 if kind == "early chain end" else value ^ 2)
+        self.reject_mutations("linux-x64", [(name, lambda data, n=name: mutate(data, n))
+                                            for name in ["bloom", "buckets", "chains", "early chain end",
+                                                         "bad bloom count", "bad shift"]])
+
+    def test_elf_section_tables_must_match_runtime_dynamic_tags(self):
+        def decoy(data, table_type):
+            sections = self.elf_sections(data)
+            entry, table = next(s for s in sections if s[1][1] == table_type)
+            if table_type == 3:
+                symbols = next(s[1] for s in sections if s[1][1] == 11)
+                entry, table = sections[symbols[6]]
+            original = bytes(data[table[4]:table[4] + table[5]])
+            appended = len(data)
+            data.extend(original)
+            struct.pack_into("<Q", data, entry + 24, appended)
+        def remove_versions(data):
+            entry, _ = next(s for s in self.elf_sections(data) if s[1][1] == 0x6fffffff)
+            struct.pack_into("<I", data, entry + 4, 0)
+        def dynamic(data, kind):
+            start = struct.unpack_from("<Q", data, 32)[0]
+            size, count = struct.unpack_from("<HH", data, 54)
+            entry = next(start + i * size for i in range(count)
+                         if struct.unpack_from("<I", data, start + i * size)[0] == 2)
+            offset = struct.unpack_from("<Q", data, entry + 8)[0]
+            length = struct.unpack_from("<Q", data, entry + 32)[0]
+            if kind == "mapping":
+                appended = len(data)
+                data.extend(data[offset:offset + length])
+                struct.pack_into("<Q", data, entry + 8, appended)
+            else:
+                for pos in range(offset, offset + length, 16):
+                    if struct.unpack_from("<q", data, pos)[0] == 0:
+                        struct.pack_into("<q", data, pos, 6 if kind == "duplicate" else 21)
+        mutations = [(name, lambda data, t=kind: decoy(data, t)) for name, kind in
+                     [("dynsym decoy", 11), ("dynstr decoy", 3), ("versions decoy", 0x6fffffff)]]
+        mutations += [("missing version section", remove_versions)]
+        mutations += [(name, lambda data, n=name: dynamic(data, n)) for name in ["mapping", "duplicate", "unterminated"]]
+        self.reject_mutations("linux-x64", mutations)
 
     def test_unlisted_extra_file_rejected(self):
         (self.root / "linux-x64/model.fytd").write_bytes(b"never package weights")

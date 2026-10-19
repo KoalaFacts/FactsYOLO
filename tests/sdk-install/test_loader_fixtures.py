@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import json
 import sys
+import ctypes
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "sdk/dotnet"))
@@ -22,14 +23,24 @@ class LoaderFixtureCompilation(unittest.TestCase):
             directory = Path(temp)
             source = directory / "fixture.c"
             library = directory / native_assets.RIDS[rid][1]
-            for extra in [False, True]:
+            variants = ["ordinary", "extra"] + (["versioned"] if os.name != "nt" else [])
+            for variant in variants:
+                extra = variant == "extra"
                 symbols = native_assets.PUBLIC_EXPORTS + (["fy_test_export_probe"] if extra else [])
                 prefix = "__declspec(dllexport) " if os.name == "nt" else ""
-                source.write_text("\n".join(f"{prefix}int {name}(void) {{ return 0; }}" for name in symbols))
+                source.write_text("\n".join(f"{prefix}int {name}(void) {{ return 0; }}" for name in symbols
+                                            if variant != "versioned" or name != "fy_detect"))
+                if variant == "versioned":
+                    with source.open("a") as stream:
+                        stream.write('\nint implementation(void) { return 0; }\n'
+                                     '__asm__(".symver implementation,fy_detect@VER_1,remove");\n')
+                    (directory / "versions.map").write_text("BASE {}; VER_1 {} BASE;\n")
                 command = (["cl", "/nologo", "/LD", "/W4", "/WX", str(source),
                             "/Fe:" + str(library), "/Fo:" + str(directory / "fixture.obj")]
                            if os.name == "nt" else
                            ["cc", "-shared", "-fPIC", "-Wall", "-Wextra", "-Werror", str(source), "-o", str(library)])
+                if variant == "versioned":
+                    command.append("-Wl,--version-script=" + str(directory / "versions.map"))
                 result = subprocess.run(command, cwd=directory, text=True, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, timeout=120)
                 self.assertEqual(result.returncode, 0, result.stdout)
@@ -45,12 +56,22 @@ class LoaderFixtureCompilation(unittest.TestCase):
                 manifest = json.loads((directory / "manifest.json").read_text())
                 manifest["files"]["sbom.spdx.json"] = native_assets.sha256(directory / "sbom.spdx.json")
                 (directory / "manifest.json").write_text(json.dumps(manifest))
-                if extra:
+                if variant == "versioned":
+                    # The real loader cannot resolve this non-default version
+                    # by the ordinary ABI name despite its unchanged st_name.
+                    loaded = ctypes.CDLL(str(library))
+                    with self.assertRaises(AttributeError):
+                        loaded.fy_detect
+                    with self.assertRaisesRegex(ValueError, "versioned FactsYOLO ELF export"):
+                        native_assets.verify_bundle(directory, rid, "test-only")
+                    print("HOST_VERSION_EXPORT_AUDIT ordinary_lookup_failed correctly_rejected", flush=True)
+                elif extra:
                     with self.assertRaisesRegex(ValueError, "actual native exports"):
                         native_assets.verify_bundle(directory, rid, "test-only")
                 else:
                     native_assets.verify_bundle(directory, rid, "test-only")
-                print(f"HOST_EXPORT_AUDIT rid={rid} extra_fixture_export={extra} correctly_{'rejected' if extra else 'accepted'}", flush=True)
+                if variant != "versioned":
+                    print(f"HOST_EXPORT_AUDIT rid={rid} extra_fixture_export={extra} correctly_{'rejected' if extra else 'accepted'}", flush=True)
 
     def test_all_variants_compile_with_strict_host_warnings(self):
         # Compile only: WITH_DEPENDENCY intentionally needs a separate DLL at

@@ -139,6 +139,20 @@ Native asset and package transfer artifacts expire after one day; no weights or
 pixels are uploaded. Final evidence artifacts contain text logs and JSON only.
 This workflow is not a release workflow.
 
+Bundle verification also reads the binary's actual `fy_*` exports independently
+of the manifest. An accurate file hash does not prove a declared export list:
+an actual fixture library with a revised hash and a public-only declaration was
+previously accepted. The offline reader checks the pinned ELF64 dynamic symbol
+section or PE32+ named-export tables, with file bounds and defined-function/RVA
+checks, and requires the existing eleven names. It runs on both bundle reception
+and package extraction without loading the other host's code or adding tools.
+Real staged ELF/PE mutations and host-compiled C stubs exercise rejection; these
+are binary validation fixtures, not detection evidence. This is a conservative
+audit of the current toolchain outputs, not general executable validation,
+publisher authentication or release clearance. Format references are the
+[ELF symbol-table specification](https://gabi.xinuos.com/elf/05-symtab.html) and
+[Microsoft PE specification](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format).
+
 ## Platform and license limits
 
 Linux assets use GNU/Linux x64; actual ELF NEEDED entries and versioned symbols

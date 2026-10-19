@@ -172,15 +172,10 @@ class Packaging(unittest.TestCase):
         for rid, name in [("linux-x64", "libfacts_yolo.so"), ("win-x64", "facts_yolo.dll")]:
             directory = self.root / rid
             directory.mkdir()
-            binary = bytearray(512)
-            if rid == "linux-x64":
-                binary[:6] = b"\x7fELF\x02\x01"
-                struct.pack_into("<H", binary, 18, 62)
-            else:
-                binary[:2] = b"MZ"
-                struct.pack_into("<I", binary, 60, 128)
-                binary[128:132] = b"PE\x00\x00"
-                struct.pack_into("<H", binary, 132, 0x8664)
+            # These are real staged binaries, not executable-header stand-ins.
+            # The surrounding minimal manifest is still only a validator fixture.
+            assets = Path(os.environ.get("FACTSYOLO_SDK_TEST_ASSETS", ROOT / "target/sdk-assets"))
+            binary = (assets / rid / name).read_bytes()
             (directory / name).write_bytes(binary)
             (directory / "LICENSE.txt").write_text("test-only license content")
             (directory / "sbom.spdx.json").write_text('{"spdxVersion":"SPDX-2.3"}')
@@ -216,7 +211,9 @@ class Packaging(unittest.TestCase):
 
     def test_wrong_architecture_rejected_even_with_matching_hash(self):
         file = self.root / "win-x64/facts_yolo.dll"
-        data = bytearray(file.read_bytes()); struct.pack_into("<H", data, 132, 0xaa64); file.write_bytes(data)
+        data = bytearray(file.read_bytes())
+        struct.pack_into("<H", data, struct.unpack_from("<I", data, 60)[0] + 4, 0xaa64)
+        file.write_bytes(data)
         self.mutate("win-x64", lambda m: m["files"].update({file.name: hashlib.sha256(data).hexdigest()}))
         with self.assertRaisesRegex(ValueError, "architecture"):
             self.api.verify_assets(self.root, self.commit)
@@ -225,6 +222,69 @@ class Packaging(unittest.TestCase):
         self.mutate("linux-x64", lambda m: m["exports"].append("fy_test_model_create"))
         with self.assertRaisesRegex(ValueError, "exports"):
             self.api.verify_assets(self.root, self.commit)
+
+    def replace_binary(self, rid, transform):
+        file = self.root / rid / self.api.RIDS[rid][1]
+        data = bytearray(file.read_bytes())
+        transform(data)
+        file.write_bytes(data)
+        self.mutate(rid, lambda m: m["files"].update({file.name: hashlib.sha256(data).hexdigest()}))
+
+    def test_actual_fixture_export_rejected_even_when_manifest_claims_public_only(self):
+        old = b"fy_result_release\0"
+        replacement = b"fy_test_" + b"x" * (len(old) - 9) + b"\0"
+        for rid in self.api.RIDS:
+            with self.subTest(rid=rid):
+                def rename(data):
+                    self.assertIn(old, data)
+                    data[:] = data.replace(old, replacement)
+                self.replace_binary(rid, rename)
+                with self.assertRaisesRegex(ValueError, "exports"):
+                    self.api.verify_bundle(self.root / rid, rid, self.commit)
+
+    def test_invalid_export_tables_rejected_even_with_matching_hashes(self):
+        def bad_elf(data):
+            sections = struct.unpack_from("<Q", data, 40)[0]
+            size, count = struct.unpack_from("<HH", data, 58)
+            for index in range(count):
+                entry = sections + index * size
+                if struct.unpack_from("<I", data, entry + 4)[0] == 11:
+                    struct.pack_into("<Q", data, entry + 24, len(data) + 1)
+                    return
+            self.fail("real ELF has no dynamic symbols")
+        def bad_pe(data):
+            pe = struct.unpack_from("<I", data, 60)[0]
+            struct.pack_into("<I", data, pe + 24 + 112, 0xffffffff)
+        for rid, change in [("linux-x64", bad_elf), ("win-x64", bad_pe)]:
+            with self.subTest(rid=rid):
+                self.replace_binary(rid, change)
+                with self.assertRaisesRegex(ValueError, "export"):
+                    self.api.verify_bundle(self.root / rid, rid, self.commit)
+
+    def test_truncated_binary_rejected_even_with_matching_hash(self):
+        for rid in self.api.RIDS:
+            with self.subTest(rid=rid):
+                self.replace_binary(rid, lambda data: data.__delitem__(slice(256, None)))
+                with self.assertRaisesRegex(ValueError, "export|architecture"):
+                    self.api.verify_bundle(self.root / rid, rid, self.commit)
+
+    def test_undefined_elf_symbol_cannot_supply_a_required_export(self):
+        def undefine(data):
+            sections = struct.unpack_from("<Q", data, 40)[0]
+            size, count = struct.unpack_from("<HH", data, 58)
+            for i in range(count):
+                section = struct.unpack_from("<IIQQQQIIQQ", data, sections + i * size)
+                if section[1] == 11:
+                    strings = struct.unpack_from("<IIQQQQIIQQ", data, sections + section[6] * size)
+                    for offset in range(section[4], section[4] + section[5], 24):
+                        name = struct.unpack_from("<I", data, offset)[0] + strings[4]
+                        if data[name:name + 18] == b"fy_result_release\0":
+                            struct.pack_into("<H", data, offset + 6, 0)
+                            return
+            self.fail("missing required dynamic symbol")
+        self.replace_binary("linux-x64", undefine)
+        with self.assertRaisesRegex(ValueError, "exports"):
+            self.api.verify_bundle(self.root / "linux-x64", "linux-x64", self.commit)
 
     def test_missing_license_inventory_rejected(self):
         self.mutate("linux-x64", lambda m: m.update(licenses=[]))

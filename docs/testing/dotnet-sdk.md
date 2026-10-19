@@ -146,6 +146,12 @@ previously accepted. The offline reader checks the pinned ELF64 dynamic symbol
 section or PE32+ named-export tables, with file bounds and defined-function/RVA
 checks, and requires the existing eleven names. It runs on both bundle reception
 and package extraction without loading the other host's code or adding tools.
+The pinned ABI exports are unversioned: GNU symbol-version entries for `fy_*`
+must be globally available without a version (index 1). Versioned `fy_*` entries
+are rejected, including non-default versions whose unchanged symbol-table name
+cannot be resolved by ordinary `dlsym`. A Linux host-compiled `.symver` fixture
+checks the actual lookup failure and bundle rejection; imported dependency
+versions remain supported. See the [GNU symbol-version table specification](https://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-generic/symversion.html).
 Real staged ELF/PE mutations and host-compiled C stubs exercise rejection; these
 are binary validation fixtures, not detection evidence. This is a conservative
 audit of the current toolchain outputs, not general executable validation,

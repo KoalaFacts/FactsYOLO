@@ -51,7 +51,16 @@ def exported_names(path, rid):
         if strings[1] != 3:  # SHT_STRTAB
             raise ValueError("invalid ELF export string table")
         span(symbols[4], symbols[5]); span(strings[4], strings[5])
-        for offset in range(symbols[4], symbols[4] + symbols[5], 24):
+        versions = [s for s in sections if s[1] == 0x6fffffff]  # SHT_GNU_versym
+        if len(versions) > 1:
+            raise ValueError("multiple ELF symbol version tables")
+        if versions:
+            version = versions[0]
+            if (version[6] != sections.index(symbols) or version[9] != 2
+                    or version[5] != symbols[5] // 24 * 2):
+                raise ValueError("invalid ELF symbol version table")
+            span(version[4], version[5])
+        for index, offset in enumerate(range(symbols[4], symbols[4] + symbols[5], 24)):
             name, info, visibility, section, value, size = unpack("<IBBHQQ", offset)
             if name >= strings[5]:
                 raise ValueError("ELF export name outside string table")
@@ -59,6 +68,10 @@ def exported_names(path, rid):
             if section and info >> 4 in (1, 2) and visibility & 7 in (0, 3):
                 text = string(strings[4] + name, strings[4] + strings[5])
                 if text.startswith("fy_"):
+                    # The pinned ABI uses unversioned exports. st_name alone
+                    # also names non-default versions that dlsym cannot find.
+                    if versions and unpack("<H", versions[0][4] + index * 2)[0] != 1:
+                        raise ValueError("versioned FactsYOLO ELF export is unsupported")
                     if info & 15 != 2 or not 0 < section < section_count:
                         raise ValueError("FactsYOLO ELF export is not a defined function")
                     names.append(text)

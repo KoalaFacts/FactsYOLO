@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 from datetime import datetime, timezone
+from native_exports import exported_names
 
 ROOT = Path(__file__).resolve().parents[2]
 RIDS = {"linux-x64": ("x86_64-unknown-linux-gnu", "libfacts_yolo.so"),
@@ -66,6 +67,8 @@ def verify_bundle(directory, rid, commit):
         if sha256(file) != digest:
             raise ValueError(f"asset hash differs: {rid}/{name}")
     check_architecture(directory / manifest["library"], rid)
+    if exported_names(directory / manifest["library"], rid) != PUBLIC_EXPORTS:
+        raise ValueError(f"actual native exports differ: {rid}")
     return manifest
 
 

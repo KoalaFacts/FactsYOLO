@@ -62,6 +62,19 @@ fn forward(b: &dyn Backend, model: &Model, samples: &[Sample]) -> Result<Vec<f32
     }
     Ok(output)
 }
+// A shared validation output avoids repeating the complete tensor forward pass
+// for the same frozen model and dataset when collecting loss and metrics.
+fn validation_loss_and_metrics(
+    b: &dyn Backend,
+    model: &Model,
+    samples: &[Sample],
+) -> Result<(f32, fy_cpu_evaluate::metrics::Metrics), String> {
+    let output = forward(b, model, samples)?;
+    let loss = loss_gradient(&output, samples)?.0;
+    let metrics = measure(&output, samples)?;
+    Ok((loss, metrics))
+}
+
 fn close(a: f32, b: f32) -> bool {
     a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-4 + 1e-4 * b.abs()
 }
@@ -112,8 +125,8 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
     let train_output = forward(&*b, &model, &train)?;
     let final_loss = loss_gradient(&train_output, &train)?.0;
     let train_metrics = measure(&train_output, &train)?;
-    let validation_loss = loss_gradient(&forward(&*b, &model, &validation)?, &validation)?.0;
-    let validation_metrics = measure(&forward(&*b, &model, &validation)?, &validation)?;
+    let (validation_loss, validation_metrics) =
+        validation_loss_and_metrics(&*b, &model, &validation)?;
     let outputs = forward(&*b, &model, &test)?;
     let test_metrics = measure(&outputs, &test)?;
     let bytes = model.to_bytes()?;

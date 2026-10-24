@@ -62,6 +62,19 @@ fn forward(b: &dyn Backend, model: &Model, samples: &[Sample]) -> Result<Vec<f32
     }
     Ok(output)
 }
+// A shared validation output avoids repeating the complete tensor forward pass
+// for the same frozen model and dataset when collecting loss and metrics.
+fn validation_loss_and_metrics(
+    b: &dyn Backend,
+    model: &Model,
+    samples: &[Sample],
+) -> Result<(f32, fy_cpu_evaluate::metrics::Metrics), String> {
+    let output = forward(b, model, samples)?;
+    let loss = loss_gradient(&output, samples)?.0;
+    let metrics = measure(&output, samples)?;
+    Ok((loss, metrics))
+}
+
 fn close(a: f32, b: f32) -> bool {
     a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-4 + 1e-4 * b.abs()
 }
@@ -112,8 +125,8 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
     let train_output = forward(&*b, &model, &train)?;
     let final_loss = loss_gradient(&train_output, &train)?.0;
     let train_metrics = measure(&train_output, &train)?;
-    let validation_loss = loss_gradient(&forward(&*b, &model, &validation)?, &validation)?.0;
-    let validation_metrics = measure(&forward(&*b, &model, &validation)?, &validation)?;
+    let (validation_loss, validation_metrics) =
+        validation_loss_and_metrics(&*b, &model, &validation)?;
     let outputs = forward(&*b, &model, &test)?;
     let test_metrics = measure(&outputs, &test)?;
     let bytes = model.to_bytes()?;
@@ -229,6 +242,61 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validation_summary_uses_one_forward_pass_per_chunk() {
+        use std::cell::Cell;
+
+        struct CountingBackend {
+            calls: Cell<usize>,
+        }
+        impl Backend for CountingBackend {
+            fn name(&self) -> &'static str {
+                "counting"
+            }
+            fn forward(
+                &self,
+                _weights: &[f32],
+                _input: &[f32],
+                batch: usize,
+            ) -> Result<Vec<f32>, String> {
+                self.calls.set(self.calls.get() + 1);
+                Ok(vec![0.0; batch * 7])
+            }
+            fn backward(
+                &self,
+                _weights: &[f32],
+                _input: &[f32],
+                _batch: usize,
+                _output_gradient: &[f32],
+            ) -> Result<Vec<f32>, String> {
+                panic!("validation must not run a gradient pass")
+            }
+        }
+
+        // 513 samples force two chunks. One positive and one background class
+        // are necessary for measure() to accept the validation population.
+        let samples: Vec<Sample> = (0..513)
+            .map(|i| Sample {
+                pixels: vec![0; 64 * 64 * 3],
+                class: if i == 512 { None } else { Some(0) },
+                box_xywh: [0.5; 4],
+            })
+            .collect();
+        let backend = CountingBackend {
+            calls: Cell::new(0),
+        };
+        let model = Model::initialized(404);
+        let (loss, metrics) = validation_loss_and_metrics(&backend, &model, &samples).unwrap();
+        assert!(loss.is_finite());
+        assert_eq!(metrics.positives, 512);
+        assert_eq!(metrics.negatives, 1);
+        assert_eq!(
+            backend.calls.get(),
+            2,
+            "validation loss and metrics must share the same two chunk outputs"
+        );
+    }
 
     #[test]
     fn reused_batches_match_historical_sampling_and_keep_storage() {

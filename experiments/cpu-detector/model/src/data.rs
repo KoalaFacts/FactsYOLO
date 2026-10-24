@@ -93,9 +93,30 @@ mod tests {
 
     #[test]
     fn borrowed_rgb_features_are_bitwise_identical_and_reject_missing_pixels() {
-        let pixels: Vec<u8> = (0..64 * 64 * 3)
+        // Use a concrete index type: the isolated experiment's --all-targets
+        // clippy gate compiles this test independently of the root workspace.
+        let pixels: Vec<u8> = (0_usize..64 * 64 * 3)
             .map(|i| (i.wrapping_mul(31).wrapping_add(17) % 256) as u8)
             .collect();
+
+        // Independent historical channel-major implementation: comparing the
+        // new packed and borrowed entry points alone would not catch a shared
+        // preprocessing regression.
+        let mut historical = [0.0_f32; 192];
+        for gy in 0..8 {
+            for gx in 0..8 {
+                for c in 0..3 {
+                    let mut sum = 0_u32;
+                    for y in gy * 8..gy * 8 + 8 {
+                        for x in gx * 8..gx * 8 + 8 {
+                            sum += u32::from(pixels[(y * 64 + x) * 3 + c]);
+                        }
+                    }
+                    historical[(gy * 8 + gx) * 3 + c] = sum as f32 / (64.0 * 255.0);
+                }
+            }
+        }
+
         let compact = features(&pixels).unwrap();
         let borrowed = features_from_rgb(|x, y| {
             let at = (y * 64 + x) * 3;
@@ -103,6 +124,11 @@ mod tests {
         })
         .unwrap();
         assert_eq!(&compact[..], &borrowed[..]);
+        assert_eq!(
+            borrowed.map(f32::to_bits),
+            historical.map(f32::to_bits),
+            "TD1 preprocessing changed from the historical channel-major order"
+        );
         assert!(features_from_rgb(|x, y| {
             if x == 63 && y == 63 {
                 None

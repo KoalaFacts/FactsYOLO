@@ -295,9 +295,10 @@ class LoaderFixtureCompilation(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "requires MSVC and the Windows PE loader")
     def test_pe_ordinal_only_export_cannot_hide_in_named_manifest(self):
-        # A real NONAME function remains callable by GetProcAddress ordinal.
-        # Its absence from AddressOfNames must not make a forged public-only
-        # manifest pass. These are host-compiled stubs, not detector models.
+        # A sparse EAT is valid: unoccupied ordinal slots are zero, and every
+        # occupied slot must have a name. Then add a real NONAME function,
+        # callable by ordinal but missing from AddressOfNames. These are
+        # host-compiled stubs, not detector models.
         with tempfile.TemporaryDirectory(prefix="factsyolo-pe-ordinal-") as temp:
             directory = Path(temp)
             source = directory / "fixture.c"
@@ -307,34 +308,43 @@ class LoaderFixtureCompilation(unittest.TestCase):
                               "\n".join(f"int {name}(void) {{ return 0; }}"
                                         for name in native_assets.PUBLIC_EXPORTS) +
                               "\nint ordinal_probe(void) { return 0; }\n")
-            definition.write_text("LIBRARY facts_yolo\nEXPORTS\n" +
-                                  "\n".join(native_assets.PUBLIC_EXPORTS) +
-                                  "\nordinal_probe @123 NONAME\n")
-            command = ["cl", "/nologo", "/LD", "/W4", "/WX", str(source),
-                       "/Fe:" + str(library), "/Fo:" + str(directory / "fixture.obj"),
-                       "/link", "/DEF:" + str(definition)]
-            compiled = subprocess.run(command, cwd=directory, capture_output=True,
-                                      text=True, timeout=120)
-            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            self.assertTrue(library.is_file())
-            lookup = [sys.executable, "-c",
-                      "import ctypes,sys; lib=ctypes.WinDLL(sys.argv[1]); "
-                      "assert all(getattr(lib,name)() == 0 for name in sys.argv[2:]); "
-                      "assert lib[123]() == 0",
-                      str(library), *native_assets.PUBLIC_EXPORTS]
-            loaded = subprocess.run(lookup, cwd=directory, capture_output=True,
-                                    text=True, timeout=10)
-            self.assertEqual(loaded.returncode, 0, loaded.stdout + loaded.stderr)
-            (directory / "sbom.spdx.json").write_text("{}")
-            files = {p.name: native_assets.sha256(p) for p in directory.iterdir()
-                     if p.is_file() and p.name != "manifest.json"}
-            (directory / "manifest.json").write_text(json.dumps({
-                "schema": 1, "rid": "win-x64", "source_commit": "test-only",
-                "library": library.name, "exports": native_assets.PUBLIC_EXPORTS,
-                "licenses": [source.name], "files": files}))
-            with self.assertRaisesRegex(ValueError, "ordinal-only"):
-                native_assets.verify_bundle(directory, "win-x64", "test-only")
-            print("HOST_PE_ORDINAL_EXPORT loader_lookup_succeeded audit_rejected", flush=True)
+            # Non-consecutive named ordinals guarantee real zero-filled holes.
+            named = "\n".join(f"{name} @{3 * i + 1}"
+                              for i, name in enumerate(native_assets.PUBLIC_EXPORTS))
+            for extra in (False, True):
+                with self.subTest(ordinal_only=extra):
+                    definition.write_text("LIBRARY facts_yolo\nEXPORTS\n" + named +
+                                          ("\nordinal_probe @123 NONAME" if extra else "") + "\n")
+                    command = ["cl", "/nologo", "/LD", "/W4", "/WX", str(source),
+                               "/Fe:" + str(library), "/Fo:" + str(directory / "fixture.obj"),
+                               "/link", "/DEF:" + str(definition)]
+                    compiled = subprocess.run(command, cwd=directory, capture_output=True,
+                                              text=True, timeout=120)
+                    self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+                    self.assertTrue(library.is_file())
+                    lookup = [sys.executable, "-c",
+                              "import ctypes,sys; lib=ctypes.WinDLL(sys.argv[1]); "
+                              "assert all(getattr(lib,name)() == 0 for name in sys.argv[2:]); " +
+                              ("assert lib[123]() == 0" if extra else "pass"),
+                              str(library), *native_assets.PUBLIC_EXPORTS]
+                    loaded = subprocess.run(lookup, cwd=directory, capture_output=True,
+                                            text=True, timeout=10)
+                    self.assertEqual(loaded.returncode, 0, loaded.stdout + loaded.stderr)
+                    (directory / "sbom.spdx.json").write_text("{}")
+                    files = {p.name: native_assets.sha256(p) for p in directory.iterdir()
+                             if p.is_file() and p.name != "manifest.json"}
+                    (directory / "manifest.json").write_text(json.dumps({
+                        "schema": 1, "rid": "win-x64", "source_commit": "test-only",
+                        "library": library.name, "exports": native_assets.PUBLIC_EXPORTS,
+                        "licenses": [source.name], "files": files}))
+                    if extra:
+                        with self.assertRaisesRegex(ValueError, "ordinal-only"):
+                            native_assets.verify_bundle(directory, "win-x64", "test-only")
+                    else:
+                        native_assets.verify_bundle(directory, "win-x64", "test-only")
+                    print(f"HOST_PE_ORDINAL_EXPORT sparse_holes_accepted "
+                          f"extra_ordinal={'rejected' if extra else 'absent'} "
+                          f"loader_lookup_succeeded", flush=True)
 
     def test_all_variants_compile_with_strict_host_warnings(self):
         # Compile only: WITH_DEPENDENCY intentionally needs a separate DLL at

@@ -80,11 +80,11 @@ pub fn features(pixels: &[u8]) -> Result<Vec<f32>, String> {
     if pixels.len() != 64 * 64 * 3 {
         return Err("TD1 requires exactly 64x64 RGB bytes".into());
     }
-    Ok(features_from_rgb(|x, y| {
+    let values = features_from_rgb(|x, y| {
         let at = (y * 64 + x) * 3;
         Some([pixels[at], pixels[at + 1], pixels[at + 2]])
-    })?
-    .to_vec())
+    })?;
+    Ok(values.to_vec())
 }
 
 #[cfg(test)]
@@ -102,7 +102,7 @@ mod tests {
             Some([pixels[at], pixels[at + 1], pixels[at + 2]])
         })
         .unwrap();
-        assert_eq!(compact, borrowed);
+        assert_eq!(&compact[..], &borrowed[..]);
         assert!(features_from_rgb(|x, y| {
             if x == 63 && y == 63 {
                 None

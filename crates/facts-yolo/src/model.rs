@@ -124,11 +124,11 @@ impl Model {
             let detection = model
                 .detect_with_rgb(|x, y| _image.rgb_at(x as u32, y as u32))
                 .map_err(|_| {
-                Failure::Fatal(Error {
-                    status: crate::ffi::types::FY_MODEL_OUTPUT_INVALID,
-                    message: "invalid TD1 output or pixel view",
-                })
-            })?;
+                    Failure::Fatal(Error {
+                        status: crate::ffi::types::FY_MODEL_OUTPUT_INVALID,
+                        message: "invalid TD1 output or pixel view",
+                    })
+                })?;
             let candidates = detection
                 .into_iter()
                 .map(|d| Candidate {

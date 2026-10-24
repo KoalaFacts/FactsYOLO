@@ -271,10 +271,7 @@ mod tests {
             for _ in 0..64 {
                 let index = reference_rng.next_u32() as usize % train.len();
                 expected_batch.extend_from_slice(&cached[index * INPUTS..(index + 1) * INPUTS]);
-                expected_labels.push((
-                    train[index].class,
-                    train[index].box_xywh.map(f32::to_bits),
-                ));
+                expected_labels.push((train[index].class, train[index].box_xywh.map(f32::to_bits)));
             }
             assert_eq!(batch, expected_batch);
             assert_eq!(

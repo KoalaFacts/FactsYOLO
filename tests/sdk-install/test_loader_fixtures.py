@@ -122,6 +122,33 @@ class LoaderFixtureCompilation(unittest.TestCase):
                 native_assets.verify_bundle(library.parent, "linux-x64", "test-only")
 
     @unittest.skipUnless(sys.platform == "linux", "ELF fixture requires the Linux loader")
+    def test_elf_non_fy_callable_export_cannot_hide_in_manifest(self):
+        # A public ABI-only manifest must not omit a loader-visible helper
+        # merely because its name lacks the fy_ prefix. Prove this with actual
+        # host-linked GNU, SysV, and dual-hash libraries before the audit.
+        with tempfile.TemporaryDirectory(prefix="factsyolo-nonprefix-export-") as temp:
+            directory = Path(temp)
+            extra = "native_helper_probe"
+            source = directory / "fixture.c"
+            source.write_text("/* SPDX-License-Identifier: Apache-2.0 */\\n" +
+                              "\\n".join(f"int {name}(void) {{ return 0; }}"
+                                        for name in native_assets.PUBLIC_EXPORTS + [extra]) + "\\n")
+            library = directory / native_assets.RIDS["linux-x64"][1]
+            for style in ("gnu", "sysv", "both"):
+                with self.subTest(hash_style=style):
+                    command = ["cc", "-shared", "-fPIC", "-Wall", "-Wextra", "-Werror",
+                               str(source), "-Wl,--hash-style=" + style, "-o", str(library)]
+                    built = subprocess.run(command, cwd=directory, capture_output=True,
+                                           text=True, timeout=120)
+                    self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+                    self.assert_loader_resolves(library, extra)
+                    self.write_fixture_manifest(library)
+                    with self.assertRaisesRegex(ValueError, "unexpected ELF named export"):
+                        native_assets.verify_bundle(directory, "linux-x64", "test-only")
+                    print(f"HOST_ELF_NONPREFIX_EXPORT style={style} "
+                          "loader_lookup_succeeded audit=rejected", flush=True)
+
+    @unittest.skipUnless(sys.platform == "linux", "ELF fixture requires the Linux loader")
     def test_elf_gnu_hash_count_rejects_invalid_buckets_and_unterminated_chain(self):
         with tempfile.TemporaryDirectory(prefix="factsyolo-gnu-hash-bounds-") as temp:
             library = self.compile_elf_export_fixture(Path(temp), "fy_test_export_probe")

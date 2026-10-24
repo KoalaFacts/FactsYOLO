@@ -130,9 +130,9 @@ class LoaderFixtureCompilation(unittest.TestCase):
             directory = Path(temp)
             extra = "native_helper_probe"
             source = directory / "fixture.c"
-            source.write_text("/* SPDX-License-Identifier: Apache-2.0 */\\n" +
-                              "\\n".join(f"int {name}(void) {{ return 0; }}"
-                                        for name in native_assets.PUBLIC_EXPORTS + [extra]) + "\\n")
+            source.write_text("/* SPDX-License-Identifier: Apache-2.0 */\n" +
+                              "\n".join(f"int {name}(void) {{ return 0; }}"
+                                        for name in native_assets.PUBLIC_EXPORTS + [extra]) + "\n")
             library = directory / native_assets.RIDS["linux-x64"][1]
             for style in ("gnu", "sysv", "both"):
                 with self.subTest(hash_style=style):

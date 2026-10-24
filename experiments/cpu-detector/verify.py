@@ -43,6 +43,17 @@ def main():
     run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
     run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
     binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
+    # The benchmark compares only training batch preparation, not end-to-end training.
+    bench_binary = ROOT / "target" / "release" / ("fy-batch-benchmark.exe" if os.name == "nt" else "fy-batch-benchmark")
+    batch_report = json.loads(run("batch-benchmark", [bench_binary, "--measure"]))
+    if (batch_report["source_commit"] != env["FACTSYOLO_BUILD_ID"]
+            or batch_report["equivalent_steps"] != 2000
+            or not batch_report["bitwise_batch_and_rng_parity"]
+            or len(batch_report["historical"]) != 7 or len(batch_report["reused"]) != 7
+            or any(h["allocation_requests"] <= r["allocation_requests"]
+                   for h, r in zip(batch_report["historical"], batch_report["reused"]))):
+        raise RuntimeError("batch preparation benchmark parity/provenance/allocation gate failed")
+    (evidence / "batch-benchmark.json").write_text(json.dumps(batch_report, indent=2) + "\n")
     reports = {}
     for backend in ["burn", "candle"]:
         output = evidence / backend

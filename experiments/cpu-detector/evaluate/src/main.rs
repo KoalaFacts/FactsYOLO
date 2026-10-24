@@ -2,7 +2,7 @@
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners},
-    training::adam_step,
+    training::{adam_step, fill_training_batch},
     Backend,
 };
 use fy_tiny_model::{
@@ -54,27 +54,6 @@ fn input(samples: &[Sample]) -> Result<Vec<f32>, String> {
         result.extend(features(&sample.pixels)?);
     }
     Ok(result)
-}
-// Reuse the 64-sample feature and label buffers across all 2,000 training steps.
-// The sample draw order, payload bytes and labels remain unchanged.
-fn fill_training_batch(
-    train: &[Sample],
-    cached: &[f32],
-    rng: &mut Rng,
-    batch: &mut Vec<f32>,
-    labels: &mut Vec<Sample>,
-) {
-    batch.clear();
-    labels.clear();
-    for _ in 0..64 {
-        let index = rng.next_u32() as usize % train.len();
-        batch.extend_from_slice(&cached[index * INPUTS..(index + 1) * INPUTS]);
-        labels.push(Sample {
-            pixels: vec![],
-            class: train[index].class,
-            box_xywh: train[index].box_xywh,
-        });
-    }
 }
 fn forward(b: &dyn Backend, model: &Model, samples: &[Sample]) -> Result<Vec<f32>, String> {
     let mut output = Vec::with_capacity(samples.len() * 7);

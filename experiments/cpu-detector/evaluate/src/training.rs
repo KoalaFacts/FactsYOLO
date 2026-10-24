@@ -37,11 +37,7 @@ pub fn adam_step(
     // Each parameter update depends only on that index's previous values.
     for i in 0..weights.len() {
         let (nw, nm, nv) = candidate(weights[i], gradient[i], m[i], v[i], a, b);
-        if !nw.is_finite()
-            || nw.abs() > 10000.0
-            || !nm.is_finite()
-            || !nv.is_finite()
-        {
+        if !nw.is_finite() || nw.abs() > 10000.0 || !nm.is_finite() || !nv.is_finite() {
             return Err("nonfinite/out-of-range Adam update".into());
         }
     }

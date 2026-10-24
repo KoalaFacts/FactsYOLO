@@ -50,23 +50,92 @@ pub fn dataset(seed: u64, count: usize) -> Vec<Sample> {
         .collect()
 }
 
-pub fn features(pixels: &[u8]) -> Result<Vec<f32>, String> {
-    if pixels.len() != 64 * 64 * 3 {
-        return Err("TD1 requires exactly 64x64 RGB bytes".into());
-    }
-    let mut output = vec![0.0; 192];
+// Shared preprocessing for packed training inputs and checked borrowed native
+// image views. Each 8x8 block uses exact integer accumulation before converting
+// to f32, preserving TD1's historical channel order and normalization.
+pub(crate) fn features_from_rgb(
+    mut rgb_at: impl FnMut(usize, usize) -> Option<[u8; 3]>,
+) -> Result<[f32; 192], String> {
+    let mut output = [0.0; 192];
     for gy in 0..8 {
         for gx in 0..8 {
-            for c in 0..3 {
-                let mut sum = 0_u32;
-                for y in gy * 8..gy * 8 + 8 {
-                    for x in gx * 8..gx * 8 + 8 {
-                        sum += u32::from(pixels[(y * 64 + x) * 3 + c]);
+            let mut sums = [0_u32; 3];
+            for y in gy * 8..gy * 8 + 8 {
+                for x in gx * 8..gx * 8 + 8 {
+                    let rgb = rgb_at(x, y).ok_or("incomplete TD1 RGB view")?;
+                    for c in 0..3 {
+                        sums[c] += u32::from(rgb[c]);
                     }
                 }
-                output[(gy * 8 + gx) * 3 + c] = sum as f32 / (64.0 * 255.0);
+            }
+            for c in 0..3 {
+                output[(gy * 8 + gx) * 3 + c] = sums[c] as f32 / (64.0 * 255.0);
             }
         }
     }
     Ok(output)
+}
+
+pub fn features(pixels: &[u8]) -> Result<Vec<f32>, String> {
+    if pixels.len() != 64 * 64 * 3 {
+        return Err("TD1 requires exactly 64x64 RGB bytes".into());
+    }
+    let values = features_from_rgb(|x, y| {
+        let at = (y * 64 + x) * 3;
+        Some([pixels[at], pixels[at + 1], pixels[at + 2]])
+    })?;
+    Ok(values.to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_rgb_features_are_bitwise_identical_and_reject_missing_pixels() {
+        // Use a concrete index type: the isolated experiment's --all-targets
+        // clippy gate compiles this test independently of the root workspace.
+        let pixels: Vec<u8> = (0_usize..64 * 64 * 3)
+            .map(|i| (i.wrapping_mul(31).wrapping_add(17) % 256) as u8)
+            .collect();
+
+        // Independent historical channel-major implementation: comparing the
+        // new packed and borrowed entry points alone would not catch a shared
+        // preprocessing regression.
+        let mut historical = [0.0_f32; 192];
+        for gy in 0..8 {
+            for gx in 0..8 {
+                for c in 0..3 {
+                    let mut sum = 0_u32;
+                    for y in gy * 8..gy * 8 + 8 {
+                        for x in gx * 8..gx * 8 + 8 {
+                            sum += u32::from(pixels[(y * 64 + x) * 3 + c]);
+                        }
+                    }
+                    historical[(gy * 8 + gx) * 3 + c] = sum as f32 / (64.0 * 255.0);
+                }
+            }
+        }
+
+        let compact = features(&pixels).unwrap();
+        let borrowed = features_from_rgb(|x, y| {
+            let at = (y * 64 + x) * 3;
+            Some([pixels[at], pixels[at + 1], pixels[at + 2]])
+        })
+        .unwrap();
+        assert_eq!(&compact[..], &borrowed[..]);
+        assert_eq!(
+            borrowed.map(f32::to_bits),
+            historical.map(f32::to_bits),
+            "TD1 preprocessing changed from the historical channel-major order"
+        );
+        assert!(features_from_rgb(|x, y| {
+            if x == 63 && y == 63 {
+                None
+            } else {
+                Some([0, 0, 0])
+            }
+        })
+        .is_err());
+    }
 }

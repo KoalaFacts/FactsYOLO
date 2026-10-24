@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use crate::{features, Rng, B1, HIDDEN, INPUTS, PARAMETERS, W1, W2};
+use crate::{data::features_from_rgb, features, Rng, B1, HIDDEN, INPUTS, PARAMETERS, W1, W2};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Detection {
     pub class: usize,
@@ -112,5 +112,16 @@ impl Model {
     }
     pub fn detect(&self, pixels: &[u8]) -> Result<Option<Detection>, String> {
         decode(&self.forward(&features(pixels)?)?)
+    }
+
+    /// Execute the same TD1 preprocessing/forward/decode without copying a
+    /// checked 64x64 image into an intermediate compact RGB allocation.
+    /// The accessor must yield straight RGB for every pixel, regardless of
+    /// the caller's source format or row stride.
+    pub fn detect_with_rgb(
+        &self,
+        rgb_at: impl FnMut(usize, usize) -> Option<[u8; 3]>,
+    ) -> Result<Option<Detection>, String> {
+        decode(&self.forward(&features_from_rgb(rgb_at)?)?)
     }
 }

@@ -149,6 +149,25 @@ class LoaderFixtureCompilation(unittest.TestCase):
                           "loader_lookup_succeeded audit=rejected", flush=True)
 
     @unittest.skipUnless(sys.platform == "linux", "ELF fixture requires the Linux loader")
+    def test_elf_notype_callable_export_cannot_hide_in_manifest(self):
+        # dlsym can still call a globally bound defined STT_NOTYPE symbol.
+        # Enforcing only ELF STT_FUNC would leave an equivalent bypass.
+        with tempfile.TemporaryDirectory(prefix="factsyolo-notype-export-") as temp:
+            extra = "native_notype_probe"
+            library = self.compile_elf_fixture(Path(temp),
+                "\n".join(f"int {name}(void) {{ return 0; }}"
+                          for name in native_assets.PUBLIC_EXPORTS + [extra]))
+            data = bytearray(library.read_bytes())
+            offset = self.elf_symbol_offset(data, extra)
+            self.assertEqual(data[offset + 4] & 15, 2)  # STT_FUNC
+            data[offset + 4] &= 0xf0                    # STT_NOTYPE
+            library.write_bytes(data)
+            self.assert_loader_resolves(library, extra)
+            self.write_fixture_manifest(library)
+            with self.assertRaisesRegex(ValueError, "unexpected ELF named export"):
+                native_assets.verify_bundle(library.parent, "linux-x64", "test-only")
+
+    @unittest.skipUnless(sys.platform == "linux", "ELF fixture requires the Linux loader")
     def test_elf_gnu_hash_count_rejects_invalid_buckets_and_unterminated_chain(self):
         with tempfile.TemporaryDirectory(prefix="factsyolo-gnu-hash-bounds-") as temp:
             library = self.compile_elf_export_fixture(Path(temp), "fy_test_export_probe")

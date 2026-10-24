@@ -161,6 +161,11 @@ segments. PE names must remain strictly sorted for lookup, and function addresse
 must lie within executable, file-backed image ranges. Host-compiled GNU/SysV/both
 fixtures compare ordinary loader lookups with audit rejection; staged ELF/PE
 mutations cover invalid addresses, table ordering, decoys and hash corruption.
+Windows named exports do not exhaust the PE export-address table: functions
+marked NONAME are still reachable through GetProcAddress by ordinal. The audit
+rejects every nonzero export-address slot without a corresponding name-table
+ordinal. A host-linked MSVC DLL regression verifies actual ordinal lookup before
+checking rejection of an accurately hashed public-only bundle manifest.
 For a nonempty GNU hash, the audit derives the terminal symbol index from the
 largest bucket and its terminating chain, then requires agreement with the
 dynamic-symbol section size. Shrinking that inventory cannot hide a runtime

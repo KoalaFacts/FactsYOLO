@@ -304,6 +304,7 @@ def exported_names(path, rid):
         name_table, _ = rva(pointers, count * 4)
         ordinal_table, _ = rva(ordinals, count * 2)
         previous = None
+        named_ordinals = set()
         for i in range(count):
             pointer, end = rva(unpack("<I", name_table + 4 * i)[0], 1)
             text = string(pointer, end)
@@ -313,12 +314,19 @@ def exported_names(path, rid):
             ordinal = unpack("<H", ordinal_table + 2 * i)[0]
             if ordinal >= functions:
                 raise ValueError("PE export ordinal outside address table")
+            named_ordinals.add(ordinal)
             address = unpack("<I", address_table + 4 * ordinal)[0]
             if text.startswith("fy_"):
                 if not address or directory <= address < directory + directory_size:
                     raise ValueError("FactsYOLO PE export is absent or forwarded")
                 rva(address, 1, True)
                 names.append(text)
+        # GetProcAddress accepts ordinal-only exports omitted from the sorted
+        # name table. The full nonzero address table must be accounted for.
+        for ordinal in range(functions):
+            address = unpack("<I", address_table + 4 * ordinal)[0]
+            if address and ordinal not in named_ordinals:
+                raise ValueError("unexpected PE ordinal-only export")
     else:
         raise ValueError("unsupported native export RID")
     if len(names) != len(set(names)):

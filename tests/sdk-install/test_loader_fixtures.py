@@ -293,6 +293,49 @@ class LoaderFixtureCompilation(unittest.TestCase):
                 if variant != "versioned":
                     print(f"HOST_EXPORT_AUDIT rid={rid} extra_fixture_export={extra} correctly_{'rejected' if extra else 'accepted'}", flush=True)
 
+    @unittest.skipUnless(os.name == "nt", "requires MSVC and the Windows PE loader")
+    def test_pe_ordinal_only_export_cannot_hide_in_named_manifest(self):
+        # A real NONAME function remains callable by GetProcAddress ordinal.
+        # Its absence from AddressOfNames must not make a forged public-only
+        # manifest pass. These are host-compiled stubs, not detector models.
+        with tempfile.TemporaryDirectory(prefix="factsyolo-pe-ordinal-") as temp:
+            directory = Path(temp)
+            source = directory / "fixture.c"
+            definition = directory / "fixture.def"
+            library = directory / native_assets.RIDS["win-x64"][1]
+            source.write_text("/* SPDX-License-Identifier: Apache-2.0 */\n" +
+                              "\n".join(f"int {name}(void) {{ return 0; }}"
+                                        for name in native_assets.PUBLIC_EXPORTS) +
+                              "\nint ordinal_probe(void) { return 0; }\n")
+            definition.write_text("LIBRARY facts_yolo\nEXPORTS\n" +
+                                  "\n".join(native_assets.PUBLIC_EXPORTS) +
+                                  "\nordinal_probe @123 NONAME\n")
+            command = ["cl", "/nologo", "/LD", "/W4", "/WX", str(source),
+                       "/Fe:" + str(library), "/Fo:" + str(directory / "fixture.obj"),
+                       "/link", "/DEF:" + str(definition)]
+            compiled = subprocess.run(command, cwd=directory, capture_output=True,
+                                      text=True, timeout=120)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            self.assertTrue(library.is_file())
+            lookup = [sys.executable, "-c",
+                      "import ctypes,sys; lib=ctypes.WinDLL(sys.argv[1]); "
+                      "assert all(getattr(lib,name)() == 0 for name in sys.argv[2:]); "
+                      "assert lib[123]() == 0",
+                      str(library), *native_assets.PUBLIC_EXPORTS]
+            loaded = subprocess.run(lookup, cwd=directory, capture_output=True,
+                                    text=True, timeout=10)
+            self.assertEqual(loaded.returncode, 0, loaded.stdout + loaded.stderr)
+            (directory / "sbom.spdx.json").write_text("{}")
+            files = {p.name: native_assets.sha256(p) for p in directory.iterdir()
+                     if p.is_file() and p.name != "manifest.json"}
+            (directory / "manifest.json").write_text(json.dumps({
+                "schema": 1, "rid": "win-x64", "source_commit": "test-only",
+                "library": library.name, "exports": native_assets.PUBLIC_EXPORTS,
+                "licenses": [source.name], "files": files}))
+            with self.assertRaisesRegex(ValueError, "ordinal-only"):
+                native_assets.verify_bundle(directory, "win-x64", "test-only")
+            print("HOST_PE_ORDINAL_EXPORT loader_lookup_succeeded audit_rejected", flush=True)
+
     def test_all_variants_compile_with_strict_host_warnings(self):
         # Compile only: WITH_DEPENDENCY intentionally needs a separate DLL at
         # link time. The installed-consumer gate still links and runs every case.

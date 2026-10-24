@@ -14,6 +14,25 @@ versions, native components and license scope. Root Rust1.85, the native ABI
 and existing unsupported-model behavior are unchanged. Both workspaces disable
 Cargo publication; CI uploads metrics/logs only, never pixels, weights or binaries.
 
+## Batch-preparation comparison (PR #27 follow-up)
+
+The optional Release-mode `fy-batch-benchmark --measure` compares the historical
+per-step allocating batch implementation with the *same* `fill_training_batch`
+function used by current training. It first verifies all 2,000 deterministic
+batches and RNG state against the original algorithm, checking every feature
+and label bit. It then alternates seven runs per implementation with identical
+4,096-sample cached inputs, batch64 and sampler seed707, recording raw elapsed
+nanoseconds, successful allocator requests and requested allocation bytes.
+The benchmark uses a counting system allocator and black-boxed batch outputs.
+Its raw JSON and command log are saved under the verification evidence directory
+and collected by Linux/Windows experiment CI. Allocator counts are *requests*,
+not peak RSS; elapsed times include measurement instrumentation and are subject
+to shared-runner noise. The tool deliberately excludes forward/backward, optimizer,
+model quality checks and other training work, so **it cannot establish a total
+training speedup**. The unchanged 2,000-step Burn/Candle training and accuracy
+gates still run separately. Results must be quoted with platform, exact commit
+and raw repetitions; no synthetic-data result establishes natural-image quality.
+
 ## Reproduce
 
 Use a Linux x64 host with Python3, C toolchain, rustup and Rust1.99/1.85 installed.

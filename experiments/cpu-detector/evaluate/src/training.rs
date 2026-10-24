@@ -1,4 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
+use fy_tiny_model::{Rng, Sample, INPUTS};
+
+// Reuse the 64-sample feature and label buffers across all 2,000 training steps.
+// The sample draw order, payload bytes and labels remain unchanged.
+pub fn fill_training_batch(
+    train: &[Sample],
+    cached: &[f32],
+    rng: &mut Rng,
+    batch: &mut Vec<f32>,
+    labels: &mut Vec<Sample>,
+) {
+    batch.clear();
+    labels.clear();
+    for _ in 0..64 {
+        let index = rng.next_u32() as usize % train.len();
+        batch.extend_from_slice(&cached[index * INPUTS..(index + 1) * INPUTS]);
+        labels.push(Sample {
+            pixels: vec![],
+            class: train[index].class,
+            box_xywh: train[index].box_xywh,
+        });
+    }
+}
+
 // Preserve the original operation order in both the validation and commit pass.
 fn candidate(weight: f32, gradient: f32, m: f32, v: f32, a: f32, b: f32) -> (f32, f32, f32) {
     let nm = 0.9 * m + 0.1 * gradient;

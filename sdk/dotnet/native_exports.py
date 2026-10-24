@@ -248,6 +248,14 @@ def exported_names(path, rid):
                     if lookup(text) != index:
                         raise ValueError("ELF export is unreachable through runtime hash")
                     names.append(text)
+                elif text and 0 < section < section_count and lookup(text) is not None:
+                    # The package permits exactly the eleven named ABI exports,
+                    # not only names with the fy_ prefix. dlsym can resolve
+                    # STT_NOTYPE functions and globally visible data as well
+                    # as STT_FUNC, so do not filter unexpected names by type.
+                    # SHN_ABS version namespace labels are not file-backed
+                    # definitions and remain outside this check.
+                    raise ValueError("unexpected ELF named export")
     elif rid == "win-x64":
         pe = unpack("<I", 60)[0]
         if data[:2] != b"MZ" or data[pe:pe + 4] != b"PE\0\0":

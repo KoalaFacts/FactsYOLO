@@ -59,11 +59,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 }
 
 // Historical implementation copied exactly from the pre-#27 training loop.
-fn allocating_batch(
-    train: &[Sample],
-    cached: &[f32],
-    rng: &mut Rng,
-) -> (Vec<f32>, Vec<Sample>) {
+fn allocating_batch(train: &[Sample], cached: &[f32], rng: &mut Rng) -> (Vec<f32>, Vec<Sample>) {
     let mut batch = Vec::with_capacity(BATCH * INPUTS);
     let mut labels = Vec::with_capacity(BATCH);
     for _ in 0..BATCH {
@@ -100,7 +96,9 @@ fn verify_exact_batches(train: &[Sample], cached: &[f32]) -> Result<(), String> 
                     && a.box_xywh.map(f32::to_bits) == b.box_xywh.map(f32::to_bits)
             });
         if !exact_features || !exact_labels {
-            return Err(format!("historical and reused batches differ at step {step}"));
+            return Err(format!(
+                "historical and reused batches differ at step {step}"
+            ));
         }
     }
     if historical_rng.next_u32() != reused_rng.next_u32() {

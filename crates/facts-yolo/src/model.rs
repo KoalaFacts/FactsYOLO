@@ -118,17 +118,15 @@ impl Model {
     ) -> Result<(Vec<Candidate>, ImageTransform), Failure> {
         #[cfg(feature = "td1")]
         if let Some(model) = &self.tiny {
-            let mut pixels = Vec::with_capacity(64 * 64 * 3);
-            for y in 0..64 {
-                for x in 0..64 {
-                    pixels
-                        .extend_from_slice(&_image.rgb_at(x, y).ok_or(Failure::Reusable(INVALID))?);
-                }
-            }
-            let detection = model.detect(&pixels).map_err(|_| {
+            // The checked view has already been validated as 64x64. Reuse the
+            // portable TD1 preprocessing directly from its borrowed pixels,
+            // avoiding per-detection compact-RGB and feature Vec allocations.
+            let detection = model
+                .detect_with_rgb(|x, y| _image.rgb_at(x as u32, y as u32))
+                .map_err(|_| {
                 Failure::Fatal(Error {
                     status: crate::ffi::types::FY_MODEL_OUTPUT_INVALID,
-                    message: "invalid TD1 output",
+                    message: "invalid TD1 output or pixel view",
                 })
             })?;
             let candidates = detection

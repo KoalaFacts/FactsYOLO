@@ -3,7 +3,7 @@
 #[path = "../../../tests/compat/td1_v1_vectors.rs"]
 mod historical;
 use facts_yolo::ffi::{handles::*, results::*, types::*};
-use fy_tiny_model::{B1, Model, PARAMETERS};
+use fy_tiny_model::{B1, HIDDEN, INPUTS, Model, PARAMETERS};
 use std::ptr::null_mut;
 
 fn bytes(class: usize) -> Vec<u8> {
@@ -521,4 +521,53 @@ fn historical_half_score_identity_and_recovery() {
     let result = c.run(&valid, above);
     assert!(copy(result).is_empty());
     release(result);
+}
+
+#[test]
+fn borrowed_td1_input_matches_compact_rgb_with_last_row_without_padding() {
+    // The final feature is the blue channel of the bottom-right 8x8 block;
+    // this detects BGR swaps, stride errors, unexpected alpha blending, and
+    // inadvertent reads of row padding or beyond the last pixel.
+    let mut model = Model {
+        weights: vec![0.0; PARAMETERS],
+    };
+    model.weights[(INPUTS - 1) * HIDDEN] = 1.0;
+    model.weights[B1 + 1] = 10.0;
+    let c = Context::new(&model.to_bytes().unwrap());
+    let mut compact = vec![0_u8; 64 * 64 * 3];
+    for y in 56..64 {
+        for x in 56..64 {
+            compact[(y * 64 + x) * 3 + 2] = 255;
+        }
+    }
+    let plain = c.run(&image(&compact, FY_RGB8, 192), 0.5);
+    let expected = copy(plain);
+    assert_eq!(expected.len(), 1);
+    assert_eq!(expected[0].class_id, 0);
+    assert!(expected[0].score > 0.99);
+    release(plain);
+
+    for (format, channels) in [(FY_RGB8, 3), (FY_BGR8, 3), (FY_RGBA8, 4)] {
+        let stride = 64 * channels + 11;
+        // Valid views require no final-row padding: keep exactly the final
+        // pixel's last channel, not a full stride on the last row.
+        let mut pixels = vec![173_u8; stride * 63 + 64 * channels];
+        for y in 0..64 {
+            for x in 0..64 {
+                let at = y * stride + x * channels;
+                let rgb = &compact[(y * 64 + x) * 3..(y * 64 + x + 1) * 3];
+                if format == FY_BGR8 {
+                    pixels[at..at + 3].copy_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+                } else {
+                    pixels[at..at + 3].copy_from_slice(rgb);
+                }
+                if channels == 4 {
+                    pixels[at + 3] = (x ^ y) as u8;
+                }
+            }
+        }
+        let result = c.run(&image(&pixels, format, stride), 0.5);
+        assert_eq!(copy(result), expected, "format {format}");
+        release(result);
+    }
 }

@@ -49,7 +49,14 @@ each host, without a promise of cross-host bitwise training identity.
 
 Every consumer also checks artifact rejection, shape failure followed by reuse,
 RGB/BGR/RGBA with stride padding, score threshold, model release before session
-execution, and result ownership after session/input release. Result model_id is
+execution, and result ownership after session/input release. The optional native
+TD1 path passes checked borrowed RGB/BGR/RGBA pixels into the shared TD1 block
+preprocessor directly: it no longer allocates a compact 64x64 RGB buffer or a
+192-element heap feature vector per detection. Integer block sums and F32
+normalization remain unchanged. A nonuniform last-block FFI regression verifies
+padded rows, alpha ignored, and final-row padding not required; the portable
+model verifies bitwise feature parity. This is a structural allocation reduction,
+not an independently measured throughput or latency claim. Result model_id is
 the verified artifact header digest, not a filename or random handle. C# uses the
 existing LibraryImport/SafeHandle/lease wrappers. Neither real consumer calls a
 private fixture factory; exact exports and capability flags enforce that boundary.

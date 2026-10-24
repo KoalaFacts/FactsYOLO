@@ -55,6 +55,27 @@ fn input(samples: &[Sample]) -> Result<Vec<f32>, String> {
     }
     Ok(result)
 }
+// Reuse the 64-sample feature and label buffers across all 2,000 training steps.
+// The sample draw order, payload bytes and labels remain unchanged.
+fn fill_training_batch(
+    train: &[Sample],
+    cached: &[f32],
+    rng: &mut Rng,
+    batch: &mut Vec<f32>,
+    labels: &mut Vec<Sample>,
+) {
+    batch.clear();
+    labels.clear();
+    for _ in 0..64 {
+        let index = rng.next_u32() as usize % train.len();
+        batch.extend_from_slice(&cached[index * INPUTS..(index + 1) * INPUTS]);
+        labels.push(Sample {
+            pixels: vec![],
+            class: train[index].class,
+            box_xywh: train[index].box_xywh,
+        });
+    }
+}
 fn forward(b: &dyn Backend, model: &Model, samples: &[Sample]) -> Result<Vec<f32>, String> {
     let mut output = Vec::with_capacity(samples.len() * 7);
     for chunk in samples.chunks(512) {
@@ -79,6 +100,8 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
     let mut m = vec![0.0; PARAMETERS];
     let mut v = vec![0.0; PARAMETERS];
     let mut rng = Rng::new(707);
+    let mut batch = Vec::with_capacity(64 * INPUTS);
+    let mut labels = Vec::with_capacity(64);
     let mut losses = File::create(destination.join("loss.tsv")).map_err(|e| e.to_string())?;
     writeln!(losses, "step\tbatch_loss").map_err(|e| e.to_string())?;
     let started = Instant::now();
@@ -86,17 +109,7 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
         if started.elapsed().as_secs_f64() > 600.0 {
             return Err("training exceeded 600 second budget".into());
         }
-        let mut batch = Vec::with_capacity(64 * INPUTS);
-        let mut labels = Vec::with_capacity(64);
-        for _ in 0..64 {
-            let index = rng.next_u32() as usize % train.len();
-            batch.extend_from_slice(&cached[index * INPUTS..(index + 1) * INPUTS]);
-            labels.push(Sample {
-                pixels: vec![],
-                class: train[index].class,
-                box_xywh: train[index].box_xywh,
-            });
-        }
+        fill_training_batch(&train, &cached, &mut rng, &mut batch, &mut labels);
         let outputs = b.forward(&model.weights, &batch, 64)?;
         let (loss, gradient) = loss_gradient(&outputs, &labels)?;
         let parameter_gradient = b.backward(&model.weights, &batch, 64, &gradient)?;
@@ -231,5 +244,49 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("error: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reused_batches_match_historical_sampling_and_keep_storage() {
+        let train = dataset(101, 16);
+        let cached = input(&train).unwrap();
+        let mut rng = Rng::new(707);
+        let mut reference_rng = Rng::new(707);
+        let mut batch = Vec::with_capacity(64 * INPUTS);
+        let mut labels = Vec::with_capacity(64);
+        let batch_ptr = batch.as_ptr();
+        let labels_ptr = labels.as_ptr();
+
+        // The reference intentionally allocates fresh buffers each step, as the
+        // former training loop did. Five sequential batches detect RNG drift.
+        for _ in 0..5 {
+            fill_training_batch(&train, &cached, &mut rng, &mut batch, &mut labels);
+            let mut expected_batch = Vec::with_capacity(64 * INPUTS);
+            let mut expected_labels = Vec::with_capacity(64);
+            for _ in 0..64 {
+                let index = reference_rng.next_u32() as usize % train.len();
+                expected_batch.extend_from_slice(&cached[index * INPUTS..(index + 1) * INPUTS]);
+                expected_labels.push((
+                    train[index].class,
+                    train[index].box_xywh.map(f32::to_bits),
+                ));
+            }
+            assert_eq!(batch, expected_batch);
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|sample| (sample.class, sample.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                expected_labels
+            );
+            assert!(labels.iter().all(|sample| sample.pixels.is_empty()));
+            assert_eq!(batch.as_ptr(), batch_ptr, "feature buffer reallocated");
+            assert_eq!(labels.as_ptr(), labels_ptr, "label buffer reallocated");
+        }
     }
 }

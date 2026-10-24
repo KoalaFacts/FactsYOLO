@@ -165,7 +165,10 @@ Windows named exports do not exhaust the PE export-address table: functions
 marked NONAME are still reachable through GetProcAddress by ordinal. The audit
 rejects every nonzero export-address slot without a corresponding name-table
 ordinal. A host-linked MSVC DLL regression verifies actual ordinal lookup before
-checking rejection of an accurately hashed public-only bundle manifest.
+checking rejection of an accurately hashed public-only bundle manifest. The
+reader also rejects any additional named PE export, including non-fy_* helper
+names or aliases, even when they point at an already named ordinal; all
+loader-visible export names must match the package's public-only contract.
 For a nonempty GNU hash, the audit derives the terminal symbol index from the
 largest bucket and its terminating chain, then requires agreement with the
 dynamic-symbol section size. Shrinking that inventory cannot hide a runtime

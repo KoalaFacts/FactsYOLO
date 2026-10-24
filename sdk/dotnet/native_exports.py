@@ -311,6 +311,11 @@ def exported_names(path, rid):
             if previous is not None and previous >= text:
                 raise ValueError("PE export names are not strictly sorted")
             previous = text
+            # The package promises exactly the public ABI names, not merely
+            # the expected fy_* subset. A named helper or alias is callable
+            # through GetProcAddress even if its ordinal is already named.
+            if not text.startswith("fy_"):
+                raise ValueError("unexpected PE named export")
             ordinal = unpack("<H", ordinal_table + 2 * i)[0]
             if ordinal >= functions:
                 raise ValueError("PE export ordinal outside address table")

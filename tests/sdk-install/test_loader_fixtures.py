@@ -294,11 +294,11 @@ class LoaderFixtureCompilation(unittest.TestCase):
                     print(f"HOST_EXPORT_AUDIT rid={rid} extra_fixture_export={extra} correctly_{'rejected' if extra else 'accepted'}", flush=True)
 
     @unittest.skipUnless(os.name == "nt", "requires MSVC and the Windows PE loader")
-    def test_pe_ordinal_only_export_cannot_hide_in_named_manifest(self):
-        # A sparse EAT is valid: unoccupied ordinal slots are zero, and every
-        # occupied slot must have a name. Then add a real NONAME function,
-        # callable by ordinal but missing from AddressOfNames. These are
-        # host-compiled stubs, not detector models.
+    def test_pe_extra_exports_cannot_hide_in_named_manifest(self):
+        # A sparse EAT is valid: unoccupied ordinal slots are zero. Reject
+        # both NONAME ordinal exports and ordinary named helpers absent from
+        # the claimed public-only inventory. These are host-compiled stubs,
+        # not detector models.
         with tempfile.TemporaryDirectory(prefix="factsyolo-pe-ordinal-") as temp:
             directory = Path(temp)
             source = directory / "fixture.c"
@@ -307,14 +307,17 @@ class LoaderFixtureCompilation(unittest.TestCase):
             source.write_text("/* SPDX-License-Identifier: Apache-2.0 */\n" +
                               "\n".join(f"int {name}(void) {{ return 0; }}"
                                         for name in native_assets.PUBLIC_EXPORTS) +
-                              "\nint ordinal_probe(void) { return 0; }\n")
+                              "\nint ordinal_probe(void) { return 0; }"
+                              "\nint named_probe(void) { return 0; }\n")
             # Non-consecutive named ordinals guarantee real zero-filled holes.
             named = "\n".join(f"{name} @{3 * i + 1}"
                               for i, name in enumerate(native_assets.PUBLIC_EXPORTS))
-            for extra in (False, True):
-                with self.subTest(ordinal_only=extra):
+            for extra in ("none", "ordinal-only", "named-helper"):
+                with self.subTest(extra_export=extra):
+                    addition = ("\nordinal_probe @123 NONAME" if extra == "ordinal-only"
+                                else "\nnamed_probe @124" if extra == "named-helper" else "")
                     definition.write_text("LIBRARY facts_yolo\nEXPORTS\n" + named +
-                                          ("\nordinal_probe @123 NONAME" if extra else "") + "\n")
+                                          addition + "\n")
                     command = ["cl", "/nologo", "/LD", "/W4", "/WX", str(source),
                                "/Fe:" + str(library), "/Fo:" + str(directory / "fixture.obj"),
                                "/link", "/DEF:" + str(definition)]
@@ -325,7 +328,9 @@ class LoaderFixtureCompilation(unittest.TestCase):
                     lookup = [sys.executable, "-c",
                               "import ctypes,sys; lib=ctypes.WinDLL(sys.argv[1]); "
                               "assert all(getattr(lib,name)() == 0 for name in sys.argv[2:]); " +
-                              ("assert lib[123]() == 0" if extra else "pass"),
+                              ("assert lib[123]() == 0" if extra == "ordinal-only"
+                               else "assert lib.named_probe() == 0"
+                               if extra == "named-helper" else "pass"),
                               str(library), *native_assets.PUBLIC_EXPORTS]
                     loaded = subprocess.run(lookup, cwd=directory, capture_output=True,
                                             text=True, timeout=10)
@@ -337,13 +342,17 @@ class LoaderFixtureCompilation(unittest.TestCase):
                         "schema": 1, "rid": "win-x64", "source_commit": "test-only",
                         "library": library.name, "exports": native_assets.PUBLIC_EXPORTS,
                         "licenses": [source.name], "files": files}))
-                    if extra:
+                    if extra == "ordinal-only":
                         with self.assertRaisesRegex(ValueError, "ordinal-only"):
+                            native_assets.verify_bundle(directory, "win-x64", "test-only")
+                    elif extra == "named-helper":
+                        with self.assertRaisesRegex(ValueError, "unexpected PE named export"):
                             native_assets.verify_bundle(directory, "win-x64", "test-only")
                     else:
                         native_assets.verify_bundle(directory, "win-x64", "test-only")
-                    print(f"HOST_PE_ORDINAL_EXPORT sparse_holes_accepted "
-                          f"extra_ordinal={'rejected' if extra else 'absent'} "
+                    print(f"HOST_PE_EXTRA_EXPORT sparse_holes_accepted "
+                          f"extra_export={extra} "
+                          f"audit={'accepted' if extra == 'none' else 'rejected'} "
                           f"loader_lookup_succeeded", flush=True)
 
     def test_all_variants_compile_with_strict_host_warnings(self):

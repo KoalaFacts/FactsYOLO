@@ -169,6 +169,14 @@ checking rejection of an accurately hashed public-only bundle manifest. The
 reader also rejects any additional named PE export, including non-fy_* helper
 names or aliases, even when they point at an already named ordinal; all
 loader-visible export names must match the package's public-only contract.
+ELF follows the same exact-name boundary: a defined global, weak or GNU-unique
+symbol in a real section whose name is reachable through the runtime GNU/SysV
+hash is rejected if it is not one of the public fy_* names. This includes
+callable STT_NOTYPE definitions and named object exports, not just STT_FUNC.
+Absolute GNU version namespace labels do not represent file-backed callable
+exports. Linux host-linked GNU, SysV and dual-hash fixtures verify that an
+ordinary loader can call an extra non-fy_* function even when an accurately
+hashed, public-only manifest omits it.
 For a nonempty GNU hash, the audit derives the terminal symbol index from the
 largest bucket and its terminating chain, then requires agreement with the
 dynamic-symbol section size. Shrinking that inventory cannot hide a runtime

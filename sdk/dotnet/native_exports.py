@@ -142,14 +142,41 @@ def exported_names(path, rid):
 
         if 0x6ffffef5 in hashes:
             table = hashes[0x6ffffef5]
+            if table[5] < 16:
+                raise ValueError("invalid ELF export GNU hash header")
             buckets, first, words, shift = unpack("<IIII", table[4])
             if not buckets or not words or words & (words - 1) or shift >= 32 or first > symbol_count:
                 raise ValueError("invalid ELF export GNU hash header")
             bloom = table[4] + 16
             bucket = bloom + words * 8
             chain = bucket + buckets * 4
-            if chain + (symbol_count - first) * 4 > table[4] + table[5]:
+            if chain > table[4] + table[5]:
                 raise ValueError("ELF export GNU hash outside table")
+
+            # The loader does not use .dynsym's section size. Derive the last
+            # reachable symbol from the runtime hash so a shortened inventory
+            # cannot hide a trailing export. Starting at the largest bucket is
+            # sufficient: every chain advances by one to its first terminator.
+            last = 0
+            for i in range(buckets):
+                index = unpack("<I", bucket + i * 4)[0]
+                if index and index < first:
+                    raise ValueError("invalid ELF export GNU hash bucket")
+                last = max(last, index)
+            if last:
+                offset = chain + (last - first) * 4
+                while offset + 4 <= table[4] + table[5]:
+                    value = unpack("<I", offset)[0]
+                    last += 1
+                    if value & 1:
+                        break
+                    offset += 4
+                else:
+                    raise ValueError("unterminated ELF export GNU hash chain")
+                if last != symbol_count:
+                    raise ValueError("ELF export GNU hash symbol count differs")
+            # An all-zero bucket table has no reachable exports; its symoffset
+            # does not determine the size of the un-hashed symbol prefix.
 
             def lookup(text):
                 hashed = 5381
@@ -200,8 +227,9 @@ def exported_names(path, rid):
             name, info, visibility, section, value, size = unpack("<IBBHQQ", offset)
             if name >= strings[5]:
                 raise ValueError("ELF export name outside string table")
-            # Defined global/weak symbols with default/protected visibility.
-            if section and info >> 4 in (1, 2) and visibility & 7 in (0, 3):
+            # Linux/glibc also exposes GNU-unique definitions and interprets
+            # visibility through the low two bits of st_other.
+            if section and info >> 4 in (1, 2, 10) and visibility & 3 in (0, 3):
                 text = string(strings[4] + name, strings[4] + strings[5])
                 if text.startswith("fy_"):
                     # The pinned ABI uses unversioned exports. st_name alone

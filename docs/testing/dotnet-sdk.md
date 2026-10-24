@@ -63,9 +63,10 @@ remain separate required gates.
 Before training, each consumer host also runs
 `python3 tests/sdk-install/test_loader_fixtures.py -v` (`python` on Windows).
 This compiles all four loader-fixture variants using the actual host compiler
-with warnings as errors, including MSVC `/W4 /WX`. It catches platform compiler
-failures early; it does not link or execute fixtures and does not replace the
-installed consumer's full JIT/AOT rejection checks.
+with warnings as errors, including MSVC `/W4 /WX`. Those four variants are
+compilation checks. Separate host-generated export fixtures in the same test
+also link shared libraries and execute loader probes. The installed consumer's
+full JIT/AOT rejection checks remain required.
 
 On each host use the unchanged existing training verifier to generate current
 source Burn/Candle models and six held-out examples locally, then install/run:
@@ -160,6 +161,19 @@ segments. PE names must remain strictly sorted for lookup, and function addresse
 must lie within executable, file-backed image ranges. Host-compiled GNU/SysV/both
 fixtures compare ordinary loader lookups with audit rejection; staged ELF/PE
 mutations cover invalid addresses, table ordering, decoys and hash corruption.
+For a nonempty GNU hash, the audit derives the terminal symbol index from the
+largest bucket and its terminating chain, then requires agreement with the
+dynamic-symbol section size. Shrinking that inventory cannot hide a runtime
+export; truncated hash tables and unterminated chains are rejected. Empty GNU
+hashes retain support for an unhashed import prefix without inventing chain
+entries. GNU-unique definitions and the low two visibility bits follow the
+Linux/glibc [symbol definitions](https://github.com/bminor/glibc/blob/master/elf/elf.h)
+and [runtime lookup](https://github.com/bminor/glibc/blob/master/elf/dl-lookup.c).
+These are independently implemented checks, with no upstream code copied.
+Host-compiled regressions resolve and call the public stubs plus the extra
+symbol in fresh subprocesses before checking rejection of accurately rehashed,
+public-only manifests. No model weights or foreign package binaries are loaded
+by these export fixtures.
 Real staged ELF/PE mutations and host-compiled C stubs exercise rejection; these
 are binary validation fixtures, not detection evidence. This is a conservative
 audit of the current toolchain outputs, not general executable validation,

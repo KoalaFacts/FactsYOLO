@@ -7,6 +7,7 @@ checker has no Rust/PyPI dependencies and deliberately uses Python's distinct
 geometry implementation, with a small tolerance for Rust F32 rounding.
 """
 import math
+import struct
 
 
 _IMAGE_EDGE = 64.0
@@ -39,6 +40,28 @@ def _iou(a, b):
     area_b = (b[2] - b[0]) * (b[3] - b[1])
     union = area_a + area_b - intersection
     return intersection / union if union > 0.0 else 0.0
+
+
+def _f32(value):
+    # JSON round-trips Rust f32 coordinates through Python f64. Round each
+    # intermediate back to f32 when reproducing the exact IoU50 decision.
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def _iou_for_threshold(a, b):
+    # Preserve the separate f64 geometry audit (_iou) for score validation;
+    # match the Rust f32 arithmetic only for the discontinuous >=0.5 gate.
+    a = tuple(map(_f32, a))
+    b = tuple(map(_f32, b))
+    width = max(0.0, _f32(min(a[2], b[2]) - max(a[0], b[0])))
+    height = max(0.0, _f32(min(a[3], b[3]) - max(a[1], b[1])))
+    intersection = _f32(width * height)
+    area_a = _f32(max(0.0, _f32(a[2] - a[0])) *
+                  max(0.0, _f32(a[3] - a[1])))
+    area_b = _f32(max(0.0, _f32(b[2] - b[0])) *
+                  max(0.0, _f32(b[3] - b[1])))
+    union = _f32(_f32(area_a + area_b) - intersection)
+    return _f32(intersection / union) if union > 0.0 else 0.0
 
 
 def _close(actual, expected):
@@ -97,7 +120,12 @@ def verify_test_predictions(report):
         else:
             iou_sum += overlap
             class_hits += predicted_class == expected_class
-            recall_hits += predicted_class == expected_class and overlap >= 0.5
+            # A f64 overlap just below 0.5 can round to 0.5 in the Rust
+            # f32 evaluator (and vice versa). Classify with f32 geometry
+            # to avoid rejecting a correct report at this hard boundary.
+            recall_hits += (predicted_class == expected_class and
+                            predicted_corners is not None and
+                            _iou_for_threshold(predicted_corners, corners) >= 0.5)
 
     if positives == 0 or negatives == 0:
         raise ValueError("held-out metrics require positive and background samples")

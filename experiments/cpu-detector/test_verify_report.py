@@ -77,3 +77,43 @@ class VerifyTestPredictionsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class F32RecallThresholdRegression(unittest.TestCase):
+    # Pixel-edge corners below are exact f32 values. The independent f64 IoU
+    # audit differs from the f32 Rust evaluator by only a few 1e-8, yet the
+    # discontinuous IoU50 recall gate must agree with the evaluator exactly.
+    def _report(self, target, prediction, reported_iou, recall):
+        return {
+            "test_samples": 3,
+            "predictions": [
+                {"index": 0, "expected_class": 0, "expected_corners": target,
+                 "prediction": {"class": 0, "score": 0.9, "corners": prediction},
+                 "iou": reported_iou},
+                {"index": 1, "expected_class": 1,
+                 "expected_corners": [16.0, 16.0, 48.0, 48.0],
+                 "prediction": {"class": 1, "score": 0.9,
+                                "corners": [16.0, 16.0, 48.0, 48.0]},
+                 "iou": 1.0},
+                {"index": 2, "expected_class": None,
+                 "expected_corners": None, "prediction": None, "iou": 0.0},
+            ],
+            "test": {"positives": 2, "negatives": 1,
+                     "class_accuracy": 1.0, "recall_iou50": recall,
+                     "mean_iou": 0.75, "false_positive_rate": 0.0},
+        }
+
+    def test_f32_rounds_up_to_half(self):
+        target = [0.8196417093276978, 8.558881759643555,
+                  13.149816513061523, 27.078170776367188]
+        prediction = [0.8196417093276978, 8.558881759643555,
+                      6.984728813171387, 27.078170776367188]
+        report = self._report(target, prediction, 0.5, 1.0)
+        self.assertEqual(verify_test_predictions(report)["recall_iou50"], 1.0)
+
+    def test_f32_rounds_below_half(self):
+        target = [16.950172424316406, 1.0512468814849854,
+                  29.976699829101562, 17.1527156829834]
+        prediction = [16.950172424316406, 1.0512468814849854,
+                      23.463436126708984, 17.1527156829834]
+        report = self._report(target, prediction, 0.4999999701976776, 0.5)
+        self.assertEqual(verify_test_predictions(report)["recall_iou50"], 0.5)

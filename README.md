@@ -7,7 +7,9 @@ C#, Go, and TypeScript.
 a buildable Rust library, a C header, ABI/version diagnostics, checked borrowed
 RGB/BGR/RGBA image views, model/session ownership, synchronous execution and owned
 result contracts, and single-session admission with recoverable panic containment.
-Execution is exercised using explicitly test-only fixtures, not trained detectors.
+Native contract tests use explicitly test-only fixtures. The optional `td1` feature
+also supports trained artifacts from the separate [synthetic CPU experiment](docs/testing/cpu-detector.md)
+described below; the default build remains backend-free.
 
 C consumers verify layouts, exports, results, errors and concurrent admission on
 Linux and Windows. An unpublished C# smoke adapter uses LibraryImport, SafeHandle

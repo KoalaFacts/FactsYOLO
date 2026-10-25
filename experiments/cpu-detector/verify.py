@@ -8,6 +8,7 @@ import platform
 import subprocess
 import sys
 import time
+from verify_report import verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -41,6 +42,7 @@ def main():
     run("tests-debug", ["cargo", "test", *common, "--workspace"])
     run("tests-release", ["cargo", "test", *common, "--workspace", "--release"])
     run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
+    run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_verify_report.py"])
     run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
     binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
     # The benchmark compares only training batch preparation, not end-to-end training.
@@ -61,6 +63,8 @@ def main():
         report = json.loads((output / "metrics.json").read_text())
         if report["passed"] is not True or report["source_commit"] != env["FACTSYOLO_BUILD_ID"]:
             raise RuntimeError(f"training report failed or stale: {backend}")
+        checked_metrics = verify_test_predictions(report)
+        (evidence / f"test-metrics-audit-{backend}.json").write_text(json.dumps(checked_metrics, indent=2) + "\n")
         reports[backend] = report
         for i in range(6):
             result = json.loads(run(f"infer-{backend}-{i}", [binary, "infer", output / "model.fytd", output / f"sample-{i}.rgb"]))

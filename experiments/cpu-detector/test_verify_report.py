@@ -159,3 +159,67 @@ class IndependentHeldoutAcceptanceTests(unittest.TestCase):
         self.report.update({"passed": True, "source_commit": "same-rev"})
         with self.assertRaisesRegex(ValueError, "acceptance"):
             checked_training_heldout(self.report, "same-rev")
+
+
+class RegisteredHoldoutContractTests(unittest.TestCase):
+    """A self-consistent, easy subset must not masquerade as the 128-image holdout."""
+
+    @staticmethod
+    def passing_report():
+        rows = []
+        for index in range(128):
+            positive = index < 102
+            cls = index % 2 if positive else None
+            box = [16.0, 16.0, 48.0, 48.0] if positive else None
+            rows.append({
+                "index": index,
+                "expected_class": cls,
+                "expected_corners": box,
+                "prediction": ({"class": cls, "score": 0.9, "corners": box[:]}
+                               if positive else None),
+                "iou": 1.0 if positive else 0.0,
+            })
+        return {
+            "source_commit": "same-rev",
+            "passed": True,
+            "test_seed": 909,
+            "test_samples": 128,
+            "test_fingerprint": "188366b67882eb3599300ac6b056c31b5b28e41733ab801fef1362bb05354c33",
+            "predictions": rows,
+            "test": {
+                "positives": 102, "negatives": 26,
+                "class_accuracy": 1.0, "recall_iou50": 1.0,
+                "mean_iou": 1.0, "false_positive_rate": 0.0,
+            },
+        }
+
+    def test_registered_full_holdout_is_accepted(self):
+        from verify import checked_training_heldout
+        report = self.passing_report()
+        self.assertEqual(checked_training_heldout(report, "same-rev"),
+                         report["test"])
+
+    def test_truncated_perfect_report_is_rejected(self):
+        from verify import checked_training_heldout
+        report = self.passing_report()
+        report["predictions"] = [report["predictions"][0],
+                                 report["predictions"][-1]]
+        report["predictions"][1]["index"] = 1
+        report["test_samples"] = 2
+        report["test"]["positives"] = report["test"]["negatives"] = 1
+        with self.assertRaisesRegex(ValueError, "unregistered TD1 held-out split"):
+            checked_training_heldout(report, "same-rev")
+
+    def test_wrong_final_seed_is_rejected(self):
+        from verify import checked_training_heldout
+        report = self.passing_report()
+        report["test_seed"] = 303
+        with self.assertRaisesRegex(ValueError, "unregistered TD1 held-out split"):
+            checked_training_heldout(report, "same-rev")
+
+    def test_wrong_final_fingerprint_is_rejected(self):
+        from verify import checked_training_heldout
+        report = self.passing_report()
+        report["test_fingerprint"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "unregistered TD1 held-out split"):
+            checked_training_heldout(report, "same-rev")

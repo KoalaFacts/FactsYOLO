@@ -21,6 +21,14 @@ def checked_training_heldout(report, expected_sha):
         raise RuntimeError("training report failed or stale")
     audited = verify_test_predictions(report)
     enforce_heldout_thresholds(audited, report.get("test"))
+    # Row arithmetic alone cannot prove the runner used the preregistered final
+    # holdout: a shortened, easier subset could have self-consistent metrics.
+    # These constants pin TD1's accepted seed/count and existing data fingerprint,
+    # not a new format or post-hoc quality threshold.
+    if (type(report.get("test_seed")) is not int or report["test_seed"] != 909
+            or report.get("test_samples") != 128
+            or report.get("test_fingerprint") != "188366b67882eb3599300ac6b056c31b5b28e41733ab801fef1362bb05354c33"):
+        raise ValueError("unregistered TD1 held-out split")
     return audited
 
 

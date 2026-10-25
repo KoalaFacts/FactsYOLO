@@ -117,3 +117,45 @@ class F32RecallThresholdRegression(unittest.TestCase):
                       23.463436126708984, 17.1527156829834]
         report = self._report(target, prediction, 0.4999999701976776, 0.5)
         self.assertEqual(verify_test_predictions(report)["recall_iou50"], 0.5)
+
+
+class IndependentHeldoutAcceptanceTests(unittest.TestCase):
+    def setUp(self):
+        VerifyTestPredictionsTests.setUp(self)
+    # Report arithmetic can be internally consistent while an incorrectly
+    # reported `passed=true` hides sub-threshold model quality.
+    def test_forged_success_cannot_override_failed_quality_gates(self):
+        from verify_report import enforce_heldout_thresholds
+        self.report["passed"] = True
+        actual = verify_test_predictions(self.report)
+        self.assertEqual(actual["class_accuracy"], 0.5)
+        with self.assertRaisesRegex(ValueError, "acceptance"):
+            enforce_heldout_thresholds(actual, self.report["test"])
+
+    def test_all_four_gates_fail_closed(self):
+        from verify_report import enforce_heldout_thresholds
+        passed = {"class_accuracy": 1.0, "recall_iou50": 1.0,
+                  "mean_iou": 0.8, "false_positive_rate": 0.0}
+        enforce_heldout_thresholds(passed, passed)
+        for key, bad in (("class_accuracy", 0.9), ("recall_iou50", 0.8),
+                         ("mean_iou", 0.6), ("false_positive_rate", 0.1)):
+            fail = dict(passed, **{key: bad})
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
+                enforce_heldout_thresholds(fail, fail)
+
+    def test_f32_rounded_equality_is_not_false_rejection(self):
+        from verify_report import enforce_heldout_thresholds
+        import struct
+        f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]
+        reported = {"class_accuracy": f32(0.95), "recall_iou50": f32(0.85),
+                    "mean_iou": f32(0.70), "false_positive_rate": f32(0.05)}
+        # Correct raw f64 aggregate is permitted to differ by floating-point
+        # noise, but Rust's reported f32 must meet *exact* f32 gates.
+        recomputed = {"class_accuracy": 0.95, "recall_iou50": 0.85,
+                      "mean_iou": 0.70, "false_positive_rate": 0.05}
+        enforce_heldout_thresholds(recomputed, reported)
+    def test_pipeline_rejects_consistent_but_below_budget_success_flag(self):
+        from verify import checked_training_heldout
+        self.report.update({"passed": True, "source_commit": "same-rev"})
+        with self.assertRaisesRegex(ValueError, "acceptance"):
+            checked_training_heldout(self.report, "same-rev")

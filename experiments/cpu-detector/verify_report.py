@@ -148,3 +148,31 @@ def verify_test_predictions(report):
         elif not _close(value, _finite_number(item, f"metric {key}")):
             raise ValueError(f"held-out {key} mismatch")
     return actual
+
+
+def enforce_heldout_thresholds(recomputed, reported):
+    """Independently enforce the accepted TD1 test metrics after the row audit.
+
+    Rust uses f32 for the acceptance boundaries and aggregate reporting.
+    Require the reported f32 metric to meet the *unrelaxed* boundary; allow
+    only the existing audit tolerance for the separately recomputed f64 value.
+    A claimed `passed` flag by itself is not acceptance evidence.
+    """
+    if not isinstance(recomputed, dict) or not isinstance(reported, dict):
+        raise ValueError("invalid held-out acceptance metrics")
+    gates = (
+        ("class_accuracy", 0.95, True),
+        ("recall_iou50", 0.85, True),
+        ("mean_iou", 0.70, True),
+        ("false_positive_rate", 0.05, False),
+    )
+    for key, boundary, minimum in gates:
+        raw = _finite_number(reported.get(key), f"reported {key}")
+        independently_computed = _finite_number(recomputed.get(key), f"recomputed {key}")
+        cutoff = _f32(boundary)
+        if minimum:
+            failed = raw < cutoff or independently_computed < cutoff - _ABS_TOL
+        else:
+            failed = raw > cutoff or independently_computed > cutoff + _ABS_TOL
+        if failed:
+            raise ValueError(f"held-out acceptance failed: {key}")

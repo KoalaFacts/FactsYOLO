@@ -8,11 +8,20 @@ import platform
 import subprocess
 import sys
 import time
-from verify_report import verify_test_predictions
+from verify_report import enforce_heldout_thresholds, verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
 MANIFEST = str(ROOT / "Cargo.toml")
+
+
+def checked_training_heldout(report, expected_sha):
+    """Audit a completed candidate before recording it as accepted evidence."""
+    if report.get("passed") is not True or report.get("source_commit") != expected_sha:
+        raise RuntimeError("training report failed or stale")
+    audited = verify_test_predictions(report)
+    enforce_heldout_thresholds(audited, report.get("test"))
+    return audited
 
 
 def main():
@@ -61,9 +70,7 @@ def main():
         output = evidence / backend
         run(f"train-{backend}", [binary, "train", backend, output])
         report = json.loads((output / "metrics.json").read_text())
-        if report["passed"] is not True or report["source_commit"] != env["FACTSYOLO_BUILD_ID"]:
-            raise RuntimeError(f"training report failed or stale: {backend}")
-        checked_metrics = verify_test_predictions(report)
+        checked_metrics = checked_training_heldout(report, env["FACTSYOLO_BUILD_ID"])
         (evidence / f"test-metrics-audit-{backend}.json").write_text(json.dumps(checked_metrics, indent=2) + "\n")
         reports[backend] = report
         for i in range(6):

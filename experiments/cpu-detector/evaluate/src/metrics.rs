@@ -32,7 +32,7 @@ pub fn iou(a: [f32; 4], b: [f32; 4]) -> f32 {
 }
 pub fn measure(outputs: &[f32], samples: &[Sample]) -> Result<Metrics, String> {
     // Share validation with the objective; no NaN/invalid target can pass a metric gate.
-    fy_tiny_model::loss_gradient(outputs, samples)?;
+    fy_tiny_model::loss_value(outputs, samples)?;
     let mut m = Metrics {
         positives: 0,
         negatives: 0,

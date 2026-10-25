@@ -138,6 +138,54 @@ fn background_boxes_cannot_hide_invalid_targets() {
     }
 }
 
+#[test]
+fn scalar_loss_matches_gradient_loss_and_rejects_corrupt_inputs() {
+    let samples = [
+        Sample {
+            pixels: vec![],
+            class: Some(1),
+            box_xywh: [0.3, 0.7, 0.2, 0.4],
+        },
+        Sample {
+            pixels: vec![],
+            class: None,
+            box_xywh: [0.0; 4],
+        },
+    ];
+    let logits = [
+        0.2, -0.3, 0.4, -0.2, 0.7, -0.6, 0.1, 2.0, 0.0, -1.0, 0.1, -0.2, 0.3, -0.4,
+    ];
+    let expected = loss_gradient(&logits, &samples).unwrap().0;
+    assert_eq!(
+        loss_value(&logits, &samples).unwrap().to_bits(),
+        expected.to_bits(),
+        "scalar validation must use exactly the training loss"
+    );
+
+    let background_only = [samples[1].clone()];
+    let background_logits = &logits[7..];
+    assert_eq!(
+        loss_value(background_logits, &background_only)
+            .unwrap()
+            .to_bits(),
+        loss_gradient(background_logits, &background_only)
+            .unwrap()
+            .0
+            .to_bits()
+    );
+
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.01, 1.01] {
+        for axis in 0..4 {
+            let mut corrupted = samples[1].clone();
+            corrupted.box_xywh[axis] = invalid;
+            assert!(loss_value(background_logits, &[corrupted]).is_err());
+        }
+    }
+    assert!(loss_value(&logits[..13], &samples).is_err());
+    assert!(loss_value(&[f32::NAN; 14], &samples).is_err());
+    assert!(loss_value(&[], &[]).is_err());
+}
+
 fn rehash(bytes: &mut [u8]) {
     let digest = Sha256::new()
         .chain_update(&bytes[..24])

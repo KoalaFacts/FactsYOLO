@@ -27,11 +27,17 @@ pub fn loss_gradient(logits: &[f32], labels: &[Sample]) -> Result<(f32, Vec<f32>
         for i in 0..3 {
             g[i] = ((out[i] - max).exp() / sum - if i == target { 1.0 } else { 0.0 }) * scale;
         }
+        // A background box is masked from regression, but its metadata must
+        // still be valid for the objective and metrics gates to accept a label.
+        if label
+            .box_xywh
+            .iter()
+            .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        {
+            return Err("invalid target box".into());
+        }
         if target != 0 {
             for i in 0..4 {
-                if !label.box_xywh[i].is_finite() || !(0.0..=1.0).contains(&label.box_xywh[i]) {
-                    return Err("invalid target box".into());
-                }
                 let p = sigmoid(out[3 + i]);
                 let e = p - label.box_xywh[i];
                 loss += 5.0 * e * e * 0.25 * scale;

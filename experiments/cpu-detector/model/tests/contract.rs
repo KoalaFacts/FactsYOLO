@@ -104,7 +104,6 @@ fn loss_gradient_matches_finite_differences_and_masks_background_boxes() {
     assert!(loss_gradient(&[f32::NAN; 7], &[]).is_err());
 }
 
-
 #[test]
 fn background_boxes_cannot_hide_invalid_targets() {
     let background = Sample {

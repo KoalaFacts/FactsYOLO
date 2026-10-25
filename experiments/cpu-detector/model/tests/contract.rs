@@ -104,6 +104,41 @@ fn loss_gradient_matches_finite_differences_and_masks_background_boxes() {
     assert!(loss_gradient(&[f32::NAN; 7], &[]).is_err());
 }
 
+
+#[test]
+fn background_boxes_cannot_hide_invalid_targets() {
+    let background = Sample {
+        pixels: vec![],
+        class: None,
+        box_xywh: [0.0; 4],
+    };
+    let logits = [2.0, 0.0, -1.0, 0.1, -0.2, 0.3, -0.4];
+    let (reference_loss, reference_gradient) =
+        loss_gradient(&logits, std::slice::from_ref(&background)).unwrap();
+    assert_eq!(&reference_gradient[3..], &[0.0; 4]);
+
+    // Background coordinates are ignored by the box objective, not by input validation.
+    let valid = Sample {
+        box_xywh: [0.5; 4],
+        ..background.clone()
+    };
+    let (valid_loss, valid_gradient) =
+        loss_gradient(&logits, std::slice::from_ref(&valid)).unwrap();
+    assert_eq!(reference_loss.to_bits(), valid_loss.to_bits());
+    assert_eq!(reference_gradient, valid_gradient);
+
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.01, 1.01] {
+        for axis in 0..4 {
+            let mut bad = background.clone();
+            bad.box_xywh[axis] = invalid;
+            assert!(
+                loss_gradient(&logits, std::slice::from_ref(&bad)).is_err(),
+                "invalid background coordinate {axis} unexpectedly accepted: {invalid:?}"
+            );
+        }
+    }
+}
+
 fn rehash(bytes: &mut [u8]) {
     let digest = Sha256::new()
         .chain_update(&bytes[..24])

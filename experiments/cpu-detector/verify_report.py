@@ -109,7 +109,7 @@ def verify_test_predictions(report):
             predicted_class = detection["class"]
             predicted_corners = _box(detection.get("corners"), f"predicted corners {index}")
             score = _finite_number(detection.get("score"), f"score {index}")
-            if not 0.0 <= score <= 1.0:
+            if not 0.5 <= score <= 1.0:
                 raise ValueError(f"invalid detection score at {index}")
 
         overlap = _iou(predicted_corners, corners) if corners is not None and predicted_corners is not None else 0.0

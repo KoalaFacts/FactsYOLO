@@ -199,6 +199,30 @@ class RegisteredHoldoutContractTests(unittest.TestCase):
         self.assertEqual(checked_training_heldout(report, "same-rev"),
                          report["test"])
 
+    def test_below_decoder_score_cannot_pass_perfect_holdout(self):
+        from verify import checked_training_heldout
+        # Removing the decoder's >=0.5 gate must not let reported perfect
+        # class/box metrics certify detections the real decoder suppresses.
+        for score in (0.0, 0.49, 0.4999999701976776):
+            with self.subTest(score=score):
+                report = self.passing_report()
+                for row in report["predictions"]:
+                    if row["prediction"] is not None:
+                        row["prediction"]["score"] = score
+                with self.assertRaisesRegex(ValueError, "detection score"):
+                    checked_training_heldout(report, "same-rev")
+
+    def test_decoder_score_boundary_is_inclusive(self):
+        from verify import checked_training_heldout
+        for score in (0.5, 0.5000000596046448, 1.0):
+            with self.subTest(score=score):
+                report = self.passing_report()
+                for row in report["predictions"]:
+                    if row["prediction"] is not None:
+                        row["prediction"]["score"] = score
+                self.assertEqual(checked_training_heldout(report, "same-rev"),
+                                 report["test"])
+
     def test_truncated_perfect_report_is_rejected(self):
         from verify import checked_training_heldout
         report = self.passing_report()

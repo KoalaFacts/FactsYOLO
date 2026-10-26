@@ -137,7 +137,9 @@ fn run() -> Result<(), String> {
     for (i, image) in images.iter().enumerate() {
         let old = historical(&background, image)?;
         if old.is_some() || old != background.detect(image)? {
-            return Err(format!("TD1 background inference parity failed for image {i}"));
+            return Err(format!(
+                "TD1 background inference parity failed for image {i}"
+            ));
         }
     }
 

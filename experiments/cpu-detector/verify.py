@@ -8,6 +8,7 @@ import platform
 import subprocess
 import sys
 import time
+from inference_gate import verify_inference_benchmark
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
@@ -59,7 +60,7 @@ def main():
     run("tests-debug", ["cargo", "test", *common, "--workspace"])
     run("tests-release", ["cargo", "test", *common, "--workspace", "--release"])
     run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
-    run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_verify_report.py"])
+    run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_*.py"])
     run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
     binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
     # The benchmark compares only training batch preparation, not end-to-end training.
@@ -78,18 +79,7 @@ def main():
     # full Burn/Candle training budget and native C/C# execution.
     inference_binary = ROOT / "target" / "release" / ("fy-inference-benchmark.exe" if os.name == "nt" else "fy-inference-benchmark")
     inference_report = json.loads(run("inference-benchmark", [inference_binary, "--measure"]))
-    calls = inference_report.get("images", 0) * inference_report.get("iterations_per_repeat", 0)
-    if (inference_report.get("source_commit") != env["FACTSYOLO_BUILD_ID"]
-            or inference_report.get("build") != "release"
-            or inference_report.get("images") != 8
-            or inference_report.get("iterations_per_repeat") != 256
-            or inference_report.get("repetitions") != 7
-            or inference_report.get("exact_positive_and_background_parity") is not True
-            or len(inference_report.get("historical", [])) != 7
-            or len(inference_report.get("current", [])) != 7
-            or any(h["allocation_requests"] != calls or c["allocation_requests"] != 0
-                   for h, c in zip(inference_report["historical"], inference_report["current"]))):
-        raise RuntimeError("portable TD1 inference benchmark parity/provenance/allocation gate failed")
+    verify_inference_benchmark(inference_report, env["FACTSYOLO_BUILD_ID"])
     (evidence / "inference-benchmark.json").write_text(json.dumps(inference_report, indent=2) + "\n")
     reports = {}
     for backend in ["burn", "candle"]:

@@ -73,14 +73,10 @@ fn compact_rgb_detection_matches_borrowed_view_without_heap_requests() {
         "compact RGB inference must not allocate a redundant 192-float buffer"
     );
 
-    for invalid in [&pixels[..pixels.len() - 1], &pixels[..]] {
-        if invalid.len() != pixels.len() {
-            assert_eq!(
-                model.detect(invalid).unwrap_err(),
-                "TD1 requires exactly 64x64 RGB bytes"
-            );
-        }
-    }
+    assert_eq!(
+        model.detect(&pixels[..pixels.len() - 1]).unwrap_err(),
+        "TD1 requires exactly 64x64 RGB bytes"
+    );
     let mut oversized = pixels;
     oversized.push(0);
     assert_eq!(

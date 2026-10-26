@@ -131,6 +131,19 @@ class SourceProvenanceGateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "dirty"):
             require_clean_source_tree(self.repo)
 
+    def test_rejects_clean_head_change_during_verification(self):
+        from verify import require_clean_source_tree
+        original_head = self.git("rev-parse", "HEAD")
+        self.source.write_text("different committed source\n")
+        self.git("add", "benchmark.rs")
+        self.git("commit", "-qm", "second clean revision")
+        self.assertNotEqual(self.git("rev-parse", "HEAD"), original_head)
+        # Both revisions have clean worktrees; cleanliness alone is insufficient.
+        require_clean_source_tree(self.repo)
+        with self.assertRaisesRegex(RuntimeError, "HEAD changed"):
+            require_clean_source_tree(self.repo, original_head)
+
+
 
 if __name__ == "__main__":
     unittest.main()

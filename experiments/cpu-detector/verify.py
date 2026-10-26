@@ -33,13 +33,18 @@ def checked_training_heldout(report, expected_sha):
     return audited
 
 
-def require_clean_source_tree(repository):
-    """A commit ID cannot attest to uncommitted changes in a measurement run."""
+def require_clean_source_tree(repository, expected_sha=None):
+    """Reject dirty sources and, when supplied, a changed measurement revision."""
     status = subprocess.check_output(
         ["git", "status", "--porcelain", "--untracked-files=normal"],
         cwd=repository, text=True)
     if status.strip():
         raise RuntimeError("source worktree is dirty; HEAD cannot attest to measured code")
+    if expected_sha is not None:
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        if head != expected_sha:
+            raise RuntimeError("source HEAD changed during verification")
 
 
 def main():
@@ -111,7 +116,7 @@ def main():
         bad.write_bytes(b"\x00" * 65537)
         run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
         bad.unlink()
-    require_clean_source_tree(REPO)
+    require_clean_source_tree(REPO, env["FACTSYOLO_BUILD_ID"])
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),
                "rayon_threads": 1, "cpu_count": os.cpu_count(), "results": {k: {f:v for f,v in r.items() if f!="predictions"} for k,r in reports.items()}}
     (evidence / "summary.json").write_text(json.dumps(summary, indent=2)+"\n")

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use crate::{data::features_from_rgb, features, Rng, B1, HIDDEN, INPUTS, PARAMETERS, W1, W2};
+use crate::{data::features_from_rgb, Rng, B1, HIDDEN, INPUTS, PARAMETERS, W1, W2};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Detection {
     pub class: usize,
@@ -111,7 +111,15 @@ impl Model {
         Ok(out)
     }
     pub fn detect(&self, pixels: &[u8]) -> Result<Option<Detection>, String> {
-        decode(&self.forward(&features(pixels)?)?)
+        if pixels.len() != 64 * 64 * 3 {
+            return Err("TD1 requires exactly 64x64 RGB bytes".into());
+        }
+        // Reuse the borrowed preprocessing path: the previous compact path
+        // allocated a 192-float Vec before every portable detection.
+        self.detect_with_rgb(|x, y| {
+            let at = (y * 64 + x) * 3;
+            Some([pixels[at], pixels[at + 1], pixels[at + 2]])
+        })
     }
 
     /// Execute the same TD1 preprocessing/forward/decode without copying a

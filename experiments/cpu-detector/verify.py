@@ -33,10 +33,20 @@ def checked_training_heldout(report, expected_sha):
     return audited
 
 
+def require_clean_source_tree(repository):
+    """A commit ID cannot attest to uncommitted changes in a measurement run."""
+    status = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        cwd=repository, text=True)
+    if status.strip():
+        raise RuntimeError("source worktree is dirty; HEAD cannot attest to measured code")
+
+
 def main():
     if len(sys.argv) != 2:
         raise ValueError("usage: python3 experiments/cpu-detector/verify.py <new-evidence-directory>")
     evidence = Path(sys.argv[1]).resolve()
+    require_clean_source_tree(REPO)
     evidence.mkdir(parents=True, exist_ok=False)
     env = os.environ.copy()
     env["RAYON_NUM_THREADS"] = "1"
@@ -101,6 +111,7 @@ def main():
         bad.write_bytes(b"\x00" * 65537)
         run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
         bad.unlink()
+    require_clean_source_tree(REPO)
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),
                "rayon_threads": 1, "cpu_count": os.cpu_count(), "results": {k: {f:v for f,v in r.items() if f!="predictions"} for k,r in reports.items()}}
     (evidence / "summary.json").write_text(json.dumps(summary, indent=2)+"\n")

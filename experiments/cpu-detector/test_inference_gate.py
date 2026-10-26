@@ -78,5 +78,59 @@ class InferenceBenchmarkGateTests(unittest.TestCase):
             verify_inference_benchmark(sample, "test-revision")
 
 
+class SourceProvenanceGateTests(unittest.TestCase):
+    """Reject uncommitted benchmark/model changes even when HEAD is unchanged."""
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.repo = Path(self.directory.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "user.name", "FactsYOLO Test")
+        (self.repo / ".gitignore").write_text("target/\\n".replace("\\n", "\n"))
+        self.source = self.repo / "benchmark.rs"
+        self.source.write_text("original\\n".replace("\\n", "\n"))
+        self.git("add", ".gitignore", "benchmark.rs")
+        self.git("commit", "-qm", "fixture")
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(
+            ["git", *args], cwd=self.repo, check=True,
+            capture_output=True, text=True).stdout.strip()
+
+    def test_accepts_clean_tree_and_ignored_build_output(self):
+        from verify import require_clean_source_tree
+        require_clean_source_tree(self.repo)
+        output = self.repo / "target" / "evidence" / "result.json"
+        output.parent.mkdir(parents=True)
+        output.write_text('{"ok":true}\\n'.replace("\\n", "\n"))
+        require_clean_source_tree(self.repo)
+
+    def test_rejects_modified_benchmark_at_unchanged_head(self):
+        from verify import require_clean_source_tree
+        commit = self.git("rev-parse", "HEAD")
+        self.source.write_text("modified\\n".replace("\\n", "\n"))
+        self.assertEqual(self.git("rev-parse", "HEAD"), commit)
+        with self.assertRaisesRegex(RuntimeError, "dirty"):
+            require_clean_source_tree(self.repo)
+
+    def test_rejects_staged_edits_and_untracked_sources(self):
+        from verify import require_clean_source_tree
+        self.source.write_text("staged\\n".replace("\\n", "\n"))
+        self.git("add", "benchmark.rs")
+        with self.assertRaisesRegex(RuntimeError, "dirty"):
+            require_clean_source_tree(self.repo)
+        self.git("reset", "-q", "--hard", "HEAD")
+        (self.repo / "new_benchmark.rs").write_text("new\\n".replace("\\n", "\n"))
+        with self.assertRaisesRegex(RuntimeError, "dirty"):
+            require_clean_source_tree(self.repo)
+
+
 if __name__ == "__main__":
     unittest.main()

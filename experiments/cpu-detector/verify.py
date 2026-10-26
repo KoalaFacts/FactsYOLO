@@ -73,6 +73,24 @@ def main():
                    for h, r in zip(batch_report["historical"], batch_report["reused"]))):
         raise RuntimeError("batch preparation benchmark parity/provenance/allocation gate failed")
     (evidence / "batch-benchmark.json").write_text(json.dumps(batch_report, indent=2) + "\n")
+    # Compare the exact pre-#33 compact inference call with the current path,
+    # on the same seeded RGB frames, model, thread and host. Separate from the
+    # full Burn/Candle training budget and native C/C# execution.
+    inference_binary = ROOT / "target" / "release" / ("fy-inference-benchmark.exe" if os.name == "nt" else "fy-inference-benchmark")
+    inference_report = json.loads(run("inference-benchmark", [inference_binary, "--measure"]))
+    calls = inference_report.get("images", 0) * inference_report.get("iterations_per_repeat", 0)
+    if (inference_report.get("source_commit") != env["FACTSYOLO_BUILD_ID"]
+            or inference_report.get("build") != "release"
+            or inference_report.get("images") != 8
+            or inference_report.get("iterations_per_repeat") != 256
+            or inference_report.get("repetitions") != 7
+            or inference_report.get("exact_positive_and_background_parity") is not True
+            or len(inference_report.get("historical", [])) != 7
+            or len(inference_report.get("current", [])) != 7
+            or any(h["allocation_requests"] != calls or c["allocation_requests"] != 0
+                   for h, c in zip(inference_report["historical"], inference_report["current"]))):
+        raise RuntimeError("portable TD1 inference benchmark parity/provenance/allocation gate failed")
+    (evidence / "inference-benchmark.json").write_text(json.dumps(inference_report, indent=2) + "\n")
     reports = {}
     for backend in ["burn", "candle"]:
         output = evidence / backend

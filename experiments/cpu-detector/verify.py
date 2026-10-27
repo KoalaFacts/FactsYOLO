@@ -54,6 +54,14 @@ def require_clean_source_tree(repository, expected_sha=None):
             raise RuntimeError("source HEAD changed during verification")
 
 
+def require_expected_inference_rejection(returncode, output, expected_error):
+    """A crashed or unrelated failed infer is not a successful negative control."""
+    if returncode != 1 or output.strip() != f"error: {expected_error}":
+        raise RuntimeError(
+            f"expected infer rejection {expected_error!r}, got exit {returncode}"
+        )
+
+
 def main():
     if len(sys.argv) != 2:
         raise ValueError("usage: python3 experiments/cpu-detector/verify.py <new-evidence-directory>")
@@ -65,16 +73,23 @@ def main():
     env["FACTSYOLO_BUILD_ID"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     commands = []
 
-    def run(label, arguments, *, expected_success=True):
+    def run(label, arguments, *, expected_error=None):
         print(f"{label}: {' '.join(map(str, arguments))}", flush=True)
         started = time.monotonic()
         with (evidence / f"{label}.log").open("w") as log:
             result = subprocess.run(list(map(str, arguments)), cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
         commands.append({"label": label, "argv": list(map(str, arguments)), "exit": result.returncode, "seconds": time.monotonic()-started})
         (evidence / "commands.json").write_text(json.dumps(commands, indent=2)+"\n")
-        if (result.returncode == 0) != expected_success:
-            raise RuntimeError(f"unexpected exit {result.returncode}: {label}; see {evidence / (label+'.log')}")
-        return (evidence / f"{label}.log").read_text()
+        output = (evidence / f"{label}.log").read_text()
+        if expected_error is None:
+            if result.returncode != 0:
+                raise RuntimeError(f"unexpected exit {result.returncode}: {label}; see {evidence / (label+'.log')}")
+        else:
+            try:
+                require_expected_inference_rejection(result.returncode, output, expected_error)
+            except RuntimeError as error:
+                raise RuntimeError(f"{label}: {error}; see {evidence / (label+'.log')}") from error
+        return output
 
     common = ["--manifest-path", MANIFEST, "--locked", "--offline"]
     run("format", ["cargo", "fmt", "--manifest-path", MANIFEST, "--all", "--", "--check"])
@@ -119,9 +134,9 @@ def main():
         corrupted[-1] ^= 1
         bad = output / "corrupt.fytd"
         bad.write_bytes(corrupted)
-        run(f"reject-corrupt-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
+        run(f"reject-corrupt-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_error="artifact checksum mismatch")
         bad.write_bytes(b"\x00" * 65537)
-        run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
+        run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_error="input exceeds bounded file size")
         bad.unlink()
     require_clean_source_tree(REPO, env["FACTSYOLO_BUILD_ID"])
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),

@@ -138,7 +138,7 @@ class SourceProvenanceGateTests(unittest.TestCase):
                 ("--assume-unchanged", "--no-assume-unchanged"),
                 ("--skip-worktree", "--no-skip-worktree")):
             with self.subTest(flag=flag):
-                self.source.write_text("altered but hidden from git status\\n")
+                self.source.write_text("altered but hidden from git status\n")
                 self.git("update-index", flag, "benchmark.rs")
                 self.assertEqual(self.git("rev-parse", "HEAD"), original_head)
                 self.assertEqual(

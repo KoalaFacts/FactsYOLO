@@ -45,7 +45,7 @@ def require_clean_source_tree(repository, expected_sha=None):
     # is unchanged. Reject those flags rather than certify false provenance.
     index_entries = subprocess.check_output(
         ["git", "ls-files", "-v", "-z"], cwd=repository)
-    if any(not entry.startswith(b"H ") for entry in index_entries.split(b"\\x00") if entry):
+    if any(not entry.startswith(b"H ") for entry in index_entries.split(bytes([0])) if entry):
         raise RuntimeError("source index hides tracked files; cannot attest to measured code")
     if expected_sha is not None:
         head = subprocess.check_output(

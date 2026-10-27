@@ -131,6 +131,23 @@ class SourceProvenanceGateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "dirty"):
             require_clean_source_tree(self.repo)
 
+    def test_rejects_index_flags_hiding_tracked_source_edits(self):
+        from verify import require_clean_source_tree
+        original_head = self.git("rev-parse", "HEAD")
+        for flag, undo_flag in (
+                ("--assume-unchanged", "--no-assume-unchanged"),
+                ("--skip-worktree", "--no-skip-worktree")):
+            with self.subTest(flag=flag):
+                self.source.write_text("altered but hidden from git status\\n")
+                self.git("update-index", flag, "benchmark.rs")
+                self.assertEqual(self.git("rev-parse", "HEAD"), original_head)
+                self.assertEqual(
+                    self.git("status", "--porcelain", "--untracked-files=normal"), "")
+                with self.assertRaisesRegex(RuntimeError, "index hides"):
+                    require_clean_source_tree(self.repo, original_head)
+                self.git("update-index", undo_flag, "benchmark.rs")
+                self.git("reset", "-q", "--hard", "HEAD")
+
     def test_rejects_clean_head_change_during_verification(self):
         from verify import require_clean_source_tree
         original_head = self.git("rev-parse", "HEAD")

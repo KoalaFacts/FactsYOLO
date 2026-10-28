@@ -61,6 +61,15 @@ def checked_prospective_edge_report(report, expected_sha):
                     or not math.isfinite(recall)
                     or abs(recall - hits / 48) > 1e-12):
                 raise ValueError(f"invalid prospective recall: {arm}/{name}")
+            # Rust evaluate() sums IoU only for correct-class detections.
+            # Each IoU50 hit contributes at least 0.5; non-hits contribute
+            # less than 0.5, while missing/wrong-class detections contribute 0.
+            # Allow for its f32 accumulation and JSON serialization rounding.
+            correct_class_count = 48 - missing - wrong
+            min_mean_iou = 0.5 * hits / 48
+            max_mean_iou = (hits + 0.5 * (correct_class_count - hits)) / 48
+            if mean_iou < min_mean_iou - 1e-6 or mean_iou > max_mean_iou + 1e-6:
+                raise ValueError(f"inconsistent prospective IoU: {arm}/{name}")
         arms.append(groups)
 
     for name in ("small_edge", "small_interior"):

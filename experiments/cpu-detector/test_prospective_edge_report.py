@@ -99,6 +99,32 @@ class ProspectiveEdgeReportTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     checked_prospective_edge_report(data, "tested-commit")
 
+    def test_rejects_mean_iou_inconsistent_with_iou50_hits_and_detection_counts(self):
+        for hits, missing, wrong, mean_iou in (
+            (48, 0, 0, 0.49),   # 48 hits require mean IoU >= 0.5
+            (0, 48, 0, 0.1),    # all missing detections must contribute zero
+            (0, 0, 48, 0.1),    # all wrong-class detections must contribute zero
+            (46, 0, 0, 0.99),  # the two IoU50 misses are strictly below 0.5
+        ):
+            with self.subTest(hits=hits, missing=missing, wrong=wrong, mean_iou=mean_iou):
+                data = report()
+                row = data["baseline_prospective"]["small_edge"]
+                row["correct_class_iou50"] = hits
+                row["recall_correct_class_iou50"] = hits / 48
+                row["missing_detections"] = missing
+                row["wrong_class_detections"] = wrong
+                row["mean_iou_including_misses"] = mean_iou
+                with self.assertRaisesRegex(ValueError, "prospective IoU"):
+                    checked_prospective_edge_report(data, "tested-commit")
+
+    def test_accepts_consistent_mean_iou_boundary(self):
+        data = report()
+        row = data["baseline_prospective"]["small_edge"]
+        row["correct_class_iou50"] = 48
+        row["recall_correct_class_iou50"] = 1.0
+        row["mean_iou_including_misses"] = 0.5
+        self.assertTrue(checked_prospective_edge_report(data, "tested-commit"))
+
     def test_rejects_nonfinite_metrics(self):
         for key in ("recall_correct_class_iou50", "mean_iou_including_misses"):
             data = report()

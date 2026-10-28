@@ -185,6 +185,16 @@ def main():
                 or report.get("baseline", {}).get("validation_passes_original_thresholds") is not True
                 or report.get("edge_pool_count") != 48):
             raise RuntimeError(f"unverifiable controlled edge-training comparison: {backend_name}")
+        # Both baselines must reproduce the *existing* training command's
+        # validation result on this same backend and exact source commit.
+        reference = reports[backend_name]["validation"]
+        paired = report["baseline"]["validation"]
+        for key in ("positives", "negatives", "class_accuracy", "recall_iou50",
+                    "mean_iou", "false_positive_rate"):
+            if abs(reference[key] - paired[key]) > 1e-5:
+                raise RuntimeError(
+                    f"existing-training parity failure: {backend_name}/{key}: "
+                    f"{reference[key]} != {paired[key]}")
         (evidence / f"edge-training-{backend_name}.json").write_text(
             json.dumps(report, indent=2) + "\n")
 

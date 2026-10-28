@@ -100,7 +100,7 @@ class ProspectiveEdgeReportTests(unittest.TestCase):
                     checked_prospective_edge_report(data, "tested-commit")
 
     def test_rejects_nonfinite_metrics(self):
-        for key in ("recall_correct_class_iou50",):
+        for key in ("recall_correct_class_iou50", "mean_iou_including_misses"):
             data = report()
             data["baseline_prospective"]["small_edge"][key] = float("nan")
             with self.assertRaises(ValueError):

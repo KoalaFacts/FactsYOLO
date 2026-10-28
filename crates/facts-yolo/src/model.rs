@@ -14,7 +14,7 @@ use crate::{
 pub(crate) struct Model {
     backend_id: u32,
     #[cfg(feature = "td1")]
-    tiny: Option<fy_tiny_model::Model>,
+    tiny: Option<fy_tiny_model::InferenceModel>,
     #[cfg(feature = "td1")]
     identity: [u8; 32],
     #[cfg(feature = "contract-fixtures")]
@@ -41,7 +41,7 @@ impl Model {
                 message: "TD1 parser byte-work limit exceeded",
             });
         }
-        let tiny = fy_tiny_model::Model::from_bytes(bytes).map_err(|_| unsupported)?;
+        let tiny = fy_tiny_model::InferenceModel::from_bytes(bytes).map_err(|_| unsupported)?;
         let mut identity = [0; 32];
         identity.copy_from_slice(&bytes[24..56]);
         Ok(Self {

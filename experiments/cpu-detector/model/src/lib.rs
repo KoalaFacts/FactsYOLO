@@ -5,7 +5,7 @@ mod loss;
 mod network;
 pub use data::{dataset, features, Sample};
 pub use loss::{loss_gradient, loss_value};
-pub use network::{decode, sigmoid, Detection, Model};
+pub use network::{decode, sigmoid, Detection, InferenceModel, Model};
 pub const INPUTS: usize = 192;
 pub const HIDDEN: usize = 64;
 pub const OUTPUTS: usize = 7;

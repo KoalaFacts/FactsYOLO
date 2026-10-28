@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 """Negative controls for pre-registered prospective TD1 edge evaluation."""
-import copy
 import unittest
 
 from verify import checked_prospective_edge_report, PROSPECTIVE_EDGE_FINGERPRINT
@@ -29,7 +28,7 @@ def report():
     return {
         "source_commit": "tested-commit",
         "prospective_seed": 20261101,
-        "prospective_candidate_budget": 8192,
+        "prospective_candidate_budget": 4096,
         "prospective_samples": 240,
         "prospective_fingerprint": PROSPECTIVE_EDGE_FINGERPRINT,
         "final_holdout_evaluated": False,
@@ -75,6 +74,17 @@ class ProspectiveEdgeReportTests(unittest.TestCase):
                 data["baseline_prospective"]["small_edge"][key] = value
                 with self.assertRaises(ValueError):
                     checked_prospective_edge_report(data, "tested-commit")
+
+    def test_rejects_nonfinite_metrics(self):
+        for key in ("recall_correct_class_iou50",):
+            data = report()
+            data["baseline_prospective"]["small_edge"][key] = float("nan")
+            with self.assertRaises(ValueError):
+                checked_prospective_edge_report(data, "tested-commit")
+        data = report()
+        data["prospective_edge_minus_baseline_small_edge_iou50_recall"] = float("nan")
+        with self.assertRaises(ValueError):
+            checked_prospective_edge_report(data, "tested-commit")
 
     def test_rejects_missing_group_and_forged_paired_gain(self):
         data = report()

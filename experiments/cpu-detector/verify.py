@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run the additive CPU experiment gates, preserving commands and actual results."""
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -25,7 +26,7 @@ def checked_prospective_edge_report(report, expected_sha):
     """Fail closed on wrong split/provenance/arithmetic, not on a negative accuracy result."""
     if (report.get("source_commit") != expected_sha
             or report.get("prospective_seed") != 20261101
-            or report.get("prospective_candidate_budget") != 8192
+            or report.get("prospective_candidate_budget") != 4096
             or report.get("prospective_samples") != 240
             or report.get("prospective_fingerprint") != PROSPECTIVE_EDGE_FINGERPRINT
             or report.get("final_holdout_evaluated") is not False):
@@ -53,6 +54,7 @@ def checked_prospective_edge_report(report, expected_sha):
                 raise ValueError(f"invalid detection counts: {arm}/{name}")
             recall = row.get("recall_correct_class_iou50")
             if (type(recall) not in (int, float)
+                    or not math.isfinite(recall)
                     or abs(recall - hits / 48) > 1e-12):
                 raise ValueError(f"invalid prospective recall: {arm}/{name}")
         arms.append(groups)
@@ -62,7 +64,8 @@ def checked_prospective_edge_report(report, expected_sha):
         reported = report.get(key)
         actual = ((arms[1][name]["correct_class_iou50"]
                    - arms[0][name]["correct_class_iou50"]) / 48)
-        if type(reported) not in (float, int) or abs(reported - actual) > 1e-12:
+        if (type(reported) not in (float, int) or not math.isfinite(reported)
+                or abs(reported - actual) > 1e-12):
             raise ValueError(f"prospective paired comparison mismatch: {name}")
     return True
 

@@ -249,3 +249,42 @@ The runner **never loads or evaluates final holdout seed909**. It produces
 JSON metrics only; no images, weights or trained artifacts are uploaded.
 This is a narrow controlled training experiment, **not** a shipped
 edge-corrected detector or evidence of natural-image accuracy improvement.
+
+
+### Untouched prospective evaluation of edge sampling (post-PR #41)
+
+The controlled 4-of-64 edge sampler in PR #41 passed **already observed**
+development-only candidate criteria; this does **not** justify adopting it.
+Before running any predictions with either trained arm on the next split,
+we fixed synthetic generator `TD1-synthetic-v1`, seed **20261101**,
+candidate budget **4096**, and the **first 48 ground-truth examples** in each
+of the same five fixed strata (small/larger by 256 px²; edge by <=2 px; plus
+background). The **240** selected examples have fingerprint
+`0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1`.
+The independent Python replay reproduced the existing #40 fingerprint first,
+then this prospective fingerprint and confirmed no repeated pixel identities
+against seed101/4096 training, seed202/128 validation, seed909/128 final
+holdout, seed20261028/256 diagnostics and seed20261030/240 development
+selection. A Rust unit test and Python regression pin the new split. No
+predictions were observed while selecting or registering it.
+
+The opt-in `fy-edge-training` runner reuses its **same paired original and
+four-reserved-slots training arms**, no new training parameters or
+model-format/ABI change. It evaluates both newly trained arms once on the
+unseen split and emits `baseline_prospective`,
+`edge_sampling_prospective`, source identity and each stratum's IoU50
+correct-class recall, missing/wrong-class counts and background errors.
+Verification rejects fingerprint/provenance drift, invalid sample counts,
+nonfinite/fabricated recall and mismatched paired deltas. **Negative
+accuracy comparisons pass the evidence-recording gate**; they are not hidden
+or transformed into a CI failure.
+
+Predeclared interpretation: qualify the already selected edge sampler for
+**further synthetic research only** if small-edge IoU50 recall improves on
+this untouched split for both Burn/Candle and Linux/Windows, small-interior
+recall does not fall, background errors do not rise and the unchanged
+original validation still passes. Otherwise classify this experiment as
+negative/inconclusive rather than changing the split, seed or thresholds.
+This is one prospective synthetic evaluation, not statistical or
+natural-image generalization proof, a production model decision, or
+permission to tune on final holdout seed909.

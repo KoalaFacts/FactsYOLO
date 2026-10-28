@@ -10,6 +10,35 @@ pub struct Detection {
 pub struct Model {
     pub weights: Vec<f32>,
 }
+
+/// A validated, immutable artifact-backed TD1 model for repeated inference.
+///
+/// Unlike the public training/reference Model, this type has no mutable
+/// weight access. The artifact parser checks header, checksum, parameter
+/// count, bounds and finiteness once before creating this state; subsequent
+/// forward calls continue to check each input and the decoded outputs.
+pub struct InferenceModel {
+    model: Model,
+}
+
+impl InferenceModel {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        Ok(Self {
+            model: Model::from_bytes(bytes)?,
+        })
+    }
+
+    pub fn forward(&self, input: &[f32]) -> Result<[f32; 7], String> {
+        self.model.forward_validated(input)
+    }
+
+    pub fn detect_with_rgb(
+        &self,
+        rgb_at: impl FnMut(usize, usize) -> Option<[u8; 3]>,
+    ) -> Result<Option<Detection>, String> {
+        decode(&self.forward(&features_from_rgb(rgb_at)?)?)
+    }
+}
 pub fn sigmoid(x: f32) -> f32 {
     if x >= 0.0 {
         1.0 / (1.0 + (-x).exp())
@@ -85,7 +114,15 @@ impl Model {
         Ok(())
     }
     pub fn forward(&self, input: &[f32]) -> Result<[f32; 7], String> {
+        // Training/reference weights are externally mutable; never skip this.
         self.validate()?;
+        self.forward_validated(input)
+    }
+
+    // Only an immutable, artifact-validated model may call this without first
+    // checking weights. The feature validation and network math are shared
+    // with the mutable reference to preserve bit-for-bit inference results.
+    fn forward_validated(&self, input: &[f32]) -> Result<[f32; 7], String> {
         if input.len() != INPUTS
             || input
                 .iter()

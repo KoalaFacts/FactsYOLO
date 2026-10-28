@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Negative controls for pre-registered prospective TD1 edge evaluation."""
+import copy
+import unittest
+
+from verify import checked_prospective_edge_report, PROSPECTIVE_EDGE_FINGERPRINT
+
+
+def sample_group(correct=46):
+    return {
+        "samples": 48,
+        "correct_class_iou50": correct,
+        "recall_correct_class_iou50": correct / 48,
+        "missing_detections": 0,
+        "wrong_class_detections": 0,
+        "mean_iou_including_misses": 0.7,
+    }
+
+
+def report():
+    def groups(edge):
+        return {
+            "small_edge": sample_group(edge),
+            "small_interior": sample_group(47),
+            "larger_edge": sample_group(47),
+            "larger_interior": sample_group(48),
+            "background": {"samples": 48, "false_positives": 0},
+        }
+    return {
+        "source_commit": "tested-commit",
+        "prospective_seed": 20261101,
+        "prospective_candidate_budget": 8192,
+        "prospective_samples": 240,
+        "prospective_fingerprint": PROSPECTIVE_EDGE_FINGERPRINT,
+        "final_holdout_evaluated": False,
+        "baseline_prospective": groups(42),
+        "edge_sampling_prospective": groups(44),
+        "prospective_edge_minus_baseline_small_edge_iou50_recall": 2 / 48,
+        "prospective_edge_minus_baseline_small_interior_iou50_recall": 0.0,
+    }
+
+
+class ProspectiveEdgeReportTests(unittest.TestCase):
+    def test_accepts_frozen_split_with_consistent_counts(self):
+        self.assertTrue(checked_prospective_edge_report(report(), "tested-commit"))
+
+    def test_negative_accuracy_result_is_still_valid_evidence(self):
+        data = report()
+        data["edge_sampling_prospective"]["small_edge"] = sample_group(40)
+        data["prospective_edge_minus_baseline_small_edge_iou50_recall"] = -2 / 48
+        self.assertTrue(checked_prospective_edge_report(data, "tested-commit"))
+
+    def test_rejects_fingerprint_source_and_holdout_drift(self):
+        for key, value in (
+            ("prospective_fingerprint", "0" * 64),
+            ("source_commit", "stale-commit"),
+            ("prospective_seed", 909),
+            ("final_holdout_evaluated", True),
+        ):
+            with self.subTest(key=key):
+                data = report()
+                data[key] = value
+                with self.assertRaisesRegex(ValueError, "provenance"):
+                    checked_prospective_edge_report(data, "tested-commit")
+
+    def test_rejects_wrong_counts_and_forged_recall(self):
+        for key, value in (
+            ("samples", 47),
+            ("correct_class_iou50", 49),
+            ("recall_correct_class_iou50", 1.0),
+            ("missing_detections", 48),
+        ):
+            with self.subTest(key=key):
+                data = report()
+                data["baseline_prospective"]["small_edge"][key] = value
+                with self.assertRaises(ValueError):
+                    checked_prospective_edge_report(data, "tested-commit")
+
+    def test_rejects_missing_group_and_forged_paired_gain(self):
+        data = report()
+        del data["baseline_prospective"]["larger_interior"]
+        with self.assertRaisesRegex(ValueError, "groups"):
+            checked_prospective_edge_report(data, "tested-commit")
+        data = report()
+        data["prospective_edge_minus_baseline_small_edge_iou50_recall"] = 1.0
+        with self.assertRaisesRegex(ValueError, "paired"):
+            checked_prospective_edge_report(data, "tested-commit")
+
+
+if __name__ == "__main__":
+    unittest.main()

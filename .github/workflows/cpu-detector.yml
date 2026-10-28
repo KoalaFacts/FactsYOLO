@@ -73,6 +73,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ${{ matrix.python }} experiments/cpu-detector/verify_native.py experiments/cpu-detector/target/evidence/candle target/td1-evidence-candle
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build exact pre-immutable-inference TD1 Linux baseline
+        if: runner.os == 'Linux'
+        run: |
+          # Historical baseline is the reviewed pre-#36 head, not
+          # a synthesized or edited old library. Both versions compile
+          # on the same runner using the pinned toolchain and lockfiles.
+          base=1a5e0a3e236cc1057304fb47c3a3a5a7a05c3837
+          git fetch --no-tags --depth=1 origin "$base"
+          git worktree add --detach target/td1-pr35-source "$base"
+          test "$(git -C target/td1-pr35-source rev-parse HEAD)" = "$base"
+          FACTSYOLO_BUILD_ID="$base" cargo build \
+            --manifest-path target/td1-pr35-source/Cargo.toml \
+            -p facts-yolo --release --no-default-features --features td1 \
+            --target-dir "$PWD/target/td1-pr35-build" --locked --offline
+      - name: Compare both real 2000-step trained artifacts through native C ABI
+        if: runner.os == 'Linux'
+        run: |
+          python3 experiments/cpu-detector/paired_trained_native.py \
+            target/td1-pr35-build/release/libfacts_yolo.so \
+            target/td1-native/release/libfacts_yolo.so \
+            experiments/cpu-detector/target/evidence \
+            target/td1-evidence-burn target/td1-evidence-candle \
+            target/td1-paired-evidence
       - name: Show command diagnostics when a gate fails
         if: failure()
         run: |
@@ -100,4 +123,7 @@ jobs:
             target/td1-evidence-*/*.log
             target/td1-evidence-*/rust-layout.txt
             target/td1-evidence-*/cases/*.txt
+            target/td1-paired-evidence/*.json
+            target/td1-paired-evidence/*.csv
+            target/td1-paired-evidence/*.log
           if-no-files-found: error

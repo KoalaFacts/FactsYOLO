@@ -201,3 +201,51 @@ or tuned against. Python negative controls cover sample identity, all stratum
 boundaries, wrong-class/missing penalties, invalid predictions, artifact mutation
 and training provenance. These checks do not substitute for the root source,
 Rust/C/.NET/Miri, CI or independent-review gates.
+
+
+## Controlled TD1 small-edge training intervention (experimental only)
+
+The edge development evidence in PR #40 motivates **one controlled training
+intervention**, not another diagnostic-only reporting task. This experiment
+does not change the TD1 model topology, the model artifact, decode logic, ABI,
+existing training command, original final holdout, or its pass/fail thresholds.
+It runs independently in the evaluation workspace as `fy-edge-training`.
+
+Two arms use the **same** generated seed101/4096 training population, cached
+192-feature inputs, seed404 initial parameters, seed707 sampler draw stream,
+2000 steps, batch64, Adam, loss, and Burn/Candle backend. The original arm
+calls the historical `fill_training_batch` unchanged. In the intervention,
+exactly slots 0,16,32,48 of every batch remap their *existing* RNG draw into
+the training samples that (a) contain a positive target, (b) have area at
+most 256 square pixels, and (c) lie within 2 pixels of an image boundary.
+All 60 remaining slots and all RNG advances retain the baseline algorithm.
+The source training set, weights, number of gradient updates and optimizer
+hyperparameters are not changed. This isolated intervention changes the
+sampling distribution, intentionally, so training losses and model weights
+are **not** expected to stay bit-identical between arms.
+
+The comparison evaluates both arms against unchanged validation seed202/128
+and the already-registered frozen PR #40 *development* edge split: seed
+20261030, 4096 candidates, first48 per each of five groups, selected fingerprint
+`04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4`.
+Selection uses ground truth only. The runner rejects source fingerprint drift,
+empty edge training pool, unchanged weights, invalid predictions and baseline
+failure of the original validation thresholds. It records both arms' validation
+metrics, development IoU50 recalls, background errors, training time and
+source revision for **each** backend, including negative or inconclusive outcomes.
+
+**Predeclared decision rule, before the first intervention result:** only
+consider the sampling change for further study if both backends pass the
+unchanged validation thresholds, small-edge development recall improves over
+uniform sampling, small-interior recall does not fall, and background false
+positives do not increase. These are exploratory candidate-selection criteria,
+not revised production acceptance gates. A failing comparison is evidence
+against this intervention rather than permission to alter thresholds or
+discard samples. Do not promote a candidate based on this already-observed
+development split: a subsequent untouched, pre-registered independent
+verification is required, with no final seed909 reuse for tuning.
+
+The runner **never loads or evaluates final holdout seed909**. It produces
+JSON metrics only; no images, weights or trained artifacts are uploaded.
+This is a narrow controlled training experiment, **not** a shipped
+edge-corrected detector or evidence of natural-image accuracy improvement.

@@ -7,9 +7,7 @@ use fy_cpu_evaluate::{
     training::{adam_step, fill_training_batch},
     Backend,
 };
-use fy_tiny_model::{
-    dataset, features, loss_gradient, Model, Rng, Sample, INPUTS, PARAMETERS,
-};
+use fy_tiny_model::{dataset, features, loss_gradient, Model, Rng, Sample, INPUTS, PARAMETERS};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::time::Instant;
@@ -111,13 +109,7 @@ fn train_model(
         let predictions = b.forward(&model.weights, &inputs, BATCH)?;
         let (_, output_gradient) = loss_gradient(&predictions, &labels)?;
         let gradient = b.backward(&model.weights, &inputs, BATCH, &output_gradient)?;
-        adam_step(
-            &mut model.weights,
-            &gradient,
-            &mut first,
-            &mut second,
-            step,
-        )?;
+        adam_step(&mut model.weights, &gradient, &mut first, &mut second, step)?;
     }
     if model.weights == Model::initialized(404).weights {
         return Err("training left initial weights unchanged".into());
@@ -249,11 +241,19 @@ fn run() -> Result<(), String> {
 
     let (baseline_model, baseline_seconds) = train_model(&*b, &train, &cached, &pool, false)?;
     let baseline = evaluate(
-        &*b, &baseline_model, &development, &validation, &validation_features,
+        &*b,
+        &baseline_model,
+        &development,
+        &validation,
+        &validation_features,
     )?;
     let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true)?;
     let boosted = evaluate(
-        &*b, &boosted_model, &development, &validation, &validation_features,
+        &*b,
+        &boosted_model,
+        &development,
+        &validation,
+        &validation_features,
     )?;
     if baseline["validation_passes_original_thresholds"] != true {
         return Err("baseline failed the unchanged validation thresholds".into());
@@ -290,7 +290,10 @@ fn run() -> Result<(), String> {
         "edge_minus_baseline_small_interior_iou50_recall":
             recall(&boosted, "small_interior")? - recall(&baseline, "small_interior")?
     });
-    println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+    );
     Ok(())
 }
 
@@ -329,10 +332,18 @@ mod tests {
 
         for _ in 0..5 {
             fill_training_batch(
-                &train, &cached, &mut uniform_rng, &mut uniform_input, &mut uniform_labels,
+                &train,
+                &cached,
+                &mut uniform_rng,
+                &mut uniform_input,
+                &mut uniform_labels,
             );
             fill_edge_batch(
-                &train, &cached, &pool, &mut boosted_rng, &mut boosted_input,
+                &train,
+                &cached,
+                &pool,
+                &mut boosted_rng,
+                &mut boosted_input,
                 &mut boosted_labels,
             );
             for slot in 0..BATCH {
@@ -356,7 +367,10 @@ mod tests {
             }
             assert_eq!(uniform_rng.next_u32(), boosted_rng.next_u32());
         }
-        assert!(changed, "edge intervention did not change any reserved draw");
+        assert!(
+            changed,
+            "edge intervention did not change any reserved draw"
+        );
     }
 
     #[test]

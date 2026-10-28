@@ -123,6 +123,7 @@ class ProspectiveEdgeReportTests(unittest.TestCase):
         row["correct_class_iou50"] = 48
         row["recall_correct_class_iou50"] = 1.0
         row["mean_iou_including_misses"] = 0.5
+        data["prospective_edge_minus_baseline_small_edge_iou50_recall"] = -4 / 48
         self.assertTrue(checked_prospective_edge_report(data, "tested-commit"))
 
     def test_rejects_nonfinite_metrics(self):

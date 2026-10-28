@@ -299,6 +299,10 @@ fn run() -> Result<(), String> {
             .as_f64()
             .ok_or_else(|| format!("missing development recall for {group}"))
     };
+    let prospective_edge_delta = recall(&boosted_prospective, "small_edge")?
+        - recall(&baseline_prospective, "small_edge")?;
+    let prospective_interior_delta = recall(&boosted_prospective, "small_interior")?
+        - recall(&baseline_prospective, "small_interior")?;
     let report = json!({
         "status": "controlled-training-experiment-only",
         "source_commit": source,
@@ -327,10 +331,8 @@ fn run() -> Result<(), String> {
         "edge_sampling": boosted,
         "baseline_prospective": baseline_prospective["development"],
         "edge_sampling_prospective": boosted_prospective["development"],
-        "prospective_edge_minus_baseline_small_edge_iou50_recall":
-            recall(&boosted_prospective, "small_edge")? - recall(&baseline_prospective, "small_edge")?,
-        "prospective_edge_minus_baseline_small_interior_iou50_recall":
-            recall(&boosted_prospective, "small_interior")? - recall(&baseline_prospective, "small_interior")?,
+        "prospective_edge_minus_baseline_small_edge_iou50_recall": prospective_edge_delta,
+        "prospective_edge_minus_baseline_small_interior_iou50_recall": prospective_interior_delta,
         "edge_minus_baseline_small_edge_iou50_recall":
             recall(&boosted, "small_edge")? - recall(&baseline, "small_edge")?,
         "edge_minus_baseline_small_interior_iou50_recall":

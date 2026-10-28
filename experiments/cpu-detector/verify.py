@@ -8,6 +8,7 @@ import platform
 import subprocess
 import sys
 import time
+from inference_gate import verify_inference_benchmark
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
@@ -32,26 +33,63 @@ def checked_training_heldout(report, expected_sha):
     return audited
 
 
+def require_clean_source_tree(repository, expected_sha=None):
+    """Reject dirty sources and, when supplied, a changed measurement revision."""
+    status = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        cwd=repository, text=True)
+    if status.strip():
+        raise RuntimeError("source worktree is dirty; HEAD cannot attest to measured code")
+    # Git status trusts index flags. A modified tracked source marked
+    # assume-unchanged or skip-worktree is otherwise invisible even if HEAD
+    # is unchanged. Reject those flags rather than certify false provenance.
+    index_entries = subprocess.check_output(
+        ["git", "ls-files", "-v", "-z"], cwd=repository)
+    if any(not entry.startswith(b"H ") for entry in index_entries.split(bytes([0])) if entry):
+        raise RuntimeError("source index hides tracked files; cannot attest to measured code")
+    if expected_sha is not None:
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        if head != expected_sha:
+            raise RuntimeError("source HEAD changed during verification")
+
+
+def require_expected_inference_rejection(returncode, output, expected_error):
+    """A crashed or unrelated failed infer is not a successful negative control."""
+    if returncode != 1 or output.strip() != f"error: {expected_error}":
+        raise RuntimeError(
+            f"expected infer rejection {expected_error!r}, got exit {returncode}"
+        )
+
+
 def main():
     if len(sys.argv) != 2:
         raise ValueError("usage: python3 experiments/cpu-detector/verify.py <new-evidence-directory>")
     evidence = Path(sys.argv[1]).resolve()
+    require_clean_source_tree(REPO)
     evidence.mkdir(parents=True, exist_ok=False)
     env = os.environ.copy()
     env["RAYON_NUM_THREADS"] = "1"
     env["FACTSYOLO_BUILD_ID"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     commands = []
 
-    def run(label, arguments, *, expected_success=True):
+    def run(label, arguments, *, expected_error=None):
         print(f"{label}: {' '.join(map(str, arguments))}", flush=True)
         started = time.monotonic()
         with (evidence / f"{label}.log").open("w") as log:
             result = subprocess.run(list(map(str, arguments)), cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
         commands.append({"label": label, "argv": list(map(str, arguments)), "exit": result.returncode, "seconds": time.monotonic()-started})
         (evidence / "commands.json").write_text(json.dumps(commands, indent=2)+"\n")
-        if (result.returncode == 0) != expected_success:
-            raise RuntimeError(f"unexpected exit {result.returncode}: {label}; see {evidence / (label+'.log')}")
-        return (evidence / f"{label}.log").read_text()
+        output = (evidence / f"{label}.log").read_text()
+        if expected_error is None:
+            if result.returncode != 0:
+                raise RuntimeError(f"unexpected exit {result.returncode}: {label}; see {evidence / (label+'.log')}")
+        else:
+            try:
+                require_expected_inference_rejection(result.returncode, output, expected_error)
+            except RuntimeError as error:
+                raise RuntimeError(f"{label}: {error}; see {evidence / (label+'.log')}") from error
+        return output
 
     common = ["--manifest-path", MANIFEST, "--locked", "--offline"]
     run("format", ["cargo", "fmt", "--manifest-path", MANIFEST, "--all", "--", "--check"])
@@ -59,7 +97,7 @@ def main():
     run("tests-debug", ["cargo", "test", *common, "--workspace"])
     run("tests-release", ["cargo", "test", *common, "--workspace", "--release"])
     run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
-    run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_verify_report.py"])
+    run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_*.py"])
     run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
     binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
     # The benchmark compares only training batch preparation, not end-to-end training.
@@ -78,18 +116,7 @@ def main():
     # full Burn/Candle training budget and native C/C# execution.
     inference_binary = ROOT / "target" / "release" / ("fy-inference-benchmark.exe" if os.name == "nt" else "fy-inference-benchmark")
     inference_report = json.loads(run("inference-benchmark", [inference_binary, "--measure"]))
-    calls = inference_report.get("images", 0) * inference_report.get("iterations_per_repeat", 0)
-    if (inference_report.get("source_commit") != env["FACTSYOLO_BUILD_ID"]
-            or inference_report.get("build") != "release"
-            or inference_report.get("images") != 8
-            or inference_report.get("iterations_per_repeat") != 256
-            or inference_report.get("repetitions") != 7
-            or inference_report.get("exact_positive_and_background_parity") is not True
-            or len(inference_report.get("historical", [])) != 7
-            or len(inference_report.get("current", [])) != 7
-            or any(h["allocation_requests"] != calls or c["allocation_requests"] != 0
-                   for h, c in zip(inference_report["historical"], inference_report["current"]))):
-        raise RuntimeError("portable TD1 inference benchmark parity/provenance/allocation gate failed")
+    verify_inference_benchmark(inference_report, env["FACTSYOLO_BUILD_ID"])
     (evidence / "inference-benchmark.json").write_text(json.dumps(inference_report, indent=2) + "\n")
     reports = {}
     for backend in ["burn", "candle"]:
@@ -107,10 +134,11 @@ def main():
         corrupted[-1] ^= 1
         bad = output / "corrupt.fytd"
         bad.write_bytes(corrupted)
-        run(f"reject-corrupt-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
+        run(f"reject-corrupt-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_error="artifact checksum mismatch")
         bad.write_bytes(b"\x00" * 65537)
-        run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_success=False)
+        run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_error="input exceeds bounded file size")
         bad.unlink()
+    require_clean_source_tree(REPO, env["FACTSYOLO_BUILD_ID"])
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),
                "rayon_threads": 1, "cpu_count": os.cpu_count(), "results": {k: {f:v for f,v in r.items() if f!="predictions"} for k,r in reports.items()}}
     (evidence / "summary.json").write_text(json.dumps(summary, indent=2)+"\n")

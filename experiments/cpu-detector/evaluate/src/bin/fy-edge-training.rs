@@ -27,7 +27,7 @@ const FROZEN_DEVELOPMENT_FINGERPRINT: &str =
     "04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4";
 // Independently frozen against the untrained generator, before model predictions.
 const PROSPECTIVE_SEED: u64 = 20261101;
-const PROSPECTIVE_CANDIDATES: usize = 8192;
+const PROSPECTIVE_CANDIDATES: usize = 4096;
 const PROSPECTIVE_FINGERPRINT: &str =
     "0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1";
 

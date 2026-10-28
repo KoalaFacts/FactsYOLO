@@ -137,6 +137,20 @@ def main():
             raise RuntimeError("unverifiable prospective validation provenance")
         (evidence / f"prospective-validation-{backend}.json").write_text(
             json.dumps(prospective, indent=2) + "\n")
+        # Frozen geometry-only prospective split, separate from the original
+        # final holdout and the earlier unstratified development diagnostic.
+        edge_report = json.loads(run(f"edge-validation-{backend}", [
+            sys.executable, ROOT / "edge_validation.py", binary,
+            output / "model.fytd", output / "metrics.json",
+        ]))
+        if (edge_report.get("source_commit") != env["FACTSYOLO_BUILD_ID"]
+                or edge_report.get("status") != "development-diagnostic-only"
+                or edge_report.get("selected_count") != 240
+                or edge_report.get("selected_fingerprint") !=
+                    "04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4"):
+            raise RuntimeError("unverifiable prospective edge diagnostics")
+        (evidence / f"edge-validation-{backend}.json").write_text(
+            json.dumps(edge_report, indent=2) + "\n")
         for i in range(6):
             result = json.loads(run(f"infer-{backend}-{i}", [binary, "infer", output / "model.fytd", output / f"sample-{i}.rgb"]))
             if result != report["predictions"][i]["prediction"]:

@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Negative controls for pre-registered prospective TD1 edge evaluation."""
 import unittest
+import hashlib
 
+import diagnostic_validation as d
+import edge_validation as e
 from verify import checked_prospective_edge_report, PROSPECTIVE_EDGE_FINGERPRINT
 
 
@@ -40,6 +43,27 @@ def report():
 
 
 class ProspectiveEdgeReportTests(unittest.TestCase):
+    def test_prospective_generator_frozen_before_model_predictions(self):
+        counts = dict.fromkeys(e.GROUPS, 0)
+        selected = []
+        for row in d.samples(20261101, 4096):
+            name = e.stratum(row)
+            if counts[name] < 48:
+                counts[name] += 1
+                selected.append(row)
+            if all(n == 48 for n in counts.values()):
+                break
+        self.assertEqual(counts, dict.fromkeys(e.GROUPS, 48))
+        self.assertEqual(d.fingerprint(selected), PROSPECTIVE_EDGE_FINGERPRINT)
+        image_hashes = {hashlib.sha256(row["pixels"]).digest() for row in selected}
+        self.assertEqual(len(image_hashes), 240)
+        for seed, count in ((101, 4096), (202, 128), (909, 128),
+                            (20261028, 256), (20261030, 4096)):
+            with self.subTest(seed=seed):
+                self.assertTrue(image_hashes.isdisjoint(
+                    hashlib.sha256(row["pixels"]).digest()
+                    for row in d.samples(seed, count)))
+
     def test_accepts_frozen_split_with_consistent_counts(self):
         self.assertTrue(checked_prospective_edge_report(report(), "tested-commit"))
 

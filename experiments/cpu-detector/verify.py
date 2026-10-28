@@ -16,6 +16,58 @@ REPO = ROOT.parent.parent
 MANIFEST = str(ROOT / "Cargo.toml")
 
 
+# Fixed by an independent untrained-generator replay before prospective inference.
+PROSPECTIVE_EDGE_FINGERPRINT = "0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1"
+PROSPECTIVE_GROUPS = ("small_edge", "small_interior", "larger_edge", "larger_interior", "background")
+
+
+def checked_prospective_edge_report(report, expected_sha):
+    """Fail closed on wrong split/provenance/arithmetic, not on a negative accuracy result."""
+    if (report.get("source_commit") != expected_sha
+            or report.get("prospective_seed") != 20261101
+            or report.get("prospective_candidate_budget") != 8192
+            or report.get("prospective_samples") != 240
+            or report.get("prospective_fingerprint") != PROSPECTIVE_EDGE_FINGERPRINT
+            or report.get("final_holdout_evaluated") is not False):
+        raise ValueError("prospective model comparison provenance mismatch")
+
+    arms = []
+    for arm in ("baseline_prospective", "edge_sampling_prospective"):
+        groups = report.get(arm)
+        if not isinstance(groups, dict) or set(groups) != set(PROSPECTIVE_GROUPS):
+            raise ValueError(f"missing prospective groups: {arm}")
+        for name in PROSPECTIVE_GROUPS:
+            row = groups[name]
+            if not isinstance(row, dict) or type(row.get("samples")) is not int or row["samples"] != 48:
+                raise ValueError(f"invalid prospective sample count: {arm}/{name}")
+            if name == "background":
+                n = row.get("false_positives")
+                if type(n) is not int or not 0 <= n <= 48:
+                    raise ValueError(f"invalid background errors: {arm}/{name}")
+                continue
+            hits = row.get("correct_class_iou50")
+            missing = row.get("missing_detections")
+            wrong = row.get("wrong_class_detections")
+            if (any(type(n) is not int or n < 0 for n in (hits, missing, wrong))
+                    or hits + missing + wrong > 48):
+                raise ValueError(f"invalid detection counts: {arm}/{name}")
+            recall = row.get("recall_correct_class_iou50")
+            if (type(recall) not in (int, float)
+                    or abs(recall - hits / 48) > 1e-12):
+                raise ValueError(f"invalid prospective recall: {arm}/{name}")
+        arms.append(groups)
+
+    for name in ("small_edge", "small_interior"):
+        key = f"prospective_edge_minus_baseline_{name}_iou50_recall"
+        reported = report.get(key)
+        actual = ((arms[1][name]["correct_class_iou50"]
+                   - arms[0][name]["correct_class_iou50"]) / 48)
+        if type(reported) not in (float, int) or abs(reported - actual) > 1e-12:
+            raise ValueError(f"prospective paired comparison mismatch: {name}")
+    return True
+
+
+
 def checked_training_heldout(report, expected_sha):
     """Audit a completed candidate before recording it as accepted evidence."""
     if report.get("passed") is not True or report.get("source_commit") != expected_sha:
@@ -187,6 +239,7 @@ def main():
             raise RuntimeError(f"unverifiable controlled edge-training comparison: {backend_name}")
         # Both baselines must reproduce the *existing* training command's
         # validation result on this same backend and exact source commit.
+        checked_prospective_edge_report(report, env["FACTSYOLO_BUILD_ID"])
         reference = reports[backend_name]["validation"]
         paired = report["baseline"]["validation"]
         for key in ("positives", "negatives", "class_accuracy", "recall_iou50",

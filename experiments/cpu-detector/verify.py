@@ -163,6 +163,31 @@ def main():
         bad.write_bytes(b"\x00" * 65537)
         run(f"reject-oversize-{backend}", [binary, "infer", bad, output / "sample-1.rgb"], expected_error="input exceeds bounded file size")
         bad.unlink()
+    # Controlled model-training intervention: compare the original sampler
+    # against a preregistered small-edge sampling distribution. This does not
+    # read the registered final holdout, produce weights, or replace the
+    # original seed909 acceptance training above.
+    edge_binary = ROOT / "target" / "release" / (
+        "fy-edge-training.exe" if os.name == "nt" else "fy-edge-training")
+    for backend_name in ("burn", "candle"):
+        report = json.loads(run(f"edge-training-{backend_name}", [edge_binary, backend_name]))
+        if (report.get("status") != "controlled-training-experiment-only"
+                or report.get("source_commit") != env["FACTSYOLO_BUILD_ID"]
+                or report.get("training_seed") != 101
+                or report.get("validation_seed") != 202
+                or report.get("steps_per_arm") != 2000
+                or report.get("batch_size") != 64
+                or report.get("edge_override_slots_per_batch") != 4
+                or report.get("development_samples") != 240
+                or report.get("development_fingerprint") !=
+                    "04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4"
+                or report.get("final_holdout_evaluated") is not False
+                or report.get("baseline", {}).get("validation_passes_original_thresholds") is not True
+                or report.get("edge_pool_count") != 48):
+            raise RuntimeError(f"unverifiable controlled edge-training comparison: {backend_name}")
+        (evidence / f"edge-training-{backend_name}.json").write_text(
+            json.dumps(report, indent=2) + "\n")
+
     require_clean_source_tree(REPO, env["FACTSYOLO_BUILD_ID"])
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),
                "rayon_threads": 1, "cpu_count": os.cpu_count(), "results": {k: {f:v for f,v in r.items() if f!="predictions"} for k,r in reports.items()}}

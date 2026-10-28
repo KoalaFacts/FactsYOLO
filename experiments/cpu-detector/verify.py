@@ -52,6 +52,10 @@ def checked_prospective_edge_report(report, expected_sha):
             if (any(type(n) is not int or n < 0 for n in (hits, missing, wrong))
                     or hits + missing + wrong > 48):
                 raise ValueError(f"invalid detection counts: {arm}/{name}")
+            mean_iou = row.get("mean_iou_including_misses")
+            if (type(mean_iou) not in (int, float) or not math.isfinite(mean_iou)
+                    or not 0 <= mean_iou <= 1):
+                raise ValueError(f"invalid prospective IoU: {arm}/{name}")
             recall = row.get("recall_correct_class_iou50")
             if (type(recall) not in (int, float)
                     or not math.isfinite(recall)

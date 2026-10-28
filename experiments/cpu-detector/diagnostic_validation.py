@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from localization_decomposition import decompose
 
 # Registered before any trained-model evaluation; 909/128 remains the final test.
 DIAGNOSTIC_SEED = 20261028
@@ -168,12 +169,14 @@ def evaluate(binary, artifact, training_metrics, *, invoke=None):
             detections.append(detection)
     if hashlib.sha256(Path(artifact).read_bytes()).hexdigest() != model_hash:
         raise ValueError("model artifact changed during diagnostic")
+    metrics = summarize(rows, detections)
+    localization = decompose(rows, detections)
     return {"status": "development-diagnostic-only", "source_commit": training["source_commit"],
             "backend": training["backend"], "trained_model_sha256": model_hash,
             "generator": GENERATOR, "seed": DIAGNOSTIC_SEED,
             "count": DIAGNOSTIC_COUNT, "fingerprint": DIAGNOSTIC_FINGERPRINT,
             "small_target_area_max_pixels": SMALL_AREA_MAX,
-            "metrics": summarize(rows, detections)}
+            "metrics": metrics, "localization_diagnostic": localization}
 
 
 def main():

@@ -165,3 +165,39 @@ Signed center averages in the original summary can cancel across samples;
 the absolute errors here avoid that ambiguity. The 128-image final holdout is
 **not** reanalyzed or used for tuning. There is no new accuracy threshold,
 architecture change, training schedule, dataset or public ABI change.
+
+### Prospective edge-vs-interior validation (separate development sample)
+
+The earlier 256-image development split suggested that the four small-target
+IoU50 misses occurred near the image border. That post-hoc finding is a hypothesis,
+not evidence of a general edge effect. **Before any predictions on this new split**,
+the follow-up registered generator `TD1-synthetic-v1`, seed **20261030** and
+candidate budget **4,096**. Samples are drawn in source index order using only
+*ground-truth* geometry; take the first **48** in each of five strata:
+small edge, small interior, larger edge, larger interior and background (240
+inference images). The small-area cutoff stays **256 px²**. Edge is defined as
+a ground-truth box within **2 pixels** of any 64×64 image side. The selected
+rows have frozen generator fingerprint
+`04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4`.
+The new pixels are independently checked for non-overlap with training seed101,
+validation seed202, final holdout seed909 and the previous development seed20261028.
+
+`edge_validation.py` uses the same **unchanged**, already accepted Burn and
+Candle 2,000-step trained artifacts, checks their training provenance and their
+SHA-256 before/after inference, then invokes the independent portable infer
+process for each selected image. Verification writes
+`edge-validation-{burn,candle}.json`, preserving source commit, model hash,
+split fingerprint, group counts, missing/wrong-class counts, correct-class
+IoU≥0.5 recall, mean correct-class IoU (misses count as zero), absolute center
+errors, low-IoU development sample indices and edge-minus-interior recall gaps.
+The 48-per-stratum quotas intentionally oversample the rare edge cases: these
+ratios are **conditional group diagnostics**, not population prevalence or
+natural-image accuracy. No causal explanation or accuracy improvement is claimed
+without real predictions and further validation.
+
+This addition changes no architecture, training budget, optimizer, test acceptance
+threshold, public ABI or model format. The final 128-image holdout is not inspected
+or tuned against. Python negative controls cover sample identity, all stratum
+boundaries, wrong-class/missing penalties, invalid predictions, artifact mutation
+and training provenance. These checks do not substitute for the root source,
+Rust/C/.NET/Miri, CI or independent-review gates.

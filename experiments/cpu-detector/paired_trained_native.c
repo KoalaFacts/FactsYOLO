@@ -89,26 +89,39 @@ int main(int argc,char **argv) {
     struct timespec wall_start,wall_end,cpu_start,cpu_end;
     assert(clock_gettime(CLOCK_MONOTONIC_RAW,&wall_start)==0);
     assert(clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&cpu_start)==0);
+    uint32_t prediction_bits[6]={0};
+    int captured_rgb=0;
     for(int iteration=0;iteration<512;++iteration) {
         fy_result *timed=NULL;fy_detection d={0};size_t n=0;
         assert(fy_detect(session,&image,&(fy_detect_options){HEADER(fy_detect_options),0.5f,16},&timed,NULL)==FY_OK && timed);
         assert(fy_result_copy(timed,&d,1,&n,NULL)==FY_OK && n==expected_count);
         if(n)compare(&d,&reference);
+        /* Export the measured RGB result, not the last RGBA test result.
+         * Also require all timed invocations to be bitwise stable, including
+         * the zero-detection background case. */
+        uint32_t current_bits[6]={0};
+        if(n) {
+            current_bits[0]=d.class_id;
+            memcpy(&current_bits[1],&d.score,sizeof(float));
+            memcpy(&current_bits[2],&d.x_min,sizeof(float));
+            memcpy(&current_bits[3],&d.y_min,sizeof(float));
+            memcpy(&current_bits[4],&d.x_max,sizeof(float));
+            memcpy(&current_bits[5],&d.y_max,sizeof(float));
+        }
+        if(!captured_rgb) {
+            memcpy(prediction_bits,current_bits,sizeof(prediction_bits));
+            captured_rgb=1;
+        } else {
+            assert(memcmp(prediction_bits,current_bits,sizeof(prediction_bits))==0);
+        }
         assert(fy_result_release(&timed,NULL)==FY_OK && timed==NULL);
     }
+    assert(captured_rgb);
     assert(clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&cpu_end)==0);
     assert(clock_gettime(CLOCK_MONOTONIC_RAW,&wall_end)==0);
     uint64_t wall_ns=(uint64_t)(wall_end.tv_sec-wall_start.tv_sec)*UINT64_C(1000000000)+(uint64_t)(wall_end.tv_nsec-wall_start.tv_nsec);
     uint64_t cpu_ns=(uint64_t)(cpu_end.tv_sec-cpu_start.tv_sec)*UINT64_C(1000000000)+(uint64_t)(cpu_end.tv_nsec-cpu_start.tv_nsec);
-    uint32_t prediction_bits[6]={0};
-    if(expected_count) {
-        prediction_bits[0]=actual.class_id;
-        memcpy(&prediction_bits[1],&actual.score,sizeof(float));
-        memcpy(&prediction_bits[2],&actual.x_min,sizeof(float));
-        memcpy(&prediction_bits[3],&actual.y_min,sizeof(float));
-        memcpy(&prediction_bits[4],&actual.x_max,sizeof(float));
-        memcpy(&prediction_bits[5],&actual.y_max,sizeof(float));
-    }
+
     struct rusage usage;assert(getrusage(RUSAGE_SELF,&usage)==0);
     printf("{\"calls\":512,\"wall_ns\":%"PRIu64",\"cpu_ns\":%"PRIu64",\"count\":%u,\"prediction_bits\":[%u,%u,%u,%u,%u,%u],\"process_maxrss_kib\":%ld}\n",
         wall_ns,cpu_ns,expected_count,

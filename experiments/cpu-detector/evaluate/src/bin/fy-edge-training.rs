@@ -25,6 +25,11 @@ const GROUPS: [&str; 5] = [
 ];
 const FROZEN_DEVELOPMENT_FINGERPRINT: &str =
     "04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4";
+// Independently frozen against the untrained generator, before model predictions.
+const PROSPECTIVE_SEED: u64 = 20261101;
+const PROSPECTIVE_CANDIDATES: usize = 8192;
+const PROSPECTIVE_FINGERPRINT: &str =
+    "0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1";
 
 fn stratum(sample: &Sample) -> usize {
     if sample.class.is_none() {
@@ -117,10 +122,14 @@ fn train_model(
     Ok((model, started.elapsed().as_secs_f64()))
 }
 
-fn frozen_development() -> Result<Vec<Sample>, String> {
+fn registered_split(
+    seed: u64,
+    candidates: usize,
+    expected_fingerprint: &str,
+) -> Result<Vec<Sample>, String> {
     let mut counts = [0_usize; 5];
     let mut selected = Vec::with_capacity(QUOTA * GROUPS.len());
-    for sample in dataset(20261030, 4096) {
+    for sample in dataset(seed, candidates) {
         let group = stratum(&sample);
         if counts[group] < QUOTA {
             selected.push(sample);
@@ -131,7 +140,7 @@ fn frozen_development() -> Result<Vec<Sample>, String> {
         }
     }
     if counts.iter().any(|&n| n != QUOTA) {
-        return Err("frozen development groups incomplete".into());
+        return Err("registered development/prospective split incomplete".into());
     }
 
     let mut digest = Sha256::new();
@@ -143,10 +152,22 @@ fn frozen_development() -> Result<Vec<Sample>, String> {
         }
         digest.update(&sample.pixels);
     }
-    if format!("{:x}", digest.finalize()) != FROZEN_DEVELOPMENT_FINGERPRINT {
-        return Err("frozen development source/fingerprint drift".into());
+    if format!("{:x}", digest.finalize()) != expected_fingerprint {
+        return Err("registered development/prospective fingerprint drift".into());
     }
     Ok(selected)
+}
+
+fn frozen_development() -> Result<Vec<Sample>, String> {
+    registered_split(20261030, 4096, FROZEN_DEVELOPMENT_FINGERPRINT)
+}
+
+fn frozen_prospective() -> Result<Vec<Sample>, String> {
+    registered_split(
+        PROSPECTIVE_SEED,
+        PROSPECTIVE_CANDIDATES,
+        PROSPECTIVE_FINGERPRINT,
+    )
 }
 
 #[derive(Default)]
@@ -233,6 +254,7 @@ fn run() -> Result<(), String> {
         cached.extend(features(&sample.pixels)?);
     }
     let development = frozen_development()?;
+    let prospective = frozen_prospective()?;
     let validation = dataset(202, 128);
     let mut validation_features = Vec::with_capacity(validation.len() * INPUTS);
     for sample in &validation {
@@ -247,11 +269,25 @@ fn run() -> Result<(), String> {
         &validation,
         &validation_features,
     )?;
+    let baseline_prospective = evaluate(
+        &*b,
+        &baseline_model,
+        &prospective,
+        &validation,
+        &validation_features,
+    )?;
     let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,
         &development,
+        &validation,
+        &validation_features,
+    )?;
+    let boosted_prospective = evaluate(
+        &*b,
+        &boosted_model,
+        &prospective,
         &validation,
         &validation_features,
     )?;
@@ -280,11 +316,21 @@ fn run() -> Result<(), String> {
         "development_seed": 20261030,
         "development_samples": development.len(),
         "development_fingerprint": FROZEN_DEVELOPMENT_FINGERPRINT,
+        "prospective_seed": PROSPECTIVE_SEED,
+        "prospective_candidate_budget": PROSPECTIVE_CANDIDATES,
+        "prospective_samples": prospective.len(),
+        "prospective_fingerprint": PROSPECTIVE_FINGERPRINT,
         "final_holdout_evaluated": false,
         "baseline_seconds": baseline_seconds,
         "edge_sampling_seconds": boosted_seconds,
         "baseline": baseline,
         "edge_sampling": boosted,
+        "baseline_prospective": baseline_prospective["development"],
+        "edge_sampling_prospective": boosted_prospective["development"],
+        "prospective_edge_minus_baseline_small_edge_iou50_recall":
+            recall(&boosted_prospective, "small_edge")? - recall(&baseline_prospective, "small_edge")?,
+        "prospective_edge_minus_baseline_small_interior_iou50_recall":
+            recall(&boosted_prospective, "small_interior")? - recall(&baseline_prospective, "small_interior")?,
         "edge_minus_baseline_small_edge_iou50_recall":
             recall(&boosted, "small_edge")? - recall(&baseline, "small_edge")?,
         "edge_minus_baseline_small_interior_iou50_recall":
@@ -376,5 +422,23 @@ mod tests {
     #[test]
     fn frozen_development_identity_is_rechecked_before_training_comparison() {
         assert_eq!(frozen_development().unwrap().len(), QUOTA * GROUPS.len());
+    }
+
+    #[test]
+    fn prospective_fingerprint_and_separation_are_frozen_before_inference() {
+        let prospective = frozen_prospective().unwrap();
+        let earlier = frozen_development().unwrap();
+        assert_eq!(prospective.len(), QUOTA * GROUPS.len());
+        let historical: std::collections::HashSet<&[u8]> =
+            earlier.iter().map(|sample| sample.pixels.as_slice()).collect();
+        assert!(prospective
+            .iter()
+            .all(|sample| !historical.contains(sample.pixels.as_slice())));
+        for group in 0..GROUPS.len() {
+            assert_eq!(
+                prospective.iter().filter(|sample| stratum(sample) == group).count(),
+                QUOTA
+            );
+        }
     }
 }

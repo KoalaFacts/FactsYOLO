@@ -115,3 +115,32 @@ to the separately reviewed following stage after this one merges.
 The following integration stage adds an opt-in native path; see
 [TD1 C/C# integration](td1-native.md). The M2a numbers above remain the original
 training evidence and do not imply that default builds enable a model backend.
+
+## Pre-registered small-object development validation (not final acceptance)
+
+Before observing any model predictions on this split, the diagnostic was
+registered with seed **20261028**, count **256**, generator
+`TD1-synthetic-v1` and full source-independent fingerprint
+`3f57fc1b8f9dcad73d40de2bbdd6b253e363e7206ee7a06ea454b155b90880a4`.
+The sample generator is independently reimplemented with Python stdlib; the
+historical seed909/128 fingerprint is checked to establish equivalence with
+the frozen Rust generator. The new split contains **78 small positives**
+(target area <=256 pixel²), **126 larger positives**, and **52 backgrounds**.
+This grouping boundary was fixed before evaluating predictions, not chosen
+after inspecting accuracy.
+
+After unchanged 2,000-step training, verification runs the trained, reloaded
+Burn and Candle artifacts on all 256 new images in separate portable inference
+processes. It records per-size correct-class IoU>=0.5 recall, mean IoU
+**including missed detections**, detection/class accuracy, signed x/y center
+error (among detected objects), and background false positives. It preserves
+the source revision, model artifact SHA-256 and frozen split fingerprint in
+`prospective-validation-{burn,candle}.json` alongside the command logs.
+
+These are **new development diagnostics**, not a replacement for validation
+seed202 or final holdout seed909, and do not change training, model, public
+ABI, the registered holdout pass/fail thresholds, or model selection. No
+accuracy improvement is claimed without actual results; no pixels or weights
+are uploaded. Python regressions detect generator drift, malformed detection,
+missing boxes, false positives and artifact mutation. Rust/.NET/local source
+verification and independent review remain separate gates.

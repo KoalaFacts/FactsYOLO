@@ -126,6 +126,17 @@ def main():
         checked_metrics = checked_training_heldout(report, env["FACTSYOLO_BUILD_ID"])
         (evidence / f"test-metrics-audit-{backend}.json").write_text(json.dumps(checked_metrics, indent=2) + "\n")
         reports[backend] = report
+        # Prospective development-only slice validation runs on an independent
+        # seed; never use its results to tune the registered final test gate.
+        prospective = json.loads(run(f"prospective-validation-{backend}", [
+            sys.executable, ROOT / "diagnostic_validation.py", binary,
+            output / "model.fytd", output / "metrics.json",
+        ]))
+        if (prospective.get("source_commit") != env["FACTSYOLO_BUILD_ID"]
+                or prospective.get("status") != "development-diagnostic-only"):
+            raise RuntimeError("unverifiable prospective validation provenance")
+        (evidence / f"prospective-validation-{backend}.json").write_text(
+            json.dumps(prospective, indent=2) + "\n")
         for i in range(6):
             result = json.loads(run(f"infer-{backend}-{i}", [binary, "infer", output / "model.fytd", output / f"sample-{i}.rgb"]))
             if result != report["predictions"][i]["prediction"]:

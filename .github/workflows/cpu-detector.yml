@@ -124,6 +124,7 @@ jobs:
             target/td1-evidence-*/rust-layout.txt
             target/td1-evidence-*/cases/*.txt
             target/td1-paired-evidence/*.json
+            target/td1-paired-evidence/*.jsonl
             target/td1-paired-evidence/*.csv
             target/td1-paired-evidence/*.log
           if-no-files-found: error

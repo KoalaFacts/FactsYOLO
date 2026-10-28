@@ -299,8 +299,8 @@ fn run() -> Result<(), String> {
             .as_f64()
             .ok_or_else(|| format!("missing development recall for {group}"))
     };
-    let prospective_edge_delta = recall(&boosted_prospective, "small_edge")?
-        - recall(&baseline_prospective, "small_edge")?;
+    let prospective_edge_delta =
+        recall(&boosted_prospective, "small_edge")? - recall(&baseline_prospective, "small_edge")?;
     let prospective_interior_delta = recall(&boosted_prospective, "small_interior")?
         - recall(&baseline_prospective, "small_interior")?;
     let report = json!({
@@ -431,14 +431,19 @@ mod tests {
         let prospective = frozen_prospective().unwrap();
         let earlier = frozen_development().unwrap();
         assert_eq!(prospective.len(), QUOTA * GROUPS.len());
-        let historical: std::collections::HashSet<&[u8]> =
-            earlier.iter().map(|sample| sample.pixels.as_slice()).collect();
+        let historical: std::collections::HashSet<&[u8]> = earlier
+            .iter()
+            .map(|sample| sample.pixels.as_slice())
+            .collect();
         assert!(prospective
             .iter()
             .all(|sample| !historical.contains(sample.pixels.as_slice())));
         for group in 0..GROUPS.len() {
             assert_eq!(
-                prospective.iter().filter(|sample| stratum(sample) == group).count(),
+                prospective
+                    .iter()
+                    .filter(|sample| stratum(sample) == group)
+                    .count(),
                 QUOTA
             );
         }

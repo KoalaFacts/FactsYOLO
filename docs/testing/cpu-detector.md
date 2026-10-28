@@ -144,3 +144,24 @@ accuracy improvement is claimed without actual results; no pixels or weights
 are uploaded. Python regressions detect generator drift, malformed detection,
 missing boxes, false positives and artifact mutation. Rust/.NET/local source
 verification and independent review remain separate gates.
+
+### Development localization error decomposition
+
+The same frozen 256-image development run additionally emits
+`localization_diagnostic` in each prospective JSON report. For the 78 small
+and 126 larger targets separately, it counts missing boxes, wrong-class
+detections, and correctly classified detections; only the last category
+contributes absolute center/width/height error statistics. For each
+correct-class detection it independently calculates hypothetical IoU after
+**aligning the predicted box center to the target** (keeping predicted size)
+or **matching the target width/height** (keeping predicted center). The report
+lists indices and both hypothetical IoUs for correct-class predictions below
+IoU 0.5. It never publishes pixels or model weights.
+
+The counterfactual boxes are unclipped analytical rectangles, not actual model
+outputs. Their effects can interact, and neither correction estimates a
+realized training/inference performance gain or proves causal attribution.
+Signed center averages in the original summary can cancel across samples;
+the absolute errors here avoid that ambiguity. The 128-image final holdout is
+**not** reanalyzed or used for tuning. There is no new accuracy threshold,
+architecture change, training schedule, dataset or public ABI change.

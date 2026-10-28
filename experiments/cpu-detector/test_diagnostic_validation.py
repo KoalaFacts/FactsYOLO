@@ -83,6 +83,10 @@ class RegisteredDiagnosticTests(unittest.TestCase):
             self.assertEqual(report["metrics"]["larger"]["mean_iou_including_misses"], 1.0)
             self.assertEqual(report["metrics"]["background_false_positive_rate"], 0.0)
             self.assertNotIn("predictions", report)
+            self.assertEqual(report["localization_diagnostic"]["small"]["correct_class_detections"], 78)
+            self.assertEqual(report["localization_diagnostic"]["larger"]["correct_class_detections"], 126)
+            self.assertEqual(report["localization_diagnostic"]["small"]["low_iou_correct_class_cases"], [])
+            self.assertEqual(report["localization_diagnostic"]["larger"]["mean_abs_size_error_px"], [0.0, 0.0])
             with patch.object(d, "DIAGNOSTIC_SEED", 909):
                 with self.assertRaisesRegex(ValueError, "fingerprint"):
                     d.evaluate("unused", model, metrics, invoke=perfect)

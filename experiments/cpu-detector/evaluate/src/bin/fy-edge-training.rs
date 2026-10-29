@@ -31,6 +31,13 @@ const PROSPECTIVE_CANDIDATES: usize = 4096;
 const PROSPECTIVE_FINGERPRINT: &str =
     "0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1";
 
+
+const FOUR_SIDE_SEED: u64 = 20261113;
+const FOUR_SIDE_CANDIDATES: usize = 4096;
+const FOUR_SIDE_FINGERPRINT: &str =
+    "59a4a885ff0ca2c5c8e700f8ccaaefbdaf454f2f2d0e6a72d280026b8398b3bd";
+const FOUR_SIDE_NAMES: [&str; 4] = ["left", "top", "right", "bottom"];
+
 fn stratum(sample: &Sample) -> usize {
     if sample.class.is_none() {
         return 4;
@@ -174,6 +181,140 @@ fn frozen_prospective() -> Result<Vec<Sample>, String> {
     )
 }
 
+
+fn reflect_four_side_sample(sample: &Sample, horizontal: bool, vertical: bool) -> Sample {
+    let mut pixels = vec![0_u8; 64 * 64 * 3];
+    for y in 0..64 {
+        for x in 0..64 {
+            let sx = if horizontal { 63 - x } else { x };
+            let sy = if vertical { 63 - y } else { y };
+            let source = (sy * 64 + sx) * 3;
+            let destination = (y * 64 + x) * 3;
+            pixels[destination..destination + 3]
+                .copy_from_slice(&sample.pixels[source..source + 3]);
+        }
+    }
+    let mut box_xywh = sample.box_xywh;
+    if horizontal {
+        box_xywh[0] = 1.0 - box_xywh[0];
+    }
+    if vertical {
+        box_xywh[1] = 1.0 - box_xywh[1];
+    }
+    Sample {
+        pixels,
+        class: sample.class,
+        box_xywh,
+    }
+}
+
+/// New source images are chosen by geometry only, before either backend's
+/// inference. The four views of each source image are correlated, *not*
+/// four independent test sets. The seed909 final holdout is never read.
+fn frozen_four_sides() -> Result<[Vec<Sample>; 4], String> {
+    let mut groups: [Vec<Sample>; 4] = std::array::from_fn(|_| Vec::with_capacity(48));
+    let (mut left_sources, mut top_sources) = (0_usize, 0_usize);
+
+    for sample in dataset(FOUR_SIDE_SEED, FOUR_SIDE_CANDIDATES) {
+        if sample.class.is_none() {
+            continue;
+        }
+        let [x1, y1, x2, y2] = target_corners(&sample);
+        if (x2 - x1) * (y2 - y1) > 256.0 {
+            continue;
+        }
+        let left = x1 <= 2.0;
+        let top = y1 <= 2.0;
+        let right = 64.0 - x2 <= 2.0;
+        let bottom = 64.0 - y2 <= 2.0;
+        let origin = if left && !top && !right && !bottom && left_sources < 24 {
+            left_sources += 1;
+            Some(0)
+        } else if top && !left && !right && !bottom && top_sources < 24 {
+            top_sources += 1;
+            Some(1)
+        } else {
+            None
+        };
+        if let Some(origin) = origin {
+            for (horizontal, vertical) in [
+                (false, false),
+                (true, false),
+                (false, true),
+                (true, true),
+            ] {
+                let side = if origin == 0 {
+                    if horizontal { 2 } else { 0 }
+                } else if vertical {
+                    3
+                } else {
+                    1
+                };
+                groups[side].push(reflect_four_side_sample(&sample, horizontal, vertical));
+            }
+        }
+        if left_sources == 24 && top_sources == 24 {
+            break;
+        }
+    }
+
+    if left_sources != 24 || top_sources != 24 || groups.iter().any(|rows| rows.len() != 48) {
+        return Err("frozen four-side source selection incomplete".into());
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"TD1-four-side-paired-v1");
+    for rows in &groups {
+        for row in rows {
+            digest.update([row.class.map_or(255, |class| class as u8)]);
+            for coordinate in row.box_xywh {
+                digest.update(coordinate.to_le_bytes());
+            }
+            digest.update(&row.pixels);
+        }
+    }
+    if format!("{:x}", digest.finalize()) != FOUR_SIDE_FINGERPRINT {
+        return Err("frozen four-side source/geometry/pixel fingerprint drift".into());
+    }
+    Ok(groups)
+}
+
+fn evaluate_four_sides(model: &Model, groups: &[Vec<Sample>; 4]) -> Result<Value, String> {
+    let mut output = Map::new();
+    for (name, samples) in FOUR_SIDE_NAMES.into_iter().zip(groups) {
+        let mut record = Slice::default();
+        for sample in samples {
+            record.count += 1;
+            match model.detect(&sample.pixels)? {
+                None => record.missing += 1,
+                Some(detection) if Some(detection.class) != sample.class => {
+                    record.wrong_class += 1;
+                }
+                Some(detection) => {
+                    let overlap = iou(detection.corners, target_corners(sample));
+                    record.sum_iou += overlap;
+                    record.correct_class_iou50 += usize::from(overlap >= 0.5);
+                }
+            }
+        }
+        if record.count != 48 {
+            return Err(format!("incomplete frozen four-side group: {name}"));
+        }
+        output.insert(
+            name.into(),
+            json!({
+                "samples": record.count,
+                "correct_class_iou50": record.correct_class_iou50,
+                "recall_correct_class_iou50":
+                    record.correct_class_iou50 as f64 / record.count as f64,
+                "mean_iou_including_misses": record.sum_iou / record.count as f32,
+                "missing_detections": record.missing,
+                "wrong_class_detections": record.wrong_class
+            }),
+        );
+    }
+    Ok(Value::Object(output))
+}
+
 #[derive(Default)]
 struct Slice {
     count: usize,
@@ -260,6 +401,7 @@ fn run() -> Result<(), String> {
     }
     let development = frozen_development()?;
     let prospective = frozen_prospective()?;
+    let four_sides = frozen_four_sides()?;
     let validation = dataset(202, 128);
     let mut validation_features = Vec::with_capacity(validation.len() * INPUTS);
     for sample in &validation {
@@ -275,6 +417,7 @@ fn run() -> Result<(), String> {
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =
             evaluate(&*b, &model, &prospective, &validation, &validation_features)?;
+        let four_side_result = evaluate_four_sides(&model, &four_sides)?;
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
@@ -301,6 +444,13 @@ fn run() -> Result<(), String> {
                 "prospective_samples": prospective.len(),
                 "prospective_fingerprint": PROSPECTIVE_FINGERPRINT,
                 "final_holdout_evaluated": false,
+                "four_side_generator": "TD1-four-side-paired-v1",
+                "four_side_seed": FOUR_SIDE_SEED,
+                "four_side_candidate_budget": FOUR_SIDE_CANDIDATES,
+                "four_side_source_rows": 48,
+                "four_side_transformed_samples": 192,
+                "four_side_fingerprint": FOUR_SIDE_FINGERPRINT,
+                "mirrored_four_side": four_side_result,
                 "training_seconds": seconds,
                 "validation": development_result["validation"],
                 "validation_passes_original_thresholds":
@@ -332,6 +482,7 @@ fn run() -> Result<(), String> {
         &validation,
         &validation_features,
     )?;
+    let baseline_four_side = evaluate_four_sides(&baseline_model, &four_sides)?;
     let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true, false)?;
     let boosted = evaluate(
         &*b,
@@ -347,6 +498,7 @@ fn run() -> Result<(), String> {
         &validation,
         &validation_features,
     )?;
+    let boosted_four_side = evaluate_four_sides(&boosted_model, &four_sides)?;
     if baseline["validation_passes_original_thresholds"] != true {
         return Err("baseline failed the unchanged validation thresholds".into());
     }
@@ -381,6 +533,14 @@ fn run() -> Result<(), String> {
         "prospective_samples": prospective.len(),
         "prospective_fingerprint": PROSPECTIVE_FINGERPRINT,
         "final_holdout_evaluated": false,
+        "four_side_generator": "TD1-four-side-paired-v1",
+        "four_side_seed": FOUR_SIDE_SEED,
+        "four_side_candidate_budget": FOUR_SIDE_CANDIDATES,
+        "four_side_source_rows": 48,
+        "four_side_transformed_samples": 192,
+        "four_side_fingerprint": FOUR_SIDE_FINGERPRINT,
+        "baseline_four_side": baseline_four_side,
+        "edge_sampling_four_side": boosted_four_side,
         "baseline_seconds": baseline_seconds,
         "edge_sampling_seconds": boosted_seconds,
         "baseline": baseline,
@@ -480,6 +640,37 @@ mod tests {
     #[test]
     fn frozen_development_identity_is_rechecked_before_training_comparison() {
         assert_eq!(frozen_development().unwrap().len(), QUOTA * GROUPS.len());
+    }
+
+
+    #[test]
+    fn new_four_side_split_is_frozen_unique_and_has_correct_geometry() {
+        let groups = frozen_four_sides().unwrap();
+        let mut unique = std::collections::HashSet::new();
+        let training: std::collections::HashSet<Vec<u8>> = dataset(101, 4096)
+            .iter()
+            .map(|sample| Sha256::digest(&sample.pixels).to_vec())
+            .collect();
+        for (side, samples) in groups.iter().enumerate() {
+            assert_eq!(samples.len(), 48);
+            for sample in samples {
+                assert!(sample.class.is_some());
+                let [x1, y1, x2, y2] = target_corners(sample);
+                assert!((x2 - x1) * (y2 - y1) <= 256.0);
+                let near_requested_side = match side {
+                    0 => x1 <= 2.0,
+                    1 => y1 <= 2.0,
+                    2 => 64.0 - x2 <= 2.0,
+                    3 => 64.0 - y2 <= 2.0,
+                    _ => unreachable!(),
+                };
+                assert!(near_requested_side);
+                let hash = Sha256::digest(&sample.pixels).to_vec();
+                assert!(unique.insert(hash.clone()), "repeated transformed image");
+                assert!(!training.contains(&hash), "training image leaked into probe");
+            }
+        }
+        assert_eq!(unique.len(), 192);
     }
 
     #[test]

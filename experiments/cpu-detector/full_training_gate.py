@@ -23,6 +23,16 @@ def _int(value, minimum=0, maximum=None):
     return type(value) is int and value >= minimum and (maximum is None or value <= maximum)
 
 
+def _valid_loss_bits(value):
+    # calculate_loss rejects nonfinite loss and its objective is nonnegative.
+    # A matching but impossible NaN/Inf/negative f32 witness is not evidence
+    # of a successful optimizer step, even if model/RNG hashes still agree.
+    if not _int(value, 0, 2**32 - 1):
+        return False
+    loss = struct.unpack("<f", struct.pack("<I", value))[0]
+    return math.isfinite(loss) and loss >= 0.0
+
+
 def _finite(value, minimum=0.0, maximum=None):
     return (type(value) in (int, float) and math.isfinite(value)
             and value >= minimum and (maximum is None or value <= maximum))
@@ -104,7 +114,7 @@ def validate_full_training_benchmark(report, expected_sha, backend):
                 raise ValueError("invalid trained model digest")
             if not _int(arm.get("sampler_next_draw"), 0, 2**32 - 1):
                 raise ValueError("invalid post-training RNG")
-            if not _int(arm.get("last_batch_loss_bits"), 0, 2**32 - 1):
+            if not _valid_loss_bits(arm.get("last_batch_loss_bits")):
                 raise ValueError("invalid batch loss witness")
             if not _valid_validation(arm.get("validation")):
                 raise ValueError("training arm failed registered validation")
@@ -171,7 +181,7 @@ def validate_interrupted_full_training_diagnostics(raw_jsonl, source_commit, bac
             or not isinstance(arm["model_sha256"], str)
             or not re.fullmatch(r"[0-9a-f]{64}", arm["model_sha256"])
             or not _int(arm["sampler_next_draw"], 0, 2**32 - 1)
-            or not _int(arm["last_batch_loss_bits"], 0, 2**32 - 1)
+            or not _valid_loss_bits(arm["last_batch_loss_bits"])
             or not _valid_validation(arm["validation"])):
         raise ValueError("invalid retained real training measurement")
     return True

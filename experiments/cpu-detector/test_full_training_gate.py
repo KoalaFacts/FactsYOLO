@@ -189,6 +189,23 @@ class FullTrainingGateTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate_full_training_benchmark(sample, SHA, BACKEND)
 
+    def test_rejects_nonfinite_or_negative_final_loss_witness(self):
+        # loss_gradient always returns a finite, nonnegative f32 loss. Matching
+        # impossible bits across all arms previously passed the parity gate.
+        valid_bits = struct.unpack("<I", struct.pack("<f", 0.00175149))[0]
+        report = fixture()
+        for run in report["runs"]:
+            for arm in ("historical", "reused"):
+                run[arm]["last_batch_loss_bits"] = valid_bits
+        self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+        for bits in (0x7F800000, 0xFF800000, 0x7FC00000, 0xBF800000):
+            corrupted = copy.deepcopy(report)
+            for run in corrupted["runs"]:
+                for arm in ("historical", "reused"):
+                    run[arm]["last_batch_loss_bits"] = bits
+            with self.subTest(bits=hex(bits)), self.assertRaises(ValueError):
+                validate_full_training_benchmark(corrupted, SHA, BACKEND)
+
     def test_requires_complete_flushed_progress_matching_the_final_report(self):
         report = fixture()
         trace = diagnostics_fixture(report)
@@ -254,6 +271,12 @@ class FullTrainingGateTests(unittest.TestCase):
         mutant[1]["measurement"]["training_ns"] = 0
         with self.assertRaises(ValueError):
             validate_interrupted_full_training_diagnostics(encode(mutant), SHA, BACKEND)
+        for bits in (0x7F800000, 0x7FC00000, 0xBF800000):
+            mutant = copy.deepcopy(events)
+            mutant[1]["measurement"]["last_batch_loss_bits"] = bits
+            with self.subTest(loss_bits=hex(bits)), self.assertRaises(ValueError):
+                validate_interrupted_full_training_diagnostics(
+                    encode(mutant), SHA, BACKEND)
 
 
 if __name__ == "__main__":

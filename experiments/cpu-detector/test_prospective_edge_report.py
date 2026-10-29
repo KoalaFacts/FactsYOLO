@@ -156,7 +156,7 @@ def mirrored_report():
     return {
         "status": "mirrored-edge-training-experiment-only",
         "source_commit": "tested-commit",
-        "backend": "burn",
+        "backend": "burn-flex-0.22.0",
         "model": "TD1-v1-192-64-7",
         "training_seed": 101,
         "validation_seed": 202,

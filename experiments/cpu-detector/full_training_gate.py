@@ -43,7 +43,7 @@ def _valid_validation(row):
 def validate_full_training_benchmark(report, expected_sha, backend):
     """Validate provenance, actual run data, and bitwise-parity witnesses.
 
-    Wall-time is a measurement, not a pass/fail speedup criterion. The 3 pairs
+    Wall-time is a measurement, not a pass/fail speedup criterion. The 8 pairs (4 with each first arm)
     are sequential executions on one host, not independent hardware samples.
     """
     if (not isinstance(report, dict)
@@ -64,14 +64,14 @@ def validate_full_training_benchmark(report, expected_sha, backend):
                        ("batch_size", 64),
                        ("training_samples", 4096)))
             or type(report.get("repetitions")) is not int
-            or report.get("repetitions") != 3
+            or report.get("repetitions") != 8
             or report.get("data_preparation_excluded") is not True
             or report.get("evaluation_excluded_from_timing") is not True
             or report.get("exact_weight_rng_loss_validation_parity") is not True):
         raise ValueError("full training benchmark provenance/contract mismatch")
     runs = report.get("runs")
-    if not isinstance(runs, list) or len(runs) != 3:
-        raise ValueError("full training benchmark must contain three paired runs")
+    if not isinstance(runs, list) or len(runs) != 8:
+        raise ValueError("full training benchmark must contain eight balanced paired runs")
     canonical_digest = None
     for i, run in enumerate(runs):
         if (not isinstance(run, dict) or set(run) != {"first", "historical", "reused"}

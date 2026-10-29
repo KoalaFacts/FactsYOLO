@@ -20,7 +20,9 @@ use std::{
 
 const STEPS: usize = 2_000;
 const BATCH: usize = 64;
-const REPEATS: usize = 3;
+// Four historical-first and four reused-first pairs reduce fixed-order bias.
+// Timing remains exploratory and never gates on a claimed speedup.
+const REPEATS: usize = 8;
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
 

@@ -23,7 +23,7 @@ def fixture():
         },
     }
     runs = []
-    for i in range(3):
+    for i in range(8):
         h = copy.deepcopy(row)
         r = copy.deepcopy(row)
         h["allocation_requests"] += 4000
@@ -37,7 +37,7 @@ def fixture():
         "source_commit": SHA, "backend": BACKEND, "build": "release",
         "training_seed": 101, "initialization_seed": 404, "sampler_seed": 707,
         "steps_per_arm": 2000, "batch_size": 64,
-        "training_samples": 4096, "repetitions": 3,
+        "training_samples": 4096, "repetitions": 8,
         "os": "linux", "architecture": "x86_64", "rayon_threads": "1",
         "data_preparation_excluded": True,
         "evaluation_excluded_from_timing": True,
@@ -46,6 +46,17 @@ def fixture():
 
 
 class FullTrainingGateTests(unittest.TestCase):
+    def test_requires_eight_balanced_training_pairs(self):
+        report = fixture()
+        starts = [run["first"] for run in report["runs"]]
+        self.assertEqual(len(starts), 8)
+        self.assertEqual(starts.count("historical"), 4)
+        self.assertEqual(starts.count("reused"), 4)
+        self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+        report["runs"] = report["runs"][:-1]
+        with self.assertRaises(ValueError):
+            validate_full_training_benchmark(report, SHA, BACKEND)
+
     def test_rejects_unpinned_or_unsupported_benchmark_configuration(self):
         for field, invalid in (
             ("rayon_threads", ""),

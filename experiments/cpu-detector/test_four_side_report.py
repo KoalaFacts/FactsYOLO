@@ -13,7 +13,7 @@ def group(hits=42):
         "recall_correct_class_iou50": hits / 48,
         "missing_detections": 0,
         "wrong_class_detections": 0,
-        "mean_iou_including_misses": 0.75,
+        "mean_iou_including_misses": 0.75 if hits >= 20 else 0.4,
     }
 
 

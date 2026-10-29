@@ -91,6 +91,11 @@ def capture(args, cwd=ROOT, env=None):
 def clean_commit():
     if capture(["git", "status", "--porcelain"]).strip():
         raise ValueError("native/package staging requires a clean source worktree")
+    # Git status trusts assume-unchanged and skip-worktree index flags.
+    # Reject hidden tracked sources, as the measurement provenance guard does.
+    entries = capture(["git", "ls-files", "-v", "-z"]).split("\0")
+    if any(not entry.startswith("H ") for entry in entries if entry):
+        raise ValueError("native/package staging source index hides tracked files")
     return capture(["git", "rev-parse", "HEAD"]).strip()
 
 

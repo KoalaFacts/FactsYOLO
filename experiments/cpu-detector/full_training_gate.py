@@ -72,7 +72,7 @@ def validate_full_training_benchmark(report, expected_sha, backend):
     runs = report.get("runs")
     if not isinstance(runs, list) or len(runs) != 8:
         raise ValueError("full training benchmark must contain eight balanced paired runs")
-    canonical_digest = None
+    canonical_witness = None
     for i, run in enumerate(runs):
         if (not isinstance(run, dict) or set(run) != {"first", "historical", "reused"}
                 or run["first"] != ("historical" if i % 2 == 0 else "reused")):
@@ -99,8 +99,12 @@ def validate_full_training_benchmark(report, expected_sha, backend):
         for name in ("model_sha256", "sampler_next_draw", "last_batch_loss_bits", "validation"):
             if left[name] != right[name]:
                 raise ValueError(f"non-equivalent complete training: {name}")
-        if canonical_digest is None:
-            canonical_digest = left["model_sha256"]
-        if left["model_sha256"] != canonical_digest:
+        # Every repeat uses identical model/seed/sampler inputs; final weight
+        # parity alone does not certify RNG, loss or evaluation reproducibility.
+        witness = (left["model_sha256"], left["sampler_next_draw"],
+                   left["last_batch_loss_bits"], left["validation"])
+        if canonical_witness is None:
+            canonical_witness = witness
+        elif witness != canonical_witness:
             raise ValueError("repeated training drifted despite identical seeds")
     return True

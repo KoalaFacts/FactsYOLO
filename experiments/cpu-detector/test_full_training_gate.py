@@ -139,5 +139,21 @@ class FullTrainingGateTests(unittest.TestCase):
             validate_full_training_benchmark(report, SHA, BACKEND)
 
 
+    def test_rejects_cross_repeat_rng_loss_or_metric_drift(self):
+        # A shared final model digest is not proof of identical RNG/loss/metrics.
+        for kind in ("rng", "loss", "metrics"):
+            report = fixture()
+            for mode in ("historical", "reused"):
+                arm = report["runs"][3][mode]
+                if kind == "rng":
+                    arm["sampler_next_draw"] += 1
+                elif kind == "loss":
+                    arm["last_batch_loss_bits"] += 1
+                else:
+                    arm["validation"]["mean_iou"] = 0.75
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                validate_full_training_benchmark(report, SHA, BACKEND)
+
+
 if __name__ == "__main__":
     unittest.main()

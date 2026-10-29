@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run the additive CPU experiment gates, preserving commands and actual results."""
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -14,6 +15,73 @@ from verify_report import enforce_heldout_thresholds, verify_test_predictions
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
 MANIFEST = str(ROOT / "Cargo.toml")
+
+
+# Fixed by an independent untrained-generator replay before prospective inference.
+PROSPECTIVE_EDGE_FINGERPRINT = "0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1"
+PROSPECTIVE_GROUPS = ("small_edge", "small_interior", "larger_edge", "larger_interior", "background")
+
+
+def checked_prospective_edge_report(report, expected_sha):
+    """Fail closed on wrong split/provenance/arithmetic, not on a negative accuracy result."""
+    if (report.get("source_commit") != expected_sha
+            or report.get("prospective_seed") != 20261101
+            or report.get("prospective_candidate_budget") != 4096
+            or report.get("prospective_samples") != 240
+            or report.get("prospective_fingerprint") != PROSPECTIVE_EDGE_FINGERPRINT
+            or report.get("final_holdout_evaluated") is not False):
+        raise ValueError("prospective model comparison provenance mismatch")
+
+    arms = []
+    for arm in ("baseline_prospective", "edge_sampling_prospective"):
+        groups = report.get(arm)
+        if not isinstance(groups, dict) or set(groups) != set(PROSPECTIVE_GROUPS):
+            raise ValueError(f"missing prospective groups: {arm}")
+        for name in PROSPECTIVE_GROUPS:
+            row = groups[name]
+            if not isinstance(row, dict) or type(row.get("samples")) is not int or row["samples"] != 48:
+                raise ValueError(f"invalid prospective sample count: {arm}/{name}")
+            if name == "background":
+                n = row.get("false_positives")
+                if type(n) is not int or not 0 <= n <= 48:
+                    raise ValueError(f"invalid background errors: {arm}/{name}")
+                continue
+            hits = row.get("correct_class_iou50")
+            missing = row.get("missing_detections")
+            wrong = row.get("wrong_class_detections")
+            if (any(type(n) is not int or n < 0 for n in (hits, missing, wrong))
+                    or hits + missing + wrong > 48):
+                raise ValueError(f"invalid detection counts: {arm}/{name}")
+            mean_iou = row.get("mean_iou_including_misses")
+            if (type(mean_iou) not in (int, float) or not math.isfinite(mean_iou)
+                    or not 0 <= mean_iou <= 1):
+                raise ValueError(f"invalid prospective IoU: {arm}/{name}")
+            recall = row.get("recall_correct_class_iou50")
+            if (type(recall) not in (int, float)
+                    or not math.isfinite(recall)
+                    or abs(recall - hits / 48) > 1e-12):
+                raise ValueError(f"invalid prospective recall: {arm}/{name}")
+            # Rust evaluate() sums IoU only for correct-class detections.
+            # Each IoU50 hit contributes at least 0.5; non-hits contribute
+            # less than 0.5, while missing/wrong-class detections contribute 0.
+            # Allow for its f32 accumulation and JSON serialization rounding.
+            correct_class_count = 48 - missing - wrong
+            min_mean_iou = 0.5 * hits / 48
+            max_mean_iou = (hits + 0.5 * (correct_class_count - hits)) / 48
+            if mean_iou < min_mean_iou - 1e-6 or mean_iou > max_mean_iou + 1e-6:
+                raise ValueError(f"inconsistent prospective IoU: {arm}/{name}")
+        arms.append(groups)
+
+    for name in ("small_edge", "small_interior"):
+        key = f"prospective_edge_minus_baseline_{name}_iou50_recall"
+        reported = report.get(key)
+        actual = ((arms[1][name]["correct_class_iou50"]
+                   - arms[0][name]["correct_class_iou50"]) / 48)
+        if (type(reported) not in (float, int) or not math.isfinite(reported)
+                or abs(reported - actual) > 1e-12):
+            raise ValueError(f"prospective paired comparison mismatch: {name}")
+    return True
+
 
 
 def checked_training_heldout(report, expected_sha):
@@ -187,6 +255,7 @@ def main():
             raise RuntimeError(f"unverifiable controlled edge-training comparison: {backend_name}")
         # Both baselines must reproduce the *existing* training command's
         # validation result on this same backend and exact source commit.
+        checked_prospective_edge_report(report, env["FACTSYOLO_BUILD_ID"])
         reference = reports[backend_name]["validation"]
         paired = report["baseline"]["validation"]
         for key in ("positives", "negatives", "class_accuracy", "recall_iou50",

@@ -349,7 +349,16 @@ fn run() -> Result<(), String> {
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("error: {error}");
+        // Preserve a machine-readable JSONL failure record after the already
+        // flushed per-arm diagnostics, without printing a success report.
+        if emit_progress(&json!({
+            "schema": "fy-full-training-progress-v1",
+            "event": "process_failed", "error": &error
+        }))
+        .is_err()
+        {
+            eprintln!("error: {error}");
+        }
         std::process::exit(1);
     }
 }

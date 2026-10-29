@@ -202,6 +202,9 @@ class FullTrainingGateTests(unittest.TestCase):
         failure["error"] = "training stopped"
         for invalid in ("\n".join(lines[:-1]), "\n".join(changed_lines),
                         "\n".join(lines[:-1] + [json.dumps(failure)]),
+                        trace + json.dumps({
+                            "schema": "fy-full-training-progress-v1",
+                            "event": "process_failed", "error": "stopped"}) + "\n",
                         trace + "not-json\n"):
             with self.subTest(invalid=invalid[-120:]), self.assertRaises(ValueError):
                 validate_full_training_diagnostics(report, invalid)

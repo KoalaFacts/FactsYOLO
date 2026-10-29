@@ -498,9 +498,6 @@ fn run() -> Result<(), String> {
         &validation_features,
     )?;
     let boosted_four_side = evaluate_four_sides(&boosted_model, &four_sides)?;
-    if baseline["validation_passes_original_thresholds"] != true {
-        return Err("baseline failed the unchanged validation thresholds".into());
-    }
     let recall = |run: &Value, group: &str| -> Result<f64, String> {
         run["development"][group]["recall_correct_class_iou50"]
             .as_f64()
@@ -553,10 +550,15 @@ fn run() -> Result<(), String> {
         "edge_minus_baseline_small_interior_iou50_recall":
             recall(&boosted, "small_interior")? - recall(&baseline, "small_interior")?
     });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
-    );
+    write_controlled_report(&report, &mut std::io::stdout().lock())
+}
+
+fn write_controlled_report(report: &Value, output: &mut impl std::io::Write) -> Result<(), String> {
+    serde_json::to_writer_pretty(&mut *output, report).map_err(|e| e.to_string())?;
+    writeln!(output).map_err(|e| e.to_string())?;
+    if report["baseline"]["validation_passes_original_thresholds"] != true {
+        return Err("baseline failed the unchanged validation thresholds".into());
+    }
     Ok(())
 }
 
@@ -570,6 +572,38 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn controlled_report_retains_completed_diagnostics_on_validation_failure() {
+        let report = json!({
+            "baseline": { "validation_passes_original_thresholds": false },
+            "baseline_four_side": { "completed_metric": 0.25 },
+            "edge_sampling_four_side": { "completed_metric": 0.5 }
+        });
+        let mut output = Vec::new();
+        let result = write_controlled_report(&report, &mut output);
+        assert_eq!(
+            result.unwrap_err(),
+            "baseline failed the unchanged validation thresholds"
+        );
+        let emitted: Value = serde_json::from_slice(&output)
+            .expect("completed measurements must be emitted before validation failure");
+        assert_eq!(emitted, report);
+        assert_eq!(output.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn controlled_report_preserves_successful_output() {
+        let report = json!({
+            "baseline": { "validation_passes_original_thresholds": true },
+            "baseline_four_side": { "completed_metric": 0.25 },
+            "edge_sampling_four_side": { "completed_metric": 0.5 }
+        });
+        let mut output = Vec::new();
+        write_controlled_report(&report, &mut output).unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&output).unwrap(), report);
+        assert_eq!(output.last(), Some(&b'\n'));
+    }
 
     #[test]
     fn edge_selection_is_ground_truth_only_and_nonempty() {

@@ -34,6 +34,9 @@ jobs:
           git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Reject malformed full-training benchmark reports
+        run: |
+          ${{ matrix.python }} -m unittest discover -s experiments/cpu-detector -p 'test_full_training_gate.py' -v
       - name: Install exact evaluation and portable toolchains
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy

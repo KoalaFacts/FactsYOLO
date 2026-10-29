@@ -107,6 +107,7 @@ jobs:
           import sys
           sys.stdout.reconfigure(encoding='utf-8')
           logs = [*Path('experiments/cpu-detector/target/evidence').glob('*.log'),
+                  *Path('experiments/cpu-detector/target/evidence').glob('*.diagnostics.jsonl'),
                   *Path('target').glob('td1-evidence-*/*.log')]
           for log in sorted(logs):
               print(f'{log}:', flush=True)
@@ -120,6 +121,7 @@ jobs:
           path: |
             experiments/cpu-detector/target/evidence/**/*.json
             experiments/cpu-detector/target/evidence/**/*.log
+            experiments/cpu-detector/target/evidence/**/*.jsonl
             experiments/cpu-detector/target/evidence/**/*.tsv
             target/td1-evidence-*/commands.json
             target/td1-evidence-*/summary.json

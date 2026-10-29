@@ -14,6 +14,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
+    io::{self, Write},
     sync::atomic::{AtomicU64, Ordering},
     time::Instant,
 };
@@ -55,6 +56,16 @@ fn record(ptr: *mut u8, size: usize) {
         REQUESTS.fetch_add(1, Ordering::Relaxed);
         BYTES.fetch_add(size as u64, Ordering::Relaxed);
     }
+}
+
+// Write each event immediately and flush it before running another arm.
+// On any later failure the separate JSONL diagnostic keeps completed measurements,
+// while stdout remains reserved for a single fully validated successful report.
+fn emit_progress(event: &serde_json::Value) -> Result<(), String> {
+    let mut stderr = io::stderr().lock();
+    serde_json::to_writer(&mut stderr, event).map_err(|e| e.to_string())?;
+    stderr.write_all(b"\n").map_err(|e| e.to_string())?;
+    stderr.flush().map_err(|e| e.to_string())
 }
 
 // Retain the exact previous allocation/sampling contract, including draw order.
@@ -232,23 +243,37 @@ fn run() -> Result<(), String> {
         } else {
             "reused"
         };
-        let do_train = |mode| {
-            train_one(
-                &*b,
-                mode,
-                &train,
-                &cached,
-                &validation,
-                &validation_features,
-            )
+        let do_train = |mode: Mode, arm: &str| -> Result<(Vec<f32>, Measurement), String> {
+            emit_progress(&json!({
+                "schema": "fy-full-training-progress-v1", "source_commit": source,
+                "backend": b.name(), "pair": repeat, "arm": arm, "event": "started"
+            }))?;
+            match train_one(&*b, mode, &train, &cached, &validation, &validation_features) {
+                Ok((weights, measurement)) => {
+                    emit_progress(&json!({
+                        "schema": "fy-full-training-progress-v1", "source_commit": source,
+                        "backend": b.name(), "pair": repeat, "arm": arm,
+                        "event": "completed", "measurement": &measurement
+                    }))?;
+                    Ok((weights, measurement))
+                }
+                Err(error) => {
+                    emit_progress(&json!({
+                        "schema": "fy-full-training-progress-v1", "source_commit": source,
+                        "backend": b.name(), "pair": repeat, "arm": arm,
+                        "event": "failed", "error": &error
+                    }))?;
+                    Err(error)
+                }
+            }
         };
         let (old_weights, historical, new_weights, reused) = if repeat % 2 == 0 {
-            let (old_weights, historical) = do_train(Mode::Historical)?;
-            let (new_weights, reused) = do_train(Mode::Reused)?;
+            let (old_weights, historical) = do_train(Mode::Historical, "historical")?;
+            let (new_weights, reused) = do_train(Mode::Reused, "reused")?;
             (old_weights, historical, new_weights, reused)
         } else {
-            let (new_weights, reused) = do_train(Mode::Reused)?;
-            let (old_weights, historical) = do_train(Mode::Historical)?;
+            let (new_weights, reused) = do_train(Mode::Reused, "reused")?;
+            let (old_weights, historical) = do_train(Mode::Historical, "historical")?;
             (old_weights, historical, new_weights, reused)
         };
         if old_weights.len() != new_weights.len()
@@ -262,15 +287,24 @@ fn run() -> Result<(), String> {
                 != serde_json::to_value(&reused.validation).map_err(|e| e.to_string())?
             || historical.model_sha256 != reused.model_sha256
         {
-            return Err(format!(
-                "historical/reused complete-training parity failed at pair {repeat}"
-            ));
+            let error =
+                format!("historical/reused complete-training parity failed at pair {repeat}");
+            emit_progress(&json!({
+                "schema": "fy-full-training-progress-v1", "source_commit": source,
+                "backend": b.name(), "pair": repeat, "arm": "pair",
+                "event": "failed", "error": &error
+            }))?;
+            return Err(error);
         }
         if let Some(hash) = &expected_hash {
             if &historical.model_sha256 != hash {
-                return Err(
-                    "full-training repeated seed produced different trained weights".into(),
-                );
+                let error = "full-training repeated seed produced different trained weights";
+                emit_progress(&json!({
+                    "schema": "fy-full-training-progress-v1", "source_commit": source,
+                    "backend": b.name(), "pair": repeat, "arm": "pair",
+                    "event": "failed", "error": error
+                }))?;
+                return Err(error.into());
             }
         } else {
             expected_hash = Some(historical.model_sha256.clone());

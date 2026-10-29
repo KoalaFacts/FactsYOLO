@@ -1,7 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Reject unverifiable full-training benchmark output; never require a speedup."""
+import json
 import math
 import re
+import struct
+
+# Metrics::passes compares f32 fields with f32 literals. Python parses JSON
+# numbers as f64, so compare against the exact widened Rust f32 thresholds.
+def _f32_literal(value):
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+CLASS_ACCURACY_MIN = _f32_literal(0.95)
+RECALL_IOU50_MIN = _f32_literal(0.85)
+MEAN_IOU_MIN = _f32_literal(0.70)
+FALSE_POSITIVE_RATE_MAX = _f32_literal(0.05)
 
 BACKEND_NAMES = {"burn-flex-0.22.0", "candle-cpu-0.11.0"}
 
@@ -34,10 +47,10 @@ def _valid_validation(row):
             and _count_rate(row["recall_iou50"], 102)
             and _count_rate(row["false_positive_rate"], 26)
             and row["recall_iou50"] <= row["class_accuracy"] + 1e-6
-            and row["class_accuracy"] >= 0.95
-            and row["recall_iou50"] >= 0.85
-            and row["mean_iou"] >= 0.70
-            and row["false_positive_rate"] <= 0.05)
+            and row["class_accuracy"] >= CLASS_ACCURACY_MIN
+            and row["recall_iou50"] >= RECALL_IOU50_MIN
+            and row["mean_iou"] >= MEAN_IOU_MIN
+            and row["false_positive_rate"] <= FALSE_POSITIVE_RATE_MAX)
 
 
 def validate_full_training_benchmark(report, expected_sha, backend):
@@ -107,4 +120,30 @@ def validate_full_training_benchmark(report, expected_sha, backend):
             canonical_witness = witness
         elif witness != canonical_witness:
             raise ValueError("repeated training drifted despite identical seeds")
+    return True
+
+def validate_full_training_diagnostics(report, raw_jsonl):
+    """A complete success report must agree with every flushed arm progress event.
+
+    Progress is written to a separate stderr JSONL stream before the next arm
+    starts. On failure the process still exits nonzero and emits no success JSON.
+    """
+    try:
+        actual = [json.loads(line) for line in raw_jsonl.splitlines()]
+    except json.JSONDecodeError as error:
+        raise ValueError("invalid full training diagnostic JSONL") from error
+    expected = []
+    for pair, run in enumerate(report["runs"]):
+        for arm in (("historical", "reused") if pair % 2 == 0 else ("reused", "historical")):
+            shared = {
+                "schema": "fy-full-training-progress-v1",
+                "source_commit": report["source_commit"],
+                "backend": report["backend"],
+                "pair": pair,
+                "arm": arm,
+            }
+            expected.append({**shared, "event": "started"})
+            expected.append({**shared, "event": "completed", "measurement": run[arm]})
+    if actual != expected:
+        raise ValueError("incomplete, failed or mismatched full training diagnostics")
     return True

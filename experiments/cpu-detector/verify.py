@@ -11,7 +11,7 @@ import struct
 import sys
 import time
 from inference_gate import verify_inference_benchmark
-from full_training_gate import validate_full_training_benchmark
+from full_training_gate import validate_full_training_benchmark, validate_full_training_diagnostics
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
@@ -260,11 +260,21 @@ def main():
     env["FACTSYOLO_BUILD_ID"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     commands = []
 
-    def run(label, arguments, *, expected_error=None):
+    def run(label, arguments, *, expected_error=None, diagnostic_stderr=False):
         print(f"{label}: {' '.join(map(str, arguments))}", flush=True)
         started = time.monotonic()
         with (evidence / f"{label}.log").open("w") as log:
-            result = subprocess.run(list(map(str, arguments)), cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
+            if diagnostic_stderr:
+                # Keep the successful stdout JSON intact; each stderr JSONL
+                # progress line is flushed and retained even if a later arm fails.
+                with (evidence / f"{label}.diagnostics.jsonl").open("w") as trace:
+                    result = subprocess.run(
+                        list(map(str, arguments)), cwd=REPO, env=env,
+                        stdout=log, stderr=trace, timeout=1800)
+            else:
+                result = subprocess.run(
+                    list(map(str, arguments)), cwd=REPO, env=env,
+                    stdout=log, stderr=subprocess.STDOUT, timeout=1800)
         commands.append({"label": label, "argv": list(map(str, arguments)), "exit": result.returncode, "seconds": time.monotonic()-started})
         (evidence / "commands.json").write_text(json.dumps(commands, indent=2)+"\n")
         output = (evidence / f"{label}.log").read_text()
@@ -317,9 +327,12 @@ def main():
             ("burn", "burn-flex-0.22.0"),
             ("candle", "candle-cpu-0.11.0")):
         full_training = json.loads(run(f"full-training-benchmark-{backend_name}", [
-            full_training_binary, backend_name, "--measure"]))
+            full_training_binary, backend_name, "--measure"], diagnostic_stderr=True))
         validate_full_training_benchmark(
             full_training, env["FACTSYOLO_BUILD_ID"], expected_name)
+        validate_full_training_diagnostics(
+            full_training,
+            (evidence / f"full-training-benchmark-{backend_name}.diagnostics.jsonl").read_text())
         (evidence / f"full-training-benchmark-{backend_name}.json").write_text(
             json.dumps(full_training, indent=2) + "\n")
 

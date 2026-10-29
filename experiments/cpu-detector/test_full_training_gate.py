@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """RED-before-GREEN tests for the opt-in full-training comparison verifier."""
 import copy
+import json
+import struct
 import unittest
-from full_training_gate import validate_full_training_benchmark
+from full_training_gate import validate_full_training_benchmark, validate_full_training_diagnostics
 
 SHA = "a" * 40
 BACKEND = "burn-flex-0.22.0"
@@ -43,6 +45,18 @@ def fixture():
         "evaluation_excluded_from_timing": True,
         "exact_weight_rng_loss_validation_parity": True, "runs": runs,
     }
+
+
+def diagnostics_fixture(report):
+    records = []
+    for pair, run in enumerate(report["runs"]):
+        for arm in (("historical", "reused") if pair % 2 == 0 else ("reused", "historical")):
+            shared = {"schema": "fy-full-training-progress-v1",
+                      "source_commit": report["source_commit"],
+                      "backend": report["backend"], "pair": pair, "arm": arm}
+            records.append({**shared, "event": "started"})
+            records.append({**shared, "event": "completed", "measurement": run[arm]})
+    return "\n".join(json.dumps(row) for row in records) + "\n"
 
 
 class FullTrainingGateTests(unittest.TestCase):
@@ -153,6 +167,44 @@ class FullTrainingGateTests(unittest.TestCase):
                     arm["validation"]["mean_iou"] = 0.75
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 validate_full_training_benchmark(report, SHA, BACKEND)
+
+    def test_accepts_exact_rust_f32_iou_boundary_but_not_lower_or_nan(self):
+        report = fixture()
+        boundary_bits = struct.unpack("<I", struct.pack("<f", 0.70))[0]
+        boundary = struct.unpack("<f", struct.pack("<I", boundary_bits))[0]
+        below = struct.unpack("<f", struct.pack("<I", boundary_bits - 1))[0]
+        self.assertLess(boundary, 0.70)  # Previous Python gate incorrectly rejected this.
+        for value, accepted in ((boundary, True), (below, False), (float("nan"), False)):
+            sample = copy.deepcopy(report)
+            for pair in sample["runs"]:
+                for arm in ("historical", "reused"):
+                    pair[arm]["validation"]["mean_iou"] = value
+            with self.subTest(value=value):
+                if accepted:
+                    self.assertTrue(validate_full_training_benchmark(sample, SHA, BACKEND))
+                else:
+                    with self.assertRaises(ValueError):
+                        validate_full_training_benchmark(sample, SHA, BACKEND)
+
+    def test_requires_complete_flushed_progress_matching_the_final_report(self):
+        report = fixture()
+        trace = diagnostics_fixture(report)
+        self.assertTrue(validate_full_training_diagnostics(report, trace))
+        lines = trace.splitlines()
+        self.assertEqual(len(lines), 32)
+        mutated = json.loads(lines[15])
+        mutated["measurement"]["training_ns"] += 1
+        changed_lines = lines.copy()
+        changed_lines[15] = json.dumps(mutated)
+        failure = json.loads(lines[-1])
+        failure["event"] = "failed"
+        failure.pop("measurement")
+        failure["error"] = "training stopped"
+        for invalid in ("\n".join(lines[:-1]), "\n".join(changed_lines),
+                        "\n".join(lines[:-1] + [json.dumps(failure)]),
+                        trace + "not-json\n"):
+            with self.subTest(invalid=invalid[-120:]), self.assertRaises(ValueError):
+                validate_full_training_diagnostics(report, invalid)
 
 
 if __name__ == "__main__":

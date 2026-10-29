@@ -271,20 +271,10 @@ fn run() -> Result<(), String> {
     // never reads the final seed909 holdout.
     if mirror_only {
         let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true)?;
-        let development_result = evaluate(
-            &*b,
-            &model,
-            &development,
-            &validation,
-            &validation_features,
-        )?;
-        let prospective_result = evaluate(
-            &*b,
-            &model,
-            &prospective,
-            &validation,
-            &validation_features,
-        )?;
+        let development_result =
+            evaluate(&*b, &model, &development, &validation, &validation_features)?;
+        let prospective_result =
+            evaluate(&*b, &model, &prospective, &validation, &validation_features)?;
         if development_result["validation_passes_original_thresholds"] != true {
             return Err("mirrored training failed original validation thresholds".into());
         }
@@ -342,8 +332,7 @@ fn run() -> Result<(), String> {
         &validation,
         &validation_features,
     )?;
-    let (boosted_model, boosted_seconds) =
-        train_model(&*b, &train, &cached, &pool, true, false)?;
+    let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true, false)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,

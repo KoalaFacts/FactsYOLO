@@ -11,6 +11,7 @@ import struct
 import sys
 import time
 from inference_gate import verify_inference_benchmark
+from full_training_gate import validate_full_training_benchmark
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
@@ -304,6 +305,24 @@ def main():
     inference_report = json.loads(run("inference-benchmark", [inference_binary, "--measure"]))
     verify_inference_benchmark(inference_report, env["FACTSYOLO_BUILD_ID"])
     (evidence / "inference-benchmark.json").write_text(json.dumps(inference_report, indent=2) + "\n")
+    # End-to-end counterpart of the #27 batch-only benchmark: all 2,000
+    # actual Burn/Candle forward/loss/backward/Adam steps, same seed, initial
+    # model and sampler. Alternate historical allocation and buffer reuse;
+    # assert identical final weights/RNG/loss/validation. Timings and allocator
+    # counts are evidence, never a hard-coded speedup acceptance threshold.
+    full_training_binary = ROOT / "target" / "release" / (
+        "fy-full-training-benchmark.exe" if os.name == "nt"
+        else "fy-full-training-benchmark")
+    for backend_name, expected_name in (
+            ("burn", "burn-flex-0.22.0"),
+            ("candle", "candle-cpu-0.11.0")):
+        full_training = json.loads(run(f"full-training-benchmark-{backend_name}", [
+            full_training_binary, backend_name, "--measure"]))
+        validate_full_training_benchmark(
+            full_training, env["FACTSYOLO_BUILD_ID"], expected_name)
+        (evidence / f"full-training-benchmark-{backend_name}.json").write_text(
+            json.dumps(full_training, indent=2) + "\n")
+
     reports = {}
     for backend in ["burn", "candle"]:
         output = evidence / backend

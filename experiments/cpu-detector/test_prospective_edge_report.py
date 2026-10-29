@@ -3,6 +3,7 @@
 import unittest
 import hashlib
 import copy
+import struct
 
 import diagnostic_validation as d
 import edge_validation as e
@@ -193,6 +194,18 @@ def mirrored_report():
 class MirroredEdgeReportTests(unittest.TestCase):
     def test_accepts_exact_third_arm_provenance_and_valid_outcome(self):
         self.assertTrue(checked_mirrored_edge_report(mirrored_report(), "tested-commit"))
+
+    def test_accepts_exact_original_rust_f32_validation_boundary(self):
+        data = mirrored_report()
+        data["validation"]["mean_iou"] = struct.unpack("<f", struct.pack("<f", 0.70))[0]
+        self.assertTrue(checked_mirrored_edge_report(data, "tested-commit"))
+
+    def test_rejects_one_f32_step_below_original_mean_iou_boundary(self):
+        data = mirrored_report()
+        bits = struct.unpack("<I", struct.pack("<f", 0.70))[0]
+        data["validation"]["mean_iou"] = struct.unpack("<f", struct.pack("<I", bits - 1))[0]
+        with self.assertRaisesRegex(ValueError, "validation"):
+            checked_mirrored_edge_report(data, "tested-commit")
 
     def test_rejects_mirror_slot_or_provenance_drift(self):
         for key, value in (

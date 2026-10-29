@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import platform
 import subprocess
+import struct
 import sys
 import time
 from inference_gate import verify_inference_benchmark
@@ -147,6 +148,9 @@ def checked_mirrored_edge_report(report, expected_sha):
         ("false_positive_rate", 0.0, 0.05),
     ):
         value = validation.get(key)
+        # Match Metrics::passes f32 constants; JSON Value promotes f32 to f64.
+        lower = struct.unpack("<f", struct.pack("<f", lower))[0]
+        upper = struct.unpack("<f", struct.pack("<f", upper))[0]
         if type(value) not in (float, int) or not math.isfinite(value) or not lower <= value <= upper:
             raise ValueError(f"invalid mirrored validation metric: {key}")
     return True

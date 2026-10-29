@@ -275,9 +275,6 @@ fn run() -> Result<(), String> {
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =
             evaluate(&*b, &model, &prospective, &validation, &validation_features)?;
-        if development_result["validation_passes_original_thresholds"] != true {
-            return Err("mirrored training failed original validation thresholds".into());
-        }
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
@@ -313,6 +310,9 @@ fn run() -> Result<(), String> {
             }))
             .map_err(|e| e.to_string())?
         );
+        if development_result["validation_passes_original_thresholds"] != true {
+            return Err("mirrored training failed original validation thresholds".into());
+        }
         return Ok(());
     }
 

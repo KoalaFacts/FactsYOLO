@@ -119,13 +119,22 @@ fn train_one(
     let mut first = vec![0.0; PARAMETERS];
     let mut second = vec![0.0; PARAMETERS];
     let mut rng = Rng::new(707);
-    let mut reused_inputs = Vec::with_capacity(BATCH * INPUTS);
-    let mut reused_labels = Vec::with_capacity(BATCH);
+    // Include the reuse buffers' one-time allocation in both the full-training
+    // clock and requested-allocation counters. Previously these buffers were
+    // allocated before measurement, understating the reused arm's resources.
+    let mut reused_inputs = Vec::new();
+    let mut reused_labels = Vec::new();
     let mut preparation_ns = 0;
     let mut last_batch_loss_bits = 0;
     let before_requests = REQUESTS.load(Ordering::Relaxed);
     let before_bytes = BYTES.load(Ordering::Relaxed);
     let started = Instant::now();
+    if matches!(mode, Mode::Reused) {
+        let setup_started = Instant::now();
+        reused_inputs.reserve_exact(BATCH * INPUTS);
+        reused_labels.reserve_exact(BATCH);
+        preparation_ns += setup_started.elapsed().as_nanos();
+    }
     for step in 1..=STEPS {
         if started.elapsed().as_secs_f64() > 600.0 {
             return Err("full-training benchmark exceeded the registered 600s arm budget".into());

@@ -89,7 +89,7 @@ def checked_mirrored_edge_report(report, expected_sha):
     if (report.get("source_commit") != expected_sha
             or report.get("status") != "mirrored-edge-training-experiment-only"
             or report.get("model") != "TD1-v1-192-64-7"
-            or report.get("backend") not in ("burn", "candle")
+            or report.get("backend") not in ("burn-flex-0.22.0", "candle-cpu-0.11.0")
             or report.get("training_seed") != 101
             or report.get("validation_seed") != 202
             or report.get("initialization_seed") != 404
@@ -341,7 +341,7 @@ def main():
         mirrored = json.loads(run(f"mirror-training-{backend_name}", [
             edge_binary, backend_name, "--mirror"]))
         checked_mirrored_edge_report(mirrored, env["FACTSYOLO_BUILD_ID"])
-        if mirrored["backend"] != backend_name:
+        if mirrored["backend"] != {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}[backend_name]:
             raise RuntimeError(f"mirrored backend mismatch: {backend_name}")
         (evidence / f"mirror-training-{backend_name}.json").write_text(
             json.dumps(mirrored, indent=2) + "\n")

@@ -248,7 +248,14 @@ fn run() -> Result<(), String> {
                 "schema": "fy-full-training-progress-v1", "source_commit": source,
                 "backend": b.name(), "pair": repeat, "arm": arm, "event": "started"
             }))?;
-            match train_one(&*b, mode, &train, &cached, &validation, &validation_features) {
+            match train_one(
+                &*b,
+                mode,
+                &train,
+                &cached,
+                &validation,
+                &validation_features,
+            ) {
                 Ok((weights, measurement)) => {
                     emit_progress(&json!({
                         "schema": "fy-full-training-progress-v1", "source_commit": source,

@@ -38,6 +38,7 @@ def fixture():
         "training_seed": 101, "initialization_seed": 404, "sampler_seed": 707,
         "steps_per_arm": 2000, "batch_size": 64,
         "training_samples": 4096, "repetitions": 3,
+        "os": "linux", "architecture": "x86_64", "rayon_threads": "1",
         "data_preparation_excluded": True,
         "evaluation_excluded_from_timing": True,
         "exact_weight_rng_loss_validation_parity": True, "runs": runs,
@@ -45,6 +46,41 @@ def fixture():
 
 
 class FullTrainingGateTests(unittest.TestCase):
+    def test_rejects_unpinned_or_unsupported_benchmark_configuration(self):
+        for field, invalid in (
+            ("rayon_threads", ""),
+            ("rayon_threads", "8"),
+            ("architecture", "aarch64"),
+            ("os", "unknown"),
+            ("steps_per_arm", 2000.0),
+            ("training_seed", True),
+        ):
+            report = fixture()
+            report[field] = invalid
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                validate_full_training_benchmark(report, SHA, BACKEND)
+
+    def test_rejects_impossible_aggregate_metrics_without_changing_thresholds(self):
+        def set_all(report, **metrics):
+            for pair in report["runs"]:
+                for mode in ("historical", "reused"):
+                    pair[mode]["validation"].update(metrics)
+
+        plausible = fixture()
+        set_all(plausible, class_accuracy=100 / 102, recall_iou50=99 / 102,
+                false_positive_rate=1 / 26)
+        self.assertTrue(validate_full_training_benchmark(plausible, SHA, BACKEND))
+
+        for changes in (
+            {"class_accuracy": 101 / 102, "recall_iou50": 1.0},
+            {"class_accuracy": 0.975, "recall_iou50": 0.95},
+            {"false_positive_rate": 0.04},
+        ):
+            report = fixture()
+            set_all(report, **changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_full_training_benchmark(report, SHA, BACKEND)
+
     def test_accepts_valid_equal_models_without_assuming_speedup(self):
         report = fixture()
         report["runs"][0]["reused"]["training_ns"] = 120000000

@@ -15,6 +15,12 @@ def _finite(value, minimum=0.0, maximum=None):
             and value >= minimum and (maximum is None or value <= maximum))
 
 
+def _count_rate(value, count):
+    # Rust counts detections before emitting a rounded f32 ratio.
+    return (_finite(value, 0.0, 1.0)
+            and abs(value * count - round(value * count)) <= 1e-4)
+
+
 def _valid_validation(row):
     if not isinstance(row, dict) or set(row) != {
             "positives", "negatives", "class_accuracy", "recall_iou50",
@@ -24,6 +30,10 @@ def _valid_validation(row):
             and row["negatives"] == 26 and type(row["negatives"]) is int
             and all(_finite(row[key], 0.0, 1.0) for key in (
                 "class_accuracy", "recall_iou50", "mean_iou", "false_positive_rate"))
+            and _count_rate(row["class_accuracy"], 102)
+            and _count_rate(row["recall_iou50"], 102)
+            and _count_rate(row["false_positive_rate"], 26)
+            and row["recall_iou50"] <= row["class_accuracy"] + 1e-6
             and row["class_accuracy"] >= 0.95
             and row["recall_iou50"] >= 0.85
             and row["mean_iou"] >= 0.70
@@ -42,12 +52,17 @@ def validate_full_training_benchmark(report, expected_sha, backend):
             or backend not in BACKEND_NAMES
             or report.get("backend") != backend
             or report.get("build") != "release"
-            or report.get("training_seed") != 101
-            or report.get("initialization_seed") != 404
-            or report.get("sampler_seed") != 707
-            or report.get("steps_per_arm") != 2000
-            or report.get("batch_size") != 64
-            or report.get("training_samples") != 4096
+            or report.get("os") not in ("linux", "windows")
+            or report.get("architecture") != "x86_64"
+            or report.get("rayon_threads") != "1"
+            or any(type(report.get(key)) is not int or report[key] != value
+                   for key, value in (
+                       ("training_seed", 101),
+                       ("initialization_seed", 404),
+                       ("sampler_seed", 707),
+                       ("steps_per_arm", 2000),
+                       ("batch_size", 64),
+                       ("training_samples", 4096)))
             or type(report.get("repetitions")) is not int
             or report.get("repetitions") != 3
             or report.get("data_preparation_excluded") is not True

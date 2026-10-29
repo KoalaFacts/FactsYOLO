@@ -31,7 +31,6 @@ const PROSPECTIVE_CANDIDATES: usize = 4096;
 const PROSPECTIVE_FINGERPRINT: &str =
     "0239bac3429d484db479974c10e5a038cef8829762a7d5533f8cd915e3a6ede1";
 
-
 const FOUR_SIDE_SEED: u64 = 20261113;
 const FOUR_SIDE_CANDIDATES: usize = 4096;
 const FOUR_SIDE_FINGERPRINT: &str =
@@ -181,7 +180,6 @@ fn frozen_prospective() -> Result<Vec<Sample>, String> {
     )
 }
 
-
 fn reflect_four_side_sample(sample: &Sample, horizontal: bool, vertical: bool) -> Sample {
     let mut pixels = vec![0_u8; 64 * 64 * 3];
     for y in 0..64 {
@@ -237,14 +235,15 @@ fn frozen_four_sides() -> Result<[Vec<Sample>; 4], String> {
             None
         };
         if let Some(origin) = origin {
-            for (horizontal, vertical) in [
-                (false, false),
-                (true, false),
-                (false, true),
-                (true, true),
-            ] {
+            for (horizontal, vertical) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
                 let side = if origin == 0 {
-                    if horizontal { 2 } else { 0 }
+                    if horizontal {
+                        2
+                    } else {
+                        0
+                    }
                 } else if vertical {
                     3
                 } else {
@@ -642,7 +641,6 @@ mod tests {
         assert_eq!(frozen_development().unwrap().len(), QUOTA * GROUPS.len());
     }
 
-
     #[test]
     fn new_four_side_split_is_frozen_unique_and_has_correct_geometry() {
         let groups = frozen_four_sides().unwrap();
@@ -667,7 +665,10 @@ mod tests {
                 assert!(near_requested_side);
                 let hash = Sha256::digest(&sample.pixels).to_vec();
                 assert!(unique.insert(hash.clone()), "repeated transformed image");
-                assert!(!training.contains(&hash), "training image leaked into probe");
+                assert!(
+                    !training.contains(&hash),
+                    "training image leaked into probe"
+                );
             }
         }
         assert_eq!(unique.len(), 192);

@@ -348,7 +348,7 @@ def main():
             "seconds": time.monotonic() - interrupted_started,
             "test_only_env": {"FACTSYOLO_TEST_FAIL_SECOND_ARM": "1"},
         })
-        (evidence / "commands.json").write_text(json.dumps(commands, indent=2) + "\\n")
+        (evidence / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
         if failure.returncode != 1 or (evidence / f"{interrupted}.log").read_text().strip():
             raise RuntimeError(f"controlled Rust failure did not fail closed: {interrupted}")
         validate_interrupted_full_training_diagnostics(

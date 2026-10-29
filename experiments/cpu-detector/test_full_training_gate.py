@@ -227,7 +227,7 @@ class FullTrainingGateTests(unittest.TestCase):
             {"schema": "fy-full-training-progress-v1",
              "event": "process_failed", "error": CONTROLLED_FAILURE},
         ]
-        encode = lambda rows: "".join(json.dumps(row) + "\\n" for row in rows)
+        encode = lambda rows: "".join(json.dumps(row) + "\n" for row in rows)
         self.assertTrue(validate_interrupted_full_training_diagnostics(
             encode(events), SHA, BACKEND))
         for mutant in (

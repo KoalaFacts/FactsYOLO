@@ -30,10 +30,7 @@ pub fn fill_training_batch(
 ///
 /// Check all inputs first so malformed labels cannot leave a partially
 /// transformed batch. This is an opt-in experiment, not deployed inference.
-pub fn mirror_reserved_edge_batch(
-    batch: &mut [f32],
-    labels: &mut [Sample],
-) -> Result<(), String> {
+pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> Result<(), String> {
     const SLOTS: [usize; 4] = [0, 16, 32, 48];
     if batch.len() != 64 * INPUTS || labels.len() != 64 {
         return Err("mirroring requires a complete 64-sample TD1 batch".into());
@@ -316,5 +313,4 @@ mod tests {
             original_boxes
         );
     }
-
 }

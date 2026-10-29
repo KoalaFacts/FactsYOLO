@@ -11,7 +11,9 @@ import struct
 import sys
 import time
 from inference_gate import verify_inference_benchmark
-from full_training_gate import validate_full_training_benchmark, validate_full_training_diagnostics
+from full_training_gate import (validate_full_training_benchmark,
+                                validate_full_training_diagnostics,
+                                validate_interrupted_full_training_diagnostics)
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 
 ROOT = Path(__file__).resolve().parent
@@ -326,6 +328,33 @@ def main():
     for backend_name, expected_name in (
             ("burn", "burn-flex-0.22.0"),
             ("candle", "candle-cpu-0.11.0")):
+
+        # Exercise a real Release Rust process failure *after* one full 2,000-step
+        # arm. The test-only fault is outside the measured optimizer loop.
+        # Separate stderr must preserve completed progress; stdout must contain
+        # no apparently successful report, and the process must fail closed.
+        interrupted = f"full-training-interrupted-{backend_name}"
+        interrupted_args = [str(full_training_binary), backend_name, "--measure"]
+        fault_env = env.copy()
+        fault_env["FACTSYOLO_TEST_FAIL_SECOND_ARM"] = "1"
+        interrupted_started = time.monotonic()
+        with (evidence / f"{interrupted}.log").open("w") as stdout:
+            with (evidence / f"{interrupted}.diagnostics.jsonl").open("w") as stderr:
+                failure = subprocess.run(
+                    interrupted_args, cwd=REPO, env=fault_env,
+                    stdout=stdout, stderr=stderr, timeout=1800)
+        commands.append({
+            "label": interrupted, "argv": interrupted_args, "exit": failure.returncode,
+            "seconds": time.monotonic() - interrupted_started,
+            "test_only_env": {"FACTSYOLO_TEST_FAIL_SECOND_ARM": "1"},
+        })
+        (evidence / "commands.json").write_text(json.dumps(commands, indent=2) + "\\n")
+        if failure.returncode != 1 or (evidence / f"{interrupted}.log").read_text().strip():
+            raise RuntimeError(f"controlled Rust failure did not fail closed: {interrupted}")
+        validate_interrupted_full_training_diagnostics(
+            (evidence / f"{interrupted}.diagnostics.jsonl").read_text(),
+            env["FACTSYOLO_BUILD_ID"], expected_name)
+
         full_training = json.loads(run(f"full-training-benchmark-{backend_name}", [
             full_training_binary, backend_name, "--measure"], diagnostic_stderr=True))
         validate_full_training_benchmark(

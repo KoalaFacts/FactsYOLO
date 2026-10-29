@@ -248,14 +248,25 @@ fn run() -> Result<(), String> {
                 "schema": "fy-full-training-progress-v1", "source_commit": source,
                 "backend": b.name(), "pair": repeat, "arm": arm, "event": "started"
             }))?;
-            match train_one(
-                &*b,
-                mode,
-                &train,
-                &cached,
-                &validation,
-                &validation_features,
-            ) {
+            // A test-only controlled error after the first *real* completed arm
+            // proves that flushed measurements survive a subsequent failure.
+            // This is outside measured training and has no effect unless opted in.
+            let result = if repeat == 0
+                && arm == "reused"
+                && std::env::var("FACTSYOLO_TEST_FAIL_SECOND_ARM").as_deref() == Ok("1")
+            {
+                Err("controlled benchmark failure after one completed arm".to_string())
+            } else {
+                train_one(
+                    &*b,
+                    mode,
+                    &train,
+                    &cached,
+                    &validation,
+                    &validation_features,
+                )
+            };
+            match result {
                 Ok((weights, measurement)) => {
                     emit_progress(&json!({
                         "schema": "fy-full-training-progress-v1", "source_commit": source,

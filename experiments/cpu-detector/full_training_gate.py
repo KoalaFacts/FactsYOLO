@@ -122,6 +122,60 @@ def validate_full_training_benchmark(report, expected_sha, backend):
             raise ValueError("repeated training drifted despite identical seeds")
     return True
 
+
+# Deliberately error after a successful 2,000-step historical arm. This
+# trace is from the real Release benchmark, not a synthetic completed report.
+CONTROLLED_FAILURE = "controlled benchmark failure after one completed arm"
+
+
+def validate_interrupted_full_training_diagnostics(raw_jsonl, source_commit, backend):
+    """A failed Rust process must retain one genuine complete arm, not a success report."""
+    if backend not in BACKEND_NAMES or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise ValueError("invalid interrupted-training provenance")
+    try:
+        events = [json.loads(line) for line in raw_jsonl.splitlines()]
+    except json.JSONDecodeError as error:
+        raise ValueError("invalid interrupted-training JSONL") from error
+    if len(events) != 5 or any(not isinstance(row, dict) for row in events):
+        raise ValueError("missing interrupted-training events")
+    for index, (kind, arm) in enumerate((
+            ("started", "historical"), ("completed", "historical"),
+            ("started", "reused"), ("failed", "reused"))):
+        row = events[index]
+        fields = {"schema", "source_commit", "backend", "pair", "arm", "event"}
+        if kind == "completed":
+            fields.add("measurement")
+        if kind == "failed":
+            fields.add("error")
+        if (set(row) != fields
+                or row["schema"] != "fy-full-training-progress-v1"
+                or row["source_commit"] != source_commit
+                or row["backend"] != backend or row["pair"] != 0
+                or row["arm"] != arm or row["event"] != kind):
+            raise ValueError("interrupted-training event provenance/order mismatch")
+    if events[3]["error"] != CONTROLLED_FAILURE:
+        raise ValueError("interrupted-training error identity mismatch")
+    if events[4] != {"schema": "fy-full-training-progress-v1",
+                     "event": "process_failed", "error": CONTROLLED_FAILURE}:
+        raise ValueError("missing benchmark process failure event")
+    arm = events[1]["measurement"]
+    required = {"training_ns", "batch_preparation_ns", "allocation_requests",
+                "requested_bytes", "model_sha256", "sampler_next_draw",
+                "last_batch_loss_bits", "validation"}
+    if (not isinstance(arm, dict) or set(arm) != required
+            or not _int(arm["training_ns"], 1)
+            or not _int(arm["batch_preparation_ns"])
+            or arm["batch_preparation_ns"] > arm["training_ns"]
+            or not _int(arm["allocation_requests"])
+            or not _int(arm["requested_bytes"])
+            or not isinstance(arm["model_sha256"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", arm["model_sha256"])
+            or not _int(arm["sampler_next_draw"], 0, 2**32 - 1)
+            or not _int(arm["last_batch_loss_bits"], 0, 2**32 - 1)
+            or not _valid_validation(arm["validation"])):
+        raise ValueError("invalid retained real training measurement")
+    return True
+
 def validate_full_training_diagnostics(report, raw_jsonl):
     """A complete success report must agree with every flushed arm progress event.
 

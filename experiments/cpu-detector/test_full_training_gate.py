@@ -4,7 +4,10 @@ import copy
 import json
 import struct
 import unittest
-from full_training_gate import validate_full_training_benchmark, validate_full_training_diagnostics
+from full_training_gate import (validate_full_training_benchmark,
+                                validate_full_training_diagnostics,
+                                validate_interrupted_full_training_diagnostics,
+                                CONTROLLED_FAILURE)
 
 SHA = "a" * 40
 BACKEND = "burn-flex-0.22.0"
@@ -208,6 +211,49 @@ class FullTrainingGateTests(unittest.TestCase):
                         trace + "not-json\n"):
             with self.subTest(invalid=invalid[-120:]), self.assertRaises(ValueError):
                 validate_full_training_diagnostics(report, invalid)
+
+
+    def test_interrupted_rust_arm_must_preserve_completed_measurement(self):
+        report = fixture()
+        common = {"schema": "fy-full-training-progress-v1",
+                  "source_commit": SHA, "backend": BACKEND, "pair": 0}
+        events = [
+            {**common, "arm": "historical", "event": "started"},
+            {**common, "arm": "historical", "event": "completed",
+             "measurement": report["runs"][0]["historical"]},
+            {**common, "arm": "reused", "event": "started"},
+            {**common, "arm": "reused", "event": "failed",
+             "error": CONTROLLED_FAILURE},
+            {"schema": "fy-full-training-progress-v1",
+             "event": "process_failed", "error": CONTROLLED_FAILURE},
+        ]
+        encode = lambda rows: "".join(json.dumps(row) + "\\n" for row in rows)
+        self.assertTrue(validate_interrupted_full_training_diagnostics(
+            encode(events), SHA, BACKEND))
+        for mutant in (
+            events[:-1],
+            events[1:],
+            events[:1] + events[2:],
+            events[:2] + events[3:],
+            events + [events[-1]],
+        ):
+            with self.subTest(count=len(mutant)), self.assertRaises(ValueError):
+                validate_interrupted_full_training_diagnostics(encode(mutant), SHA, BACKEND)
+        for idx, key, value in (
+            (1, "source_commit", "b" * 40),
+            (1, "pair", 1),
+            (1, "event", "started"),
+            (3, "error", "other failure"),
+            (4, "error", "other failure"),
+        ):
+            mutant = copy.deepcopy(events)
+            mutant[idx][key] = value
+            with self.subTest(idx=idx, key=key), self.assertRaises(ValueError):
+                validate_interrupted_full_training_diagnostics(encode(mutant), SHA, BACKEND)
+        mutant = copy.deepcopy(events)
+        mutant[1]["measurement"]["training_ns"] = 0
+        with self.assertRaises(ValueError):
+            validate_interrupted_full_training_diagnostics(encode(mutant), SHA, BACKEND)
 
 
 if __name__ == "__main__":

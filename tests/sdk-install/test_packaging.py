@@ -534,5 +534,108 @@ class RealSdkLayout(unittest.TestCase):
             self.assertFalse(any(n.startswith(("ref/", "runtimes/any/", "runtimes/win-x64/")) for n in names))
 
 
+class CleanSourceCommit(unittest.TestCase):
+    """Use real Git metadata; these local fixture commits are not product revisions."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="factsyolo-sdk-source-")
+        self.addCleanup(self.temp.cleanup)
+        self.repository = Path(self.temp.name)
+        for name in ("sdk/dotnet/native_assets.py", "sdk/dotnet/native_exports.py",
+                     "sdk/dotnet/build_package.py",
+                     "tests/c/public-symbols.txt", "include/facts_yolo.h"):
+            target = self.repository / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
+        self.git("init", "-q")
+        self.git("config", "user.name", "Local provenance test fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("add", "--all")
+        self.git("commit", "-qm", "Temporary source guard fixture, not a product commit")
+        self.head = self.git("rev-parse", "HEAD").strip()
+
+    def git(self, *arguments):
+        return subprocess.check_output(["git", *arguments], cwd=self.repository, text=True)
+
+    def check(self):
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        code = ("import sys; sys.path.insert(0, 'sdk/dotnet'); "
+                "import native_assets; print(native_assets.clean_commit())")
+        return subprocess.run([sys.executable, "-c", code], cwd=self.repository,
+                              env=env, text=True, capture_output=True, timeout=10)
+
+    def test_clean_tracked_source_keeps_exact_head(self):
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.head)
+
+    def test_visible_tracked_change_is_still_rejected(self):
+        target = self.repository / "include/facts_yolo.h"
+        target.write_bytes(target.read_bytes() + b"\n/* visible fixture change */\n")
+        self.assertTrue(self.git("status", "--porcelain").strip())
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("clean source worktree", result.stderr)
+
+    def reject_hidden_change(self, flag):
+        self.git("update-index", "--" + flag, "include/facts_yolo.h")
+        target = self.repository / "include/facts_yolo.h"
+        target.write_bytes(target.read_bytes() + b"\n/* hidden fixture change */\n")
+        self.assertFalse(self.git("status", "--porcelain").strip())
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0, "hidden tracked bytes were certified as HEAD")
+        self.assertIn("index hides tracked files", result.stderr)
+
+    def test_assume_unchanged_cannot_hide_source_change(self):
+        self.reject_hidden_change("assume-unchanged")
+
+    def test_skip_worktree_cannot_hide_source_change(self):
+        self.reject_hidden_change("skip-worktree")
+
+    @unittest.skipIf(os.name == "nt", "Windows filenames cannot contain newlines")
+    def test_nul_delimited_names_do_not_create_false_index_flags(self):
+        (self.repository / "ordinary\nS not-an-index-entry.txt").write_text("fixture\n")
+        self.git("add", "--all")
+        self.git("commit", "-qm", "Normal tracked filename with a newline")
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.git("rev-parse", "HEAD").strip())
+
+    def test_hidden_index_flags_are_rejected_even_without_a_content_change(self):
+        for flags in (("assume-unchanged",), ("skip-worktree",),
+                      ("assume-unchanged", "skip-worktree")):
+            with self.subTest(flags=flags):
+                self.git("update-index", "--no-assume-unchanged", "--no-skip-worktree",
+                         "include/facts_yolo.h")
+                for flag in flags:
+                    self.git("update-index", "--" + flag, "include/facts_yolo.h")
+                self.assertFalse(self.git("status", "--porcelain").strip())
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("index hides tracked files", result.stderr)
+
+    def reject_hidden_entrypoint(self, script, arguments):
+        self.git("update-index", "--skip-worktree", "include/facts_yolo.h")
+        target = self.repository / "include/facts_yolo.h"
+        target.write_bytes(target.read_bytes() + b"\n/* hidden entrypoint fixture */\n")
+        self.assertFalse(self.git("status", "--porcelain").strip())
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        result = subprocess.run([sys.executable, script, *arguments], cwd=self.repository,
+                                env=env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("index hides tracked files", result.stderr)
+        self.assertFalse((self.repository / arguments[-1]).exists(),
+                         "untrusted source must fail before creating output")
+
+    def test_native_stage_rejects_hidden_source_before_creating_output(self):
+        self.reject_hidden_entrypoint("sdk/dotnet/native_assets.py", ["rejected-stage"])
+
+    def test_package_build_rejects_hidden_source_before_creating_output(self):
+        self.reject_hidden_entrypoint("sdk/dotnet/build_package.py",
+                                      ["missing-assets", "rejected-feed"])
+
+
 if __name__ == "__main__":
     unittest.main()

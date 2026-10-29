@@ -2,10 +2,12 @@
 """Negative controls for pre-registered prospective TD1 edge evaluation."""
 import unittest
 import hashlib
+import copy
 
 import diagnostic_validation as d
 import edge_validation as e
-from verify import checked_prospective_edge_report, PROSPECTIVE_EDGE_FINGERPRINT
+from verify import (checked_prospective_edge_report, checked_mirrored_edge_report,
+                    PROSPECTIVE_EDGE_FINGERPRINT)
 
 
 def sample_group(correct=46):
@@ -146,6 +148,80 @@ class ProspectiveEdgeReportTests(unittest.TestCase):
         data["prospective_edge_minus_baseline_small_edge_iou50_recall"] = 1.0
         with self.assertRaisesRegex(ValueError, "paired"):
             checked_prospective_edge_report(data, "tested-commit")
+
+
+def mirrored_report():
+    # The experimental third-arm output contains no released model or holdout.
+    groups = copy.deepcopy(report()["edge_sampling_prospective"])
+    return {
+        "status": "mirrored-edge-training-experiment-only",
+        "source_commit": "tested-commit",
+        "backend": "burn",
+        "model": "TD1-v1-192-64-7",
+        "training_seed": 101,
+        "validation_seed": 202,
+        "initialization_seed": 404,
+        "sampler_seed": 707,
+        "steps_per_arm": 2000,
+        "batch_size": 64,
+        "train_samples": 4096,
+        "edge_pool_count": 48,
+        "edge_override_slots_per_batch": 4,
+        "mirror_slots": [0, 16, 32, 48],
+        "mirror_orientations": ["identity", "horizontal", "vertical", "both"],
+        "development_seed": 20261030,
+        "development_samples": 240,
+        "development_fingerprint":
+            "04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4",
+        "prospective_seed": 20261101,
+        "prospective_candidate_budget": 4096,
+        "prospective_samples": 240,
+        "prospective_fingerprint": PROSPECTIVE_EDGE_FINGERPRINT,
+        "final_holdout_evaluated": False,
+        "training_seconds": 1.0,
+        "development": copy.deepcopy(groups),
+        "prospective": copy.deepcopy(groups),
+        "validation": {
+            "positives": 102, "negatives": 26,
+            "class_accuracy": 1.0, "recall_iou50": 1.0,
+            "mean_iou": 0.78, "false_positive_rate": 0.0,
+        },
+        "validation_passes_original_thresholds": True,
+    }
+
+
+class MirroredEdgeReportTests(unittest.TestCase):
+    def test_accepts_exact_third_arm_provenance_and_valid_outcome(self):
+        self.assertTrue(checked_mirrored_edge_report(mirrored_report(), "tested-commit"))
+
+    def test_rejects_mirror_slot_or_provenance_drift(self):
+        for key, value in (
+            ("source_commit", "stale"),
+            ("mirror_slots", [0, 15, 32, 48]),
+            ("mirror_orientations", ["identity", "horizontal", "both", "vertical"]),
+            ("sampler_seed", 404),
+            ("final_holdout_evaluated", True),
+            ("training_seconds", float("nan")),
+        ):
+            with self.subTest(key=key):
+                data = mirrored_report()
+                data[key] = value
+                with self.assertRaises(ValueError):
+                    checked_mirrored_edge_report(data, "tested-commit")
+
+    def test_rejects_impossible_mirrored_iou_and_validation_regression(self):
+        data = mirrored_report()
+        data["prospective"]["small_edge"]["mean_iou_including_misses"] = 0.0
+        with self.assertRaisesRegex(ValueError, "prospective IoU"):
+            checked_mirrored_edge_report(data, "tested-commit")
+        data = mirrored_report()
+        data["validation"]["recall_iou50"] = 0.84
+        with self.assertRaisesRegex(ValueError, "validation"):
+            checked_mirrored_edge_report(data, "tested-commit")
+        data = mirrored_report()
+        data["validation_passes_original_thresholds"] = False
+        with self.assertRaisesRegex(ValueError, "validation"):
+            checked_mirrored_edge_report(data, "tested-commit")
 
 
 if __name__ == "__main__":

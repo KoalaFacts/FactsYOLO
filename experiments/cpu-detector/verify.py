@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import platform
 import subprocess
+import struct
 import sys
 import time
 from inference_gate import verify_inference_benchmark
@@ -82,6 +83,77 @@ def checked_prospective_edge_report(report, expected_sha):
             raise ValueError(f"prospective paired comparison mismatch: {name}")
     return True
 
+
+
+def checked_mirrored_edge_report(report, expected_sha):
+    """Validate the opt-in third arm without treating observed splits as new evidence."""
+    if (report.get("source_commit") != expected_sha
+            or report.get("status") != "mirrored-edge-training-experiment-only"
+            or report.get("model") != "TD1-v1-192-64-7"
+            or report.get("backend") not in ("burn-flex-0.22.0", "candle-cpu-0.11.0")
+            or report.get("training_seed") != 101
+            or report.get("validation_seed") != 202
+            or report.get("initialization_seed") != 404
+            or report.get("sampler_seed") != 707
+            or report.get("steps_per_arm") != 2000
+            or report.get("batch_size") != 64
+            or report.get("train_samples") != 4096
+            or report.get("edge_pool_count") != 48
+            or report.get("edge_override_slots_per_batch") != 4
+            or report.get("mirror_slots") != [0, 16, 32, 48]
+            or report.get("mirror_orientations") !=
+                ["identity", "horizontal", "vertical", "both"]
+            or report.get("development_seed") != 20261030
+            or report.get("development_samples") != 240
+            or report.get("development_fingerprint") !=
+                "04739d79ab725a8bef7cf0de7b8d1a8f6c929ed08e9e78b21f7392b81861b9c4"
+            or report.get("prospective_seed") != 20261101
+            or report.get("prospective_candidate_budget") != 4096
+            or report.get("prospective_samples") != 240
+            or report.get("prospective_fingerprint") != PROSPECTIVE_EDGE_FINGERPRINT
+            or report.get("final_holdout_evaluated") is not False):
+        raise ValueError("unverifiable mirrored edge training provenance")
+
+    seconds = report.get("training_seconds")
+    if type(seconds) not in (float, int) or not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("invalid mirrored training duration")
+
+    # Reuse exact per-stratum count/IoU arithmetic checks for both observed
+    # development splits; no criterion selects a winner from these splits.
+    for section in ("development", "prospective"):
+        probe = {
+            "source_commit": expected_sha,
+            "prospective_seed": 20261101,
+            "prospective_candidate_budget": 4096,
+            "prospective_samples": 240,
+            "prospective_fingerprint": PROSPECTIVE_EDGE_FINGERPRINT,
+            "final_holdout_evaluated": False,
+            "baseline_prospective": report.get(section),
+            "edge_sampling_prospective": report.get(section),
+            "prospective_edge_minus_baseline_small_edge_iou50_recall": 0.0,
+            "prospective_edge_minus_baseline_small_interior_iou50_recall": 0.0,
+        }
+        checked_prospective_edge_report(probe, expected_sha)
+
+    validation = report.get("validation")
+    if not isinstance(validation, dict) or report.get("validation_passes_original_thresholds") is not True:
+        raise ValueError("mirrored arm failed original validation gate")
+    if (type(validation.get("positives")) is not int or validation["positives"] != 102
+            or type(validation.get("negatives")) is not int or validation["negatives"] != 26):
+        raise ValueError("invalid mirrored validation population")
+    for key, lower, upper in (
+        ("class_accuracy", 0.95, 1.0),
+        ("recall_iou50", 0.85, 1.0),
+        ("mean_iou", 0.70, 1.0),
+        ("false_positive_rate", 0.0, 0.05),
+    ):
+        value = validation.get(key)
+        # Match Metrics::passes f32 constants; JSON Value promotes f32 to f64.
+        lower = struct.unpack("<f", struct.pack("<f", lower))[0]
+        upper = struct.unpack("<f", struct.pack("<f", upper))[0]
+        if type(value) not in (float, int) or not math.isfinite(value) or not lower <= value <= upper:
+            raise ValueError(f"invalid mirrored validation metric: {key}")
+    return True
 
 
 def checked_training_heldout(report, expected_sha):
@@ -266,6 +338,17 @@ def main():
                     f"{reference[key]} != {paired[key]}")
         (evidence / f"edge-training-{backend_name}.json").write_text(
             json.dumps(report, indent=2) + "\n")
+        # Real third-arm Burn/Candle training, with the same sampled edge
+        # identities and four fixed slot reflections. Existing two-arm
+        # prospective results remain unchanged; both observed splits here
+        # are exploratory diagnostics, NOT a new independent quality gate.
+        mirrored = json.loads(run(f"mirror-training-{backend_name}", [
+            edge_binary, backend_name, "--mirror"]))
+        checked_mirrored_edge_report(mirrored, env["FACTSYOLO_BUILD_ID"])
+        if mirrored["backend"] != {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}[backend_name]:
+            raise RuntimeError(f"mirrored backend mismatch: {backend_name}")
+        (evidence / f"mirror-training-{backend_name}.json").write_text(
+            json.dumps(mirrored, indent=2) + "\n")
 
     require_clean_source_tree(REPO, env["FACTSYOLO_BUILD_ID"])
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),

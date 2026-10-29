@@ -23,6 +23,68 @@ pub fn fill_training_batch(
     }
 }
 
+/// Mirror only the four ground-truth edge-positive reserved slots of a TD1
+/// training batch. Slot 0 stays unchanged, 16 flips horizontally, 32 vertically,
+/// and 48 flips both axes. This does not draw RNG, change sample identities,
+/// allocate an image buffer, or change any of the other 60 training slots.
+///
+/// Check all inputs first so malformed labels cannot leave a partially
+/// transformed batch. This is an opt-in experiment, not deployed inference.
+pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> Result<(), String> {
+    const SLOTS: [usize; 4] = [0, 16, 32, 48];
+    if batch.len() != 64 * INPUTS || labels.len() != 64 {
+        return Err("mirroring requires a complete 64-sample TD1 batch".into());
+    }
+    for slot in SLOTS {
+        let label = &labels[slot];
+        let [x, y, w, h] = label.box_xywh;
+        if label.class.is_none()
+            || [x, y, w, h].iter().any(|n| !n.is_finite())
+            || w <= 0.0
+            || h <= 0.0
+            || x - w / 2.0 < 0.0
+            || x + w / 2.0 > 1.0
+            || y - h / 2.0 < 0.0
+            || y + h / 2.0 > 1.0
+            || batch[slot * INPUTS..(slot + 1) * INPUTS]
+                .iter()
+                .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+        {
+            return Err("invalid reserved TD1 edge sample for mirroring".into());
+        }
+    }
+
+    for (orientation, slot) in SLOTS.into_iter().enumerate() {
+        let horizontal = orientation & 1 != 0;
+        let vertical = orientation & 2 != 0;
+        if !horizontal && !vertical {
+            continue;
+        }
+        let start = slot * INPUTS;
+        let mut original = [0.0_f32; INPUTS];
+        original.copy_from_slice(&batch[start..start + INPUTS]);
+        // An 8x8 block contains exactly 8x8 RGB pixels; reflection can
+        // permute already averaged F32 features without any rounding.
+        for y in 0..8 {
+            for x in 0..8 {
+                let source_x = if horizontal { 7 - x } else { x };
+                let source_y = if vertical { 7 - y } else { y };
+                for channel in 0..3 {
+                    batch[start + (y * 8 + x) * 3 + channel] =
+                        original[(source_y * 8 + source_x) * 3 + channel];
+                }
+            }
+        }
+        if horizontal {
+            labels[slot].box_xywh[0] = 1.0 - labels[slot].box_xywh[0];
+        }
+        if vertical {
+            labels[slot].box_xywh[1] = 1.0 - labels[slot].box_xywh[1];
+        }
+    }
+    Ok(())
+}
+
 // Preserve the original operation order in both the validation and commit pass.
 fn candidate(weight: f32, gradient: f32, m: f32, v: f32, a: f32, b: f32) -> (f32, f32, f32) {
     let nm = 0.9 * m + 0.1 * gradient;
@@ -168,5 +230,87 @@ mod tests {
         assert_eq!((weights, m, v), before);
         assert!(adam_step(&mut weights, &[f32::MAX, 0.0], &mut m, &mut v, 2).is_err());
         assert_eq!((weights, m, v), before);
+    }
+
+    #[test]
+    fn mirrored_edge_slots_match_full_resolution_pixel_reflections() {
+        let sample = fy_tiny_model::dataset(101, 2).pop().unwrap();
+        assert!(sample.class.is_some());
+        let features = fy_tiny_model::features(&sample.pixels).unwrap();
+        let mut input = Vec::with_capacity(64 * INPUTS);
+        let mut labels = Vec::with_capacity(64);
+        for _ in 0..64 {
+            input.extend_from_slice(&features);
+            labels.push(Sample {
+                pixels: vec![],
+                class: sample.class,
+                box_xywh: sample.box_xywh,
+            });
+        }
+        mirror_reserved_edge_batch(&mut input, &mut labels).unwrap();
+
+        for slot in 0..64 {
+            let (horizontal, vertical) = match slot {
+                16 => (true, false),
+                32 => (false, true),
+                48 => (true, true),
+                _ => (false, false),
+            };
+            let mut pixels = vec![0_u8; 64 * 64 * 3];
+            for y in 0..64 {
+                for x in 0..64 {
+                    let source_x = if horizontal { 63 - x } else { x };
+                    let source_y = if vertical { 63 - y } else { y };
+                    let src = (source_y * 64 + source_x) * 3;
+                    let dst = (y * 64 + x) * 3;
+                    pixels[dst..dst + 3].copy_from_slice(&sample.pixels[src..src + 3]);
+                }
+            }
+            let expected = fy_tiny_model::features(&pixels).unwrap();
+            assert_eq!(
+                input[slot * INPUTS..(slot + 1) * INPUTS]
+                    .iter()
+                    .map(|x| x.to_bits())
+                    .collect::<Vec<_>>(),
+                expected.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                "reflected features differ in slot {slot}"
+            );
+            let mut expected_box = sample.box_xywh;
+            if horizontal {
+                expected_box[0] = 1.0 - expected_box[0];
+            }
+            if vertical {
+                expected_box[1] = 1.0 - expected_box[1];
+            }
+            assert_eq!(
+                labels[slot].box_xywh.map(f32::to_bits),
+                expected_box.map(f32::to_bits),
+                "reflected target differs in slot {slot}"
+            );
+            assert_eq!(labels[slot].class, sample.class);
+            assert!(labels[slot].pixels.is_empty());
+        }
+    }
+
+    #[test]
+    fn invalid_reserved_sample_does_not_partially_mirror_batch() {
+        let mut input = vec![0.25_f32; 64 * INPUTS];
+        let mut labels = vec![
+            Sample {
+                pixels: vec![],
+                class: Some(0),
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            };
+            64
+        ];
+        labels[48].class = None;
+        let original_input = input.clone();
+        let original_boxes = labels.iter().map(|s| s.box_xywh).collect::<Vec<_>>();
+        assert!(mirror_reserved_edge_batch(&mut input, &mut labels).is_err());
+        assert_eq!(input, original_input);
+        assert_eq!(
+            labels.iter().map(|s| s.box_xywh).collect::<Vec<_>>(),
+            original_boxes
+        );
     }
 }

@@ -288,3 +288,50 @@ negative/inconclusive rather than changing the split, seed or thresholds.
 This is one prospective synthetic evaluation, not statistical or
 natural-image generalization proof, a production model decision, or
 permission to tune on final holdout seed909.
+
+
+### Opt-in mirrored reserved-slot training (experimental third arm)
+
+The pre-registered PR #42 comparison **did not** confirm that simple 4/64
+small-edge oversampling improves untouched synthetic recall: Linux was
+44/48 -> 43/48; Windows was 44/48 -> 44/48 on both Burn and Candle.
+Do **not** adopt the edge sampler on the strength of the earlier development
+split. An independent surrogate-only exploration subsequently found that
+the generator's x/y=2..41 distribution has essentially no right/bottom
+small-object coverage; its Python/PyTorch mirror results were *not* native
+Burn/Candle results or production evidence.
+
+An opt-in **third-arm implementation**, invoked separately with
+`fy-edge-training burn --mirror` or `fy-edge-training candle --mirror`,
+now trains the same 192→64→7 model, initialized with seed404, using the same
+seed101/4096 original source images, seed707 sampling draws, 2,000 steps,
+batch64, Adam and loss as the prior two-arm experiment. It first selects
+the **identical** four reserved edge-positive samples at batch slots
+0/16/32/48; only their *feature/label representation* is altered:
+slot0 identity, slot16 horizontal reflection, slot32 vertical reflection,
+slot48 both axes. The 60 ordinary slots and full RNG sequence are unchanged.
+The 192 block-average F32 features are permuted at the 8×8 grid level and
+normalised x/y box centres mirrored; widths, heights, classes and number
+of samples are preserved. There is no image or training-data upload, model
+format change, ABI change, GPU dependency or automatic production rollout.
+
+The common verifier now executes this third arm in both Burn and Candle on
+Linux and Windows, checks the predeclared seed/slot/provenance contract,
+validates each stratum's IoU and detection-count arithmetic and enforces
+the **unchanged** original validation acceptance. It writes raw
+`mirror-training-{burn,candle}.json` and command logs beside the existing
+original/edge arms. A real RGB-pixel reflection regression proves feature
+and box parity, including untouched slots, while a malformed-label
+regression verifies all-or-nothing input rejection. Use the original CPU
+experiment reproduction procedure above; no additional dependencies.
+
+**Interpretation boundary:** both existing seed20261030 and seed20261101
+stratified reports are already observed development diagnostics. Running
+a new trained arm on them is exploratory; it does not turn either into an
+unseen evaluation or retrospectively qualify plain edge oversampling. The
+approved final holdout seed909 is **not loaded** by this arm. The old
+generator still lacks independently sampled small targets near right/bottom
+edges. No side-position accuracy or speed improvement is asserted until
+a separate, prospective, four-sided source-independent Rust Burn/Candle
+comparison is frozen and executed; any observed validation trade-off
+must be reported, not hidden.

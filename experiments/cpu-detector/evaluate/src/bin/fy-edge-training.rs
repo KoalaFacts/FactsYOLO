@@ -4,7 +4,7 @@
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},
-    training::{adam_step, fill_training_batch},
+    training::{adam_step, fill_training_batch, mirror_reserved_edge_batch},
     Backend,
 };
 use fy_tiny_model::{dataset, features, loss_gradient, Model, Rng, Sample, INPUTS, PARAMETERS};
@@ -93,6 +93,7 @@ fn train_model(
     cached: &[f32],
     pool: &[usize],
     boosted: bool,
+    mirrored: bool,
 ) -> Result<(Model, f64), String> {
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
@@ -108,6 +109,9 @@ fn train_model(
         }
         if boosted {
             fill_edge_batch(train, cached, pool, &mut rng, &mut inputs, &mut labels);
+            if mirrored {
+                mirror_reserved_edge_batch(&mut inputs, &mut labels)?;
+            }
         } else {
             fill_training_batch(train, cached, &mut rng, &mut inputs, &mut labels);
         }
@@ -239,8 +243,9 @@ fn evaluate(
 
 fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().collect();
-    if arguments.len() != 2 {
-        return Err("usage: fy-edge-training <burn|candle>".into());
+    let mirror_only = arguments.len() == 3 && arguments[2] == "--mirror";
+    if arguments.len() != 2 && !mirror_only {
+        return Err("usage: fy-edge-training <burn|candle> [--mirror]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -261,7 +266,58 @@ fn run() -> Result<(), String> {
         validation_features.extend(features(&sample.pixels)?);
     }
 
-    let (baseline_model, baseline_seconds) = train_model(&*b, &train, &cached, &pool, false)?;
+    // A separately invoked, opt-in third training arm. The established two-arm
+    // comparison remains unchanged; this branch produces no model artifact and
+    // never reads the final seed909 holdout.
+    if mirror_only {
+        let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true)?;
+        let development_result =
+            evaluate(&*b, &model, &development, &validation, &validation_features)?;
+        let prospective_result =
+            evaluate(&*b, &model, &prospective, &validation, &validation_features)?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "status": "mirrored-edge-training-experiment-only",
+                "source_commit": source,
+                "backend": b.name(),
+                "model": "TD1-v1-192-64-7",
+                "training_seed": 101,
+                "validation_seed": 202,
+                "initialization_seed": 404,
+                "sampler_seed": 707,
+                "steps_per_arm": STEPS,
+                "batch_size": BATCH,
+                "train_samples": train.len(),
+                "edge_pool_count": pool.len(),
+                "edge_override_slots_per_batch": BATCH / EDGE_FREQUENCY,
+                "mirror_slots": [0, 16, 32, 48],
+                "mirror_orientations": ["identity", "horizontal", "vertical", "both"],
+                "development_seed": 20261030,
+                "development_samples": development.len(),
+                "development_fingerprint": FROZEN_DEVELOPMENT_FINGERPRINT,
+                "prospective_seed": PROSPECTIVE_SEED,
+                "prospective_candidate_budget": PROSPECTIVE_CANDIDATES,
+                "prospective_samples": prospective.len(),
+                "prospective_fingerprint": PROSPECTIVE_FINGERPRINT,
+                "final_holdout_evaluated": false,
+                "training_seconds": seconds,
+                "validation": development_result["validation"],
+                "validation_passes_original_thresholds":
+                    development_result["validation_passes_original_thresholds"],
+                "development": development_result["development"],
+                "prospective": prospective_result["development"]
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        if development_result["validation_passes_original_thresholds"] != true {
+            return Err("mirrored training failed original validation thresholds".into());
+        }
+        return Ok(());
+    }
+
+    let (baseline_model, baseline_seconds) =
+        train_model(&*b, &train, &cached, &pool, false, false)?;
     let baseline = evaluate(
         &*b,
         &baseline_model,
@@ -276,7 +332,7 @@ fn run() -> Result<(), String> {
         &validation,
         &validation_features,
     )?;
-    let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true)?;
+    let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true, false)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,

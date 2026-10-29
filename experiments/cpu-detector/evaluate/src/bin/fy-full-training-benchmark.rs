@@ -133,7 +133,15 @@ fn train_one(
             Mode::Historical => {
                 let (inputs, labels) = historical_batch(train, cached, &mut rng);
                 preparation_ns += batch_started.elapsed().as_nanos();
-                update(b, &mut model, &mut first, &mut second, &inputs, &labels, step)?
+                update(
+                    b,
+                    &mut model,
+                    &mut first,
+                    &mut second,
+                    &inputs,
+                    &labels,
+                    step,
+                )?
             }
             Mode::Reused => {
                 fill_training_batch(
@@ -208,8 +216,21 @@ fn run() -> Result<(), String> {
     let mut expected_hash = None;
     let mut runs = Vec::with_capacity(REPEATS);
     for repeat in 0..REPEATS {
-        let first = if repeat % 2 == 0 { "historical" } else { "reused" };
-        let do_train = |mode| train_one(&*b, mode, &train, &cached, &validation, &validation_features);
+        let first = if repeat % 2 == 0 {
+            "historical"
+        } else {
+            "reused"
+        };
+        let do_train = |mode| {
+            train_one(
+                &*b,
+                mode,
+                &train,
+                &cached,
+                &validation,
+                &validation_features,
+            )
+        };
         let (old_weights, historical, new_weights, reused) = if repeat % 2 == 0 {
             let (old_weights, historical) = do_train(Mode::Historical)?;
             let (new_weights, reused) = do_train(Mode::Reused)?;
@@ -220,18 +241,25 @@ fn run() -> Result<(), String> {
             (old_weights, historical, new_weights, reused)
         };
         if old_weights.len() != new_weights.len()
-            || !old_weights.iter().zip(&new_weights).all(|(a, b)| a.to_bits() == b.to_bits())
+            || !old_weights
+                .iter()
+                .zip(&new_weights)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
             || historical.sampler_next_draw != reused.sampler_next_draw
             || historical.last_batch_loss_bits != reused.last_batch_loss_bits
             || serde_json::to_value(&historical.validation).map_err(|e| e.to_string())?
                 != serde_json::to_value(&reused.validation).map_err(|e| e.to_string())?
             || historical.model_sha256 != reused.model_sha256
         {
-            return Err(format!("historical/reused complete-training parity failed at pair {repeat}"));
+            return Err(format!(
+                "historical/reused complete-training parity failed at pair {repeat}"
+            ));
         }
         if let Some(hash) = &expected_hash {
             if &historical.model_sha256 != hash {
-                return Err("full-training repeated seed produced different trained weights".into());
+                return Err(
+                    "full-training repeated seed produced different trained weights".into(),
+                );
             }
         } else {
             expected_hash = Some(historical.model_sha256.clone());

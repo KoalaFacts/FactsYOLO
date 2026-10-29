@@ -23,6 +23,52 @@ PROSPECTIVE_EDGE_FINGERPRINT = "0239bac3429d484db479974c10e5a038cef8829762a7d553
 PROSPECTIVE_GROUPS = ("small_edge", "small_interior", "larger_edge", "larger_interior", "background")
 
 
+# Independently frozen from the untrained TD1 generator before any backend prediction.
+FOUR_SIDE_FINGERPRINT = "59a4a885ff0ca2c5c8e700f8ccaaefbdaf454f2f2d0e6a72d280026b8398b3bd"
+FOUR_SIDE_NAMES = ("left", "top", "right", "bottom")
+
+
+def checked_four_side_report(report, expected_sha, arms):
+    """Audit paired synthetic four-side evidence, never infer independent samples."""
+    if (report.get("source_commit") != expected_sha
+            or report.get("four_side_generator") != "TD1-four-side-paired-v1"
+            or report.get("four_side_seed") != 20261113
+            or report.get("four_side_candidate_budget") != 4096
+            or report.get("four_side_source_rows") != 48
+            or report.get("four_side_transformed_samples") != 192
+            or report.get("four_side_fingerprint") != FOUR_SIDE_FINGERPRINT
+            or report.get("final_holdout_evaluated") is not False):
+        raise ValueError("four-side provenance mismatch")
+
+    for arm in arms:
+        groups = report.get(arm)
+        if not isinstance(groups, dict) or set(groups) != set(FOUR_SIDE_NAMES):
+            raise ValueError(f"missing four-side groups: {arm}")
+        for name in FOUR_SIDE_NAMES:
+            row = groups[name]
+            if not isinstance(row, dict) or type(row.get("samples")) is not int or row["samples"] != 48:
+                raise ValueError(f"invalid four-side group count: {arm}/{name}")
+            hits = row.get("correct_class_iou50")
+            missing = row.get("missing_detections")
+            wrong = row.get("wrong_class_detections")
+            if (any(type(n) is not int or n < 0 for n in (hits, missing, wrong))
+                    or hits + missing + wrong > 48):
+                raise ValueError(f"invalid four-side detection counts: {arm}/{name}")
+            recall = row.get("recall_correct_class_iou50")
+            if (type(recall) not in (int, float) or not math.isfinite(recall)
+                    or abs(recall - hits / 48) > 1e-12):
+                raise ValueError(f"inconsistent four-side recall: {arm}/{name}")
+            iou = row.get("mean_iou_including_misses")
+            correct_class = 48 - missing - wrong
+            minimum = 0.5 * hits / 48
+            maximum = (hits + 0.5 * (correct_class - hits)) / 48
+            if (type(iou) not in (int, float) or not math.isfinite(iou)
+                    or iou < minimum - 1e-6 or iou > maximum + 1e-6
+                    or iou < 0 or iou > 1):
+                raise ValueError(f"inconsistent four-side IoU: {arm}/{name}")
+    return True
+
+
 def checked_prospective_edge_report(report, expected_sha):
     """Fail closed on wrong split/provenance/arithmetic, not on a negative accuracy result."""
     if (report.get("source_commit") != expected_sha
@@ -328,6 +374,8 @@ def main():
         # Both baselines must reproduce the *existing* training command's
         # validation result on this same backend and exact source commit.
         checked_prospective_edge_report(report, env["FACTSYOLO_BUILD_ID"])
+        checked_four_side_report(report, env["FACTSYOLO_BUILD_ID"],
+                                 ("baseline_four_side", "edge_sampling_four_side"))
         reference = reports[backend_name]["validation"]
         paired = report["baseline"]["validation"]
         for key in ("positives", "negatives", "class_accuracy", "recall_iou50",
@@ -345,6 +393,8 @@ def main():
         mirrored = json.loads(run(f"mirror-training-{backend_name}", [
             edge_binary, backend_name, "--mirror"]))
         checked_mirrored_edge_report(mirrored, env["FACTSYOLO_BUILD_ID"])
+        checked_four_side_report(mirrored, env["FACTSYOLO_BUILD_ID"],
+                                 ("mirrored_four_side",))
         if mirrored["backend"] != {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}[backend_name]:
             raise RuntimeError(f"mirrored backend mismatch: {backend_name}")
         (evidence / f"mirror-training-{backend_name}.json").write_text(

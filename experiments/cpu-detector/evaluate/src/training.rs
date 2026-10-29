@@ -23,6 +23,71 @@ pub fn fill_training_batch(
     }
 }
 
+/// Mirror only the four ground-truth edge-positive reserved slots of a TD1
+/// training batch. Slot 0 stays unchanged, 16 flips horizontally, 32 vertically,
+/// and 48 flips both axes. This does not draw RNG, change sample identities,
+/// allocate an image buffer, or change any of the other 60 training slots.
+///
+/// Check all inputs first so malformed labels cannot leave a partially
+/// transformed batch. This is an opt-in experiment, not deployed inference.
+pub fn mirror_reserved_edge_batch(
+    batch: &mut [f32],
+    labels: &mut [Sample],
+) -> Result<(), String> {
+    const SLOTS: [usize; 4] = [0, 16, 32, 48];
+    if batch.len() != 64 * INPUTS || labels.len() != 64 {
+        return Err("mirroring requires a complete 64-sample TD1 batch".into());
+    }
+    for slot in SLOTS {
+        let label = &labels[slot];
+        let [x, y, w, h] = label.box_xywh;
+        if label.class.is_none()
+            || [x, y, w, h].iter().any(|n| !n.is_finite())
+            || w <= 0.0
+            || h <= 0.0
+            || x - w / 2.0 < 0.0
+            || x + w / 2.0 > 1.0
+            || y - h / 2.0 < 0.0
+            || y + h / 2.0 > 1.0
+            || batch[slot * INPUTS..(slot + 1) * INPUTS]
+                .iter()
+                .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+        {
+            return Err("invalid reserved TD1 edge sample for mirroring".into());
+        }
+    }
+
+    for (orientation, slot) in SLOTS.into_iter().enumerate() {
+        let horizontal = orientation & 1 != 0;
+        let vertical = orientation & 2 != 0;
+        if !horizontal && !vertical {
+            continue;
+        }
+        let start = slot * INPUTS;
+        let mut original = [0.0_f32; INPUTS];
+        original.copy_from_slice(&batch[start..start + INPUTS]);
+        // An 8x8 block contains exactly 8x8 RGB pixels; reflection can
+        // permute already averaged F32 features without any rounding.
+        for y in 0..8 {
+            for x in 0..8 {
+                let source_x = if horizontal { 7 - x } else { x };
+                let source_y = if vertical { 7 - y } else { y };
+                for channel in 0..3 {
+                    batch[start + (y * 8 + x) * 3 + channel] =
+                        original[(source_y * 8 + source_x) * 3 + channel];
+                }
+            }
+        }
+        if horizontal {
+            labels[slot].box_xywh[0] = 1.0 - labels[slot].box_xywh[0];
+        }
+        if vertical {
+            labels[slot].box_xywh[1] = 1.0 - labels[slot].box_xywh[1];
+        }
+    }
+    Ok(())
+}
+
 // Preserve the original operation order in both the validation and commit pass.
 fn candidate(weight: f32, gradient: f32, m: f32, v: f32, a: f32, b: f32) -> (f32, f32, f32) {
     let nm = 0.9 * m + 0.1 * gradient;

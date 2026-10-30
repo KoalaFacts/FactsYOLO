@@ -114,6 +114,27 @@ class FullTrainingGateTests(unittest.TestCase):
         report["runs"][0]["reused"]["training_ns"] = 120000000
         self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
 
+    def test_rejects_uninstrumented_batch_allocations(self):
+        # The historical arm allocates two nonempty buffers per step (2,000
+        # steps); reused mode reserves two once. Missing allocator counters
+        # must not masquerade as successful resource measurements.
+        report = fixture()
+        self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+        for mode, field, value in (
+                ("historical", "allocation_requests", 3999),
+                ("reused", "allocation_requests", 1),
+                ("historical", "requested_bytes", 0),
+                ("reused", "requested_bytes", 0)):
+            corrupted = copy.deepcopy(report)
+            corrupted["runs"][0][mode][field] = value
+            with self.subTest(mode=mode, field=field), self.assertRaises(ValueError):
+                validate_full_training_benchmark(corrupted, SHA, BACKEND)
+        boundary = fixture()
+        for run in boundary["runs"]:
+            run["historical"]["allocation_requests"] = 4000
+            run["reused"]["allocation_requests"] = 2
+        self.assertTrue(validate_full_training_benchmark(boundary, SHA, BACKEND))
+
     def test_rejects_mismatched_weights_despite_self_reported_parity(self):
         report = fixture()
         report["runs"][2]["reused"]["model_sha256"] = "0" * 64
@@ -301,6 +322,12 @@ class FullTrainingGateTests(unittest.TestCase):
             mutant[idx][key] = value
             with self.subTest(idx=idx, key=key), self.assertRaises(ValueError):
                 validate_interrupted_full_training_diagnostics(encode(mutant), SHA, BACKEND)
+        for field, value in (("allocation_requests", 3999), ("requested_bytes", 0)):
+            mutant = copy.deepcopy(events)
+            mutant[1]["measurement"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_interrupted_full_training_diagnostics(
+                    encode(mutant), SHA, BACKEND)
         mutant = copy.deepcopy(events)
         mutant[1]["measurement"]["training_ns"] = 0
         with self.assertRaises(ValueError):

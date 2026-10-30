@@ -19,6 +19,11 @@ FALSE_POSITIVE_RATE_MAX = _f32_literal(0.05)
 BACKEND_NAMES = {"burn-flex-0.22.0", "candle-cpu-0.11.0"}
 # The registered candidate budget is 600s, including all 2,000 optimizer steps.
 MAX_TRAINING_NS = 600 * 1_000_000_000
+# Each historical step allocates nonempty input and label Vec buffers; reuse
+# reserves two such buffers exactly once. A successful allocator measurement
+# cannot omit these requests or all requested bytes.
+MIN_HISTORICAL_ALLOCATIONS = 2 * 2000
+MIN_REUSED_ALLOCATIONS = 2
 
 
 def _int(value, minimum=0, maximum=None):
@@ -103,12 +108,16 @@ def validate_full_training_benchmark(report, expected_sha, backend):
                 or run["first"] != ("historical" if i % 2 == 0 else "reused")):
             raise ValueError("full training benchmark order/arms mismatch")
         arms = [run.get("historical"), run.get("reused")]
-        for arm in arms:
+        for mode, arm in zip(("historical", "reused"), arms):
             if not isinstance(arm, dict):
                 raise ValueError("missing full training arm")
             for field in ("training_ns", "batch_preparation_ns", "allocation_requests", "requested_bytes"):
                 if not _int(arm.get(field)):
                     raise ValueError(f"invalid training resource metric: {field}")
+            minimum_requests = (MIN_HISTORICAL_ALLOCATIONS if mode == "historical"
+                                else MIN_REUSED_ALLOCATIONS)
+            if arm["allocation_requests"] < minimum_requests or arm["requested_bytes"] == 0:
+                raise ValueError("missing compulsory training batch buffer allocations")
             if (not 0 < arm["training_ns"] <= MAX_TRAINING_NS
                     or arm["batch_preparation_ns"] > arm["training_ns"]):
                 raise ValueError("impossible training/preparation times")
@@ -179,8 +188,8 @@ def validate_interrupted_full_training_diagnostics(raw_jsonl, source_commit, bac
             or not _int(arm["training_ns"], 1, MAX_TRAINING_NS)
             or not _int(arm["batch_preparation_ns"])
             or arm["batch_preparation_ns"] > arm["training_ns"]
-            or not _int(arm["allocation_requests"])
-            or not _int(arm["requested_bytes"])
+            or not _int(arm["allocation_requests"], MIN_HISTORICAL_ALLOCATIONS)
+            or not _int(arm["requested_bytes"], 1)
             or not isinstance(arm["model_sha256"], str)
             or not re.fullmatch(r"[0-9a-f]{64}", arm["model_sha256"])
             or not _int(arm["sampler_next_draw"], 0, 2**32 - 1)

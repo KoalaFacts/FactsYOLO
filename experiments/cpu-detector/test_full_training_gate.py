@@ -135,6 +135,49 @@ class FullTrainingGateTests(unittest.TestCase):
             run["reused"]["allocation_requests"] = 2
         self.assertTrue(validate_full_training_benchmark(boundary, SHA, BACKEND))
 
+    def test_rejects_partially_instrumented_feature_allocation_bytes(self):
+        # A positive byte counter can still miss almost all requested bytes.
+        # 2,000 historical batches each allocate 64 x 192 F32 features;
+        # reuse requests the same input buffer once, regardless of labels.
+        report = fixture()
+        for mode, minimum in (("historical", 2000 * 64 * 192 * 4),
+                              ("reused", 64 * 192 * 4)):
+            underreported = copy.deepcopy(report)
+            underreported["runs"][0][mode]["requested_bytes"] = minimum - 1
+            with self.subTest(mode=mode, edge="below"), self.assertRaises(ValueError):
+                validate_full_training_benchmark(underreported, SHA, BACKEND)
+            boundary = copy.deepcopy(report)
+            boundary["runs"][0][mode]["requested_bytes"] = minimum
+            with self.subTest(mode=mode, edge="boundary"):
+                self.assertTrue(validate_full_training_benchmark(boundary, SHA, BACKEND))
+
+        # The completed historical arm retained in an interrupted run must
+        # enforce the same conservative lower bound.
+        common = {"schema": "fy-full-training-progress-v1",
+                  "source_commit": SHA, "backend": BACKEND, "pair": 0}
+        trace = [
+            {**common, "arm": "historical", "event": "started"},
+            {**common, "arm": "historical", "event": "completed",
+             "measurement": copy.deepcopy(report["runs"][0]["historical"])},
+            {**common, "arm": "reused", "event": "started"},
+            {**common, "arm": "reused", "event": "failed",
+             "error": CONTROLLED_FAILURE},
+            {"schema": "fy-full-training-progress-v1",
+             "event": "process_failed", "error": CONTROLLED_FAILURE},
+        ]
+        for byte_count, accepted in ((2000 * 64 * 192 * 4 - 1, False),
+                                     (2000 * 64 * 192 * 4, True)):
+            trace[1]["measurement"]["requested_bytes"] = byte_count
+            diagnostic = "".join(json.dumps(row) + "\n" for row in trace)
+            with self.subTest(interrupted_bytes=byte_count):
+                if accepted:
+                    self.assertTrue(validate_interrupted_full_training_diagnostics(
+                        diagnostic, SHA, BACKEND))
+                else:
+                    with self.assertRaises(ValueError):
+                        validate_interrupted_full_training_diagnostics(
+                            diagnostic, SHA, BACKEND)
+
     def test_rejects_mismatched_weights_despite_self_reported_parity(self):
         report = fixture()
         report["runs"][2]["reused"]["model_sha256"] = "0" * 64

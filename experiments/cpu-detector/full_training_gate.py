@@ -24,6 +24,12 @@ MAX_TRAINING_NS = 600 * 1_000_000_000
 # cannot omit these requests or all requested bytes.
 MIN_HISTORICAL_ALLOCATIONS = 2 * 2000
 MIN_REUSED_ALLOCATIONS = 2
+# Every historical batch requests a 64 x 192 F32 feature buffer; reuse
+# reserves it once. These conservative byte floors intentionally omit labels.
+# Positive but partial byte counters must not qualify as resource evidence.
+FEATURE_BYTES_PER_BATCH = 64 * 192 * 4
+MIN_HISTORICAL_REQUESTED_BYTES = 2000 * FEATURE_BYTES_PER_BATCH
+MIN_REUSED_REQUESTED_BYTES = FEATURE_BYTES_PER_BATCH
 
 
 def _int(value, minimum=0, maximum=None):
@@ -116,7 +122,10 @@ def validate_full_training_benchmark(report, expected_sha, backend):
                     raise ValueError(f"invalid training resource metric: {field}")
             minimum_requests = (MIN_HISTORICAL_ALLOCATIONS if mode == "historical"
                                 else MIN_REUSED_ALLOCATIONS)
-            if arm["allocation_requests"] < minimum_requests or arm["requested_bytes"] == 0:
+            minimum_bytes = (MIN_HISTORICAL_REQUESTED_BYTES if mode == "historical"
+                             else MIN_REUSED_REQUESTED_BYTES)
+            if (arm["allocation_requests"] < minimum_requests
+                    or arm["requested_bytes"] < minimum_bytes):
                 raise ValueError("missing compulsory training batch buffer allocations")
             if (not 0 < arm["training_ns"] <= MAX_TRAINING_NS
                     or arm["batch_preparation_ns"] > arm["training_ns"]):
@@ -189,7 +198,7 @@ def validate_interrupted_full_training_diagnostics(raw_jsonl, source_commit, bac
             or not _int(arm["batch_preparation_ns"])
             or arm["batch_preparation_ns"] > arm["training_ns"]
             or not _int(arm["allocation_requests"], MIN_HISTORICAL_ALLOCATIONS)
-            or not _int(arm["requested_bytes"], 1)
+            or not _int(arm["requested_bytes"], MIN_HISTORICAL_REQUESTED_BYTES)
             or not isinstance(arm["model_sha256"], str)
             or not re.fullmatch(r"[0-9a-f]{64}", arm["model_sha256"])
             or not _int(arm["sampler_next_draw"], 0, 2**32 - 1)

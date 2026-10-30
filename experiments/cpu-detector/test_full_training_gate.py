@@ -203,10 +203,13 @@ class FullTrainingGateTests(unittest.TestCase):
             {"schema": "fy-full-training-progress-v1",
              "event": "process_failed", "error": CONTROLLED_FAILURE},
         ]
+        # Prove the unmodified interrupted JSONL is valid before negative tests.
+        self.assertTrue(validate_interrupted_full_training_diagnostics(
+            "".join(json.dumps(row) + "\n" for row in trace), SHA, BACKEND))
         for field in ("allocation_requests", "requested_bytes"):
             corrupted = copy.deepcopy(trace)
             corrupted[1]["measurement"][field] = 1 << 64
-            diagnostic = "".join(json.dumps(row) + "\\n" for row in corrupted)
+            diagnostic = "".join(json.dumps(row) + "\n" for row in corrupted)
             with self.subTest(interrupted_field=field), self.assertRaises(ValueError):
                 validate_interrupted_full_training_diagnostics(
                     diagnostic, SHA, BACKEND)

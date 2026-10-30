@@ -40,6 +40,9 @@ def fixture():
     return {
         "scope": "full TD1 Burn/Candle training (2000 optimizer steps) in one process",
         "source_commit": SHA, "backend": BACKEND, "build": "release",
+        "resource_metric": "successful process allocation requests and requested bytes; not peak RSS",
+        "timing_scope": ("complete forward/loss/backward/Adam + batch assembly; "
+                         "excludes data generation, validation and builds"),
         "training_seed": 101, "initialization_seed": 404, "sampler_seed": 707,
         "steps_per_arm": 2000, "batch_size": 64,
         "training_samples": 4096, "repetitions": 8,
@@ -63,6 +66,25 @@ def diagnostics_fixture(report):
 
 
 class FullTrainingGateTests(unittest.TestCase):
+    def test_rejects_false_resource_and_training_scope_claims(self):
+        # RED: the previous gate accepted missing scope metadata and even an
+        # explicit peak-RSS claim, although the Rust benchmark only counts
+        # requested allocations and times training without setup/validation.
+        report = fixture()
+        self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+        for field, misleading in (
+                ("resource_metric", "peak RSS / live resident memory"),
+                ("timing_scope", "batch preparation only"),
+                ("resource_metric", None),
+                ("timing_scope", None)):
+            corrupted = copy.deepcopy(report)
+            if misleading is None:
+                del corrupted[field]
+            else:
+                corrupted[field] = misleading
+            with self.subTest(field=field, misleading=misleading), self.assertRaises(ValueError):
+                validate_full_training_benchmark(corrupted, SHA, BACKEND)
+
     def test_requires_eight_balanced_training_pairs(self):
         report = fixture()
         starts = [run["first"] for run in report["runs"]]

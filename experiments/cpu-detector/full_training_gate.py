@@ -91,6 +91,11 @@ def validate_full_training_benchmark(report, expected_sha, backend):
             or backend not in BACKEND_NAMES
             or report.get("backend") != backend
             or report.get("build") != "release"
+            or report.get("resource_metric") != (
+                "successful process allocation requests and requested bytes; not peak RSS")
+            or report.get("timing_scope") != (
+                "complete forward/loss/backward/Adam + batch assembly; "
+                "excludes data generation, validation and builds")
             or report.get("os") not in ("linux", "windows")
             or report.get("architecture") != "x86_64"
             or report.get("rayon_threads") != "1"

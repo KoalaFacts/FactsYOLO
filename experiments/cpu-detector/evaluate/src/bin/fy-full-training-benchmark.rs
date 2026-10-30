@@ -16,7 +16,7 @@ use std::{
     alloc::{GlobalAlloc, Layout, System},
     io::{self, Write},
     sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 const STEPS: usize = 2_000;
@@ -24,6 +24,12 @@ const BATCH: usize = 64;
 // Four historical-first and four reused-first pairs reduce fixed-order bias.
 // Timing remains exploratory and never gates on a claimed speedup.
 const REPEATS: usize = 8;
+const ARM_BUDGET: Duration = Duration::from_secs(600);
+
+fn over_arm_budget(elapsed: Duration) -> bool {
+    elapsed > ARM_BUDGET
+}
+
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
 
@@ -147,7 +153,7 @@ fn train_one(
         preparation_ns += setup_started.elapsed().as_nanos();
     }
     for step in 1..=STEPS {
-        if started.elapsed().as_secs_f64() > 600.0 {
+        if over_arm_budget(started.elapsed()) {
             return Err("full-training benchmark exceeded the registered 600s arm budget".into());
         }
         let batch_started = Instant::now();
@@ -186,7 +192,12 @@ fn train_one(
             }
         };
     }
-    let training_ns = started.elapsed().as_nanos();
+    let elapsed = started.elapsed();
+    // A slow final optimizer step can cross 600s with no next iteration to check.
+    if over_arm_budget(elapsed) {
+        return Err("full-training benchmark exceeded the registered 600s arm budget".into());
+    }
+    let training_ns = elapsed.as_nanos();
     let allocation_requests = REQUESTS.load(Ordering::Relaxed) - before_requests;
     let requested_bytes = BYTES.load(Ordering::Relaxed) - before_bytes;
 
@@ -356,6 +367,18 @@ fn run() -> Result<(), String> {
         .map_err(|e| e.to_string())?
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{over_arm_budget, ARM_BUDGET};
+    use std::time::Duration;
+
+    #[test]
+    fn registered_arm_budget_is_inclusive() {
+        assert!(!over_arm_budget(ARM_BUDGET));
+        assert!(over_arm_budget(ARM_BUDGET + Duration::from_nanos(1)));
+    }
 }
 
 fn main() {

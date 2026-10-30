@@ -17,6 +17,8 @@ MEAN_IOU_MIN = _f32_literal(0.70)
 FALSE_POSITIVE_RATE_MAX = _f32_literal(0.05)
 
 BACKEND_NAMES = {"burn-flex-0.22.0", "candle-cpu-0.11.0"}
+# The registered candidate budget is 600s, including all 2,000 optimizer steps.
+MAX_TRAINING_NS = 600 * 1_000_000_000
 
 
 def _int(value, minimum=0, maximum=None):
@@ -107,7 +109,8 @@ def validate_full_training_benchmark(report, expected_sha, backend):
             for field in ("training_ns", "batch_preparation_ns", "allocation_requests", "requested_bytes"):
                 if not _int(arm.get(field)):
                     raise ValueError(f"invalid training resource metric: {field}")
-            if arm["training_ns"] <= 0 or arm["batch_preparation_ns"] > arm["training_ns"]:
+            if (not 0 < arm["training_ns"] <= MAX_TRAINING_NS
+                    or arm["batch_preparation_ns"] > arm["training_ns"]):
                 raise ValueError("impossible training/preparation times")
             if not (isinstance(arm.get("model_sha256"), str)
                     and re.fullmatch(r"[0-9a-f]{64}", arm["model_sha256"])):
@@ -173,7 +176,7 @@ def validate_interrupted_full_training_diagnostics(raw_jsonl, source_commit, bac
                 "requested_bytes", "model_sha256", "sampler_next_draw",
                 "last_batch_loss_bits", "validation"}
     if (not isinstance(arm, dict) or set(arm) != required
-            or not _int(arm["training_ns"], 1)
+            or not _int(arm["training_ns"], 1, MAX_TRAINING_NS)
             or not _int(arm["batch_preparation_ns"])
             or arm["batch_preparation_ns"] > arm["training_ns"]
             or not _int(arm["allocation_requests"])

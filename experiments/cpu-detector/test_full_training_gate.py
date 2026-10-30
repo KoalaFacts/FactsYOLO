@@ -189,6 +189,40 @@ class FullTrainingGateTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate_full_training_benchmark(sample, SHA, BACKEND)
 
+    def test_enforces_registered_600_second_training_budget(self):
+        # The current 600s Rust guard checked only at the start of each step.
+        # If the final step ran over budget, a successful report could escape.
+        budget_ns = 600 * 1_000_000_000
+        for duration_ns, accepted in ((budget_ns, True), (budget_ns + 1, False)):
+            report = fixture()
+            for pair in report["runs"]:
+                for mode in ("historical", "reused"):
+                    pair[mode]["training_ns"] = duration_ns
+            common = {"schema": "fy-full-training-progress-v1",
+                      "source_commit": SHA, "backend": BACKEND, "pair": 0}
+            events = [
+                {**common, "arm": "historical", "event": "started"},
+                {**common, "arm": "historical", "event": "completed",
+                 "measurement": report["runs"][0]["historical"]},
+                {**common, "arm": "reused", "event": "started"},
+                {**common, "arm": "reused", "event": "failed",
+                 "error": CONTROLLED_FAILURE},
+                {"schema": "fy-full-training-progress-v1",
+                 "event": "process_failed", "error": CONTROLLED_FAILURE},
+            ]
+            trace = "".join(json.dumps(row) + "\n" for row in events)
+            with self.subTest(duration_ns=duration_ns):
+                if accepted:
+                    self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+                    self.assertTrue(validate_interrupted_full_training_diagnostics(
+                        trace, SHA, BACKEND))
+                else:
+                    with self.assertRaises(ValueError):
+                        validate_full_training_benchmark(report, SHA, BACKEND)
+                    with self.assertRaises(ValueError):
+                        validate_interrupted_full_training_diagnostics(
+                            trace, SHA, BACKEND)
+
     def test_rejects_nonfinite_or_negative_final_loss_witness(self):
         # loss_gradient always returns a finite, nonnegative f32 loss. Matching
         # impossible bits across all arms previously passed the parity gate.

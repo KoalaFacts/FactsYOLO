@@ -30,6 +30,15 @@ fn over_arm_budget(elapsed: Duration) -> bool {
     elapsed > ARM_BUDGET
 }
 
+// A Debug executable must not produce evidence mislabelled as Release.
+// The registered benchmark and its independent Python gate require Release.
+fn require_release_measurement(debug_assertions_enabled: bool) -> Result<(), String> {
+    if debug_assertions_enabled {
+        return Err("full-training benchmark requires a Release build".into());
+    }
+    Ok(())
+}
+
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
 
@@ -230,6 +239,7 @@ fn run() -> Result<(), String> {
     if args.len() != 2 || args[1] != "--measure" {
         return Err("usage: fy-full-training-benchmark <burn|candle> --measure".into());
     }
+    require_release_measurement(cfg!(debug_assertions))?;
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
         return Err("source commit must be supplied at compile time".into());
@@ -387,12 +397,18 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{over_arm_budget, ARM_BUDGET};
+    use super::{over_arm_budget, require_release_measurement, ARM_BUDGET};
     use std::time::Duration;
 
     #[test]
     fn registered_arm_budget_is_inclusive() {
         assert!(!over_arm_budget(ARM_BUDGET));
         assert!(over_arm_budget(ARM_BUDGET + Duration::from_nanos(1)));
+    }
+
+    #[test]
+    fn debug_build_cannot_emit_mislabelled_release_measurements() {
+        assert!(require_release_measurement(true).is_err());
+        assert!(require_release_measurement(false).is_ok());
     }
 }

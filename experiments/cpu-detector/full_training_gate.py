@@ -30,6 +30,9 @@ MIN_REUSED_ALLOCATIONS = 2
 FEATURE_BYTES_PER_BATCH = 64 * 192 * 4
 MIN_HISTORICAL_REQUESTED_BYTES = 2000 * FEATURE_BYTES_PER_BATCH
 MIN_REUSED_REQUESTED_BYTES = FEATURE_BYTES_PER_BATCH
+# Rust's counting allocator uses AtomicU64 for both counters; a larger
+# Python integer cannot have originated from a serialized Rust measurement.
+MAX_U64 = (1 << 64) - 1
 
 
 def _int(value, minimum=0, maximum=None):
@@ -117,8 +120,11 @@ def validate_full_training_benchmark(report, expected_sha, backend):
         for mode, arm in zip(("historical", "reused"), arms):
             if not isinstance(arm, dict):
                 raise ValueError("missing full training arm")
-            for field in ("training_ns", "batch_preparation_ns", "allocation_requests", "requested_bytes"):
+            for field in ("training_ns", "batch_preparation_ns"):
                 if not _int(arm.get(field)):
+                    raise ValueError(f"invalid training resource metric: {field}")
+            for field in ("allocation_requests", "requested_bytes"):
+                if not _int(arm.get(field), 0, MAX_U64):
                     raise ValueError(f"invalid training resource metric: {field}")
             minimum_requests = (MIN_HISTORICAL_ALLOCATIONS if mode == "historical"
                                 else MIN_REUSED_ALLOCATIONS)
@@ -197,8 +203,8 @@ def validate_interrupted_full_training_diagnostics(raw_jsonl, source_commit, bac
             or not _int(arm["training_ns"], 1, MAX_TRAINING_NS)
             or not _int(arm["batch_preparation_ns"])
             or arm["batch_preparation_ns"] > arm["training_ns"]
-            or not _int(arm["allocation_requests"], MIN_HISTORICAL_ALLOCATIONS)
-            or not _int(arm["requested_bytes"], MIN_HISTORICAL_REQUESTED_BYTES)
+            or not _int(arm["allocation_requests"], MIN_HISTORICAL_ALLOCATIONS, MAX_U64)
+            or not _int(arm["requested_bytes"], MIN_HISTORICAL_REQUESTED_BYTES, MAX_U64)
             or not isinstance(arm["model_sha256"], str)
             or not re.fullmatch(r"[0-9a-f]{64}", arm["model_sha256"])
             or not _int(arm["sampler_next_draw"], 0, 2**32 - 1)

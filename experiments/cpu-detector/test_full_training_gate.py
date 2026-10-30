@@ -178,6 +178,39 @@ class FullTrainingGateTests(unittest.TestCase):
                         validate_interrupted_full_training_diagnostics(
                             diagnostic, SHA, BACKEND)
 
+    def test_rejects_unrepresentable_u64_allocator_counters(self):
+        # Rust records these fields in AtomicU64 and serializes u64 values.
+        # Python accepts arbitrary-size JSON integers; reject impossible
+        # witnesses in both fully completed and interrupted evidence.
+        report = fixture()
+        self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+        for mode in ("historical", "reused"):
+            for field in ("allocation_requests", "requested_bytes"):
+                corrupted = copy.deepcopy(report)
+                corrupted["runs"][0][mode][field] = 1 << 64
+                with self.subTest(mode=mode, field=field), self.assertRaises(ValueError):
+                    validate_full_training_benchmark(corrupted, SHA, BACKEND)
+
+        common = {"schema": "fy-full-training-progress-v1",
+                  "source_commit": SHA, "backend": BACKEND, "pair": 0}
+        trace = [
+            {**common, "arm": "historical", "event": "started"},
+            {**common, "arm": "historical", "event": "completed",
+             "measurement": copy.deepcopy(report["runs"][0]["historical"])},
+            {**common, "arm": "reused", "event": "started"},
+            {**common, "arm": "reused", "event": "failed",
+             "error": CONTROLLED_FAILURE},
+            {"schema": "fy-full-training-progress-v1",
+             "event": "process_failed", "error": CONTROLLED_FAILURE},
+        ]
+        for field in ("allocation_requests", "requested_bytes"):
+            corrupted = copy.deepcopy(trace)
+            corrupted[1]["measurement"][field] = 1 << 64
+            diagnostic = "".join(json.dumps(row) + "\\n" for row in corrupted)
+            with self.subTest(interrupted_field=field), self.assertRaises(ValueError):
+                validate_interrupted_full_training_diagnostics(
+                    diagnostic, SHA, BACKEND)
+
     def test_rejects_mismatched_weights_despite_self_reported_parity(self):
         report = fixture()
         report["runs"][2]["reused"]["model_sha256"] = "0" * 64

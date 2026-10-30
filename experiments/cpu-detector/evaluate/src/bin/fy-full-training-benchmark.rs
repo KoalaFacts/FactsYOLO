@@ -369,18 +369,6 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{over_arm_budget, ARM_BUDGET};
-    use std::time::Duration;
-
-    #[test]
-    fn registered_arm_budget_is_inclusive() {
-        assert!(!over_arm_budget(ARM_BUDGET));
-        assert!(over_arm_budget(ARM_BUDGET + Duration::from_nanos(1)));
-    }
-}
-
 fn main() {
     if let Err(error) = run() {
         // Preserve a machine-readable JSONL failure record after the already
@@ -394,5 +382,17 @@ fn main() {
             eprintln!("error: {error}");
         }
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{over_arm_budget, ARM_BUDGET};
+    use std::time::Duration;
+
+    #[test]
+    fn registered_arm_budget_is_inclusive() {
+        assert!(!over_arm_budget(ARM_BUDGET));
+        assert!(over_arm_budget(ARM_BUDGET + Duration::from_nanos(1)));
     }
 }

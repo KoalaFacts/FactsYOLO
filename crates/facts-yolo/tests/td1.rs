@@ -571,3 +571,208 @@ fn borrowed_td1_input_matches_compact_rgb_with_last_row_without_padding() {
         release(result);
     }
 }
+
+#[test]
+fn native_td1_matches_portable_predictions_across_images_formats_and_row_strides() {
+    use fy_tiny_model::{Rng, W2};
+
+    // Exercise all 192 input features through a real TD1 artifact, rather than
+    // checking only the final blue feature. Two independent spatial channels
+    // select different classes, and other channels change the decoded box.
+    let mut reference = Model {
+        weights: vec![0.0; PARAMETERS],
+    };
+    for feature in 0..INPUTS {
+        // Every block/channel influences at least one active hidden unit.
+        // Strong corner probes additionally make both object classes observable.
+        let offset = feature * HIDDEN;
+        reference.weights[offset] = (feature % 13 + 1) as f32 * 0.001;
+        reference.weights[offset + 1] = (feature % 17 + 1) as f32 * 0.001;
+        reference.weights[offset + 2] = (feature % 19 + 1) as f32 * 0.001;
+    }
+    reference.weights[0] = 4.0; // top-left red -> hidden 0
+    reference.weights[(INPUTS - 1) * HIDDEN + 1] = 4.0; // bottom-right blue -> hidden 1
+    reference.weights[((3 * 8 + 3) * 3 + 1) * HIDDEN + 2] = 4.0; // green -> hidden 2
+    reference.weights[W2] = 2.0; // black image must remain background
+    reference.weights[B1 + 1] = 6.0; // class 0
+    reference.weights[B1 + 7 + 2] = 6.0; // class 1
+    reference.weights[B1 + 3] = 1.0; // center x
+    reference.weights[B1 + 7 + 4] = 1.0; // center y
+    reference.weights[B1 + 2 * 7 + 5] = 1.0; // width
+    reference.weights[B1 + 6] = 0.25; // height
+    reference.weights[W2 + 3] = -0.8;
+    reference.weights[W2 + 4] = -0.4;
+    reference.weights[W2 + 5] = -0.7;
+    reference.weights[W2 + 6] = -1.0;
+
+    let native = Context::new(&reference.to_bytes().unwrap());
+    let mut images = vec![vec![0_u8; 64 * 64 * 3]];
+    let mut red = images[0].clone();
+    let mut blue = images[0].clone();
+    for y in 0..8 {
+        for x in 0..8 {
+            red[(y * 64 + x) * 3] = 255;
+            blue[((y + 56) * 64 + x + 56) * 3 + 2] = 255;
+        }
+    }
+    images.extend([red, blue]);
+    // Unlike the isolated final-block probe, these images vary every block
+    // and channel. Reproducible synthetic frames, never a natural-image claim.
+    for seed in 0..12 {
+        let mut rng = Rng::new(0x54D1 + seed);
+        images.push(
+            (0..64 * 64 * 3)
+                .map(|_| (rng.next_u32() & 255) as u8)
+                .collect(),
+        );
+    }
+
+    let mut saw_background = false;
+    let mut saw_class_0 = false;
+    let mut saw_class_1 = false;
+    for (frame, rgb) in images.iter().enumerate() {
+        let portable = reference.detect(rgb).unwrap();
+        match portable.as_ref().map(|d| d.class) {
+            None => saw_background = true,
+            Some(0) => saw_class_0 = true,
+            Some(1) => saw_class_1 = true,
+            other => panic!("unexpected reference class {other:?}"),
+        }
+        let expected = portable
+            .into_iter()
+            .map(|d| FyDetection {
+                x_min: d.corners[0],
+                y_min: d.corners[1],
+                x_max: d.corners[2],
+                y_max: d.corners[3],
+                score: d.score,
+                class_id: d.class as u32,
+            })
+            .collect::<Vec<_>>();
+
+        // Verify exact native layout parity independently of the accepted
+        // F32 numerical tolerance between native and portable reference outputs.
+        let mut native_rgb_baseline: Option<Vec<FyDetection>> = None;
+        for (format, channels) in [(FY_RGB8, 3), (FY_BGR8, 3), (FY_RGBA8, 4)] {
+            for padding in [0, 1, 13] {
+                let stride = 64 * channels + padding;
+                // Exclude final-row padding from the supplied byte length.
+                // Inter-row padding has a poison byte that must never affect
+                // feature extraction or model output.
+                let mut borrowed = vec![0xA5_u8; stride * 63 + 64 * channels];
+                for (index, pixel) in rgb.chunks_exact(3).enumerate() {
+                    let x = index % 64;
+                    let y = index / 64;
+                    let at = y * stride + x * channels;
+                    if format == FY_BGR8 {
+                        borrowed[at..at + 3].copy_from_slice(&[pixel[2], pixel[1], pixel[0]]);
+                    } else {
+                        borrowed[at..at + 3].copy_from_slice(pixel);
+                    }
+                    if channels == 4 {
+                        borrowed[at + 3] = ((x * 37 + y * 19) & 255) as u8;
+                    }
+                }
+                // Miri deliberately perturbs imprecise floating-point
+                // intrinsics between calls. Assert exact source pixels through
+                // the checked native reader before comparing detector output.
+                // This catches row/format/alpha bugs even when Miri's math is
+                // not bitwise repeatable.
+                let view = facts_yolo::image::ImageView::from_bytes(
+                    &borrowed,
+                    64,
+                    64,
+                    stride,
+                    format,
+                    facts_yolo::image::ImageLimits {
+                        max_bytes: 65_536,
+                        max_pixels: 4096,
+                    },
+                )
+                .unwrap();
+                for (index, pixel) in rgb.chunks_exact(3).enumerate() {
+                    assert_eq!(
+                        view.rgb_at((index % 64) as u32, (index / 64) as u32),
+                        Some([pixel[0], pixel[1], pixel[2]]),
+                        "frame {frame}, format {format}, padding {padding}, pixel {index}: RGB bytes"
+                    );
+                }
+
+                let result = native.run(&image(&borrowed, format, stride), 0.5);
+                let actual = copy(result);
+                release(result);
+                if let Some(baseline) = &native_rgb_baseline {
+                    if cfg!(miri) {
+                        // Miri injects small, independent rounding errors for
+                        // imprecise intrinsics such as exp. Keep class/count
+                        // exact and apply the existing TD1 numeric bound only
+                        // to separately executed floating-point outputs.
+                        assert_eq!(
+                            actual.len(),
+                            baseline.len(),
+                            "frame {frame}, format {format}, padding {padding}: native count"
+                        );
+                        for (detection, reference) in actual.iter().zip(baseline) {
+                            assert_eq!(
+                                detection.class_id, reference.class_id,
+                                "frame {frame}, format {format}, padding {padding}: native class"
+                            );
+                            for (field, observed, wanted) in [
+                                ("score", detection.score, reference.score),
+                                ("x_min", detection.x_min, reference.x_min),
+                                ("y_min", detection.y_min, reference.y_min),
+                                ("x_max", detection.x_max, reference.x_max),
+                                ("y_max", detection.y_max, reference.y_max),
+                            ] {
+                                let tolerance = 1e-4_f32 + 1e-4_f32 * wanted.abs();
+                                assert!(
+                                    (observed - wanted).abs() <= tolerance,
+                                    "frame {frame}, format {format}, padding {padding}: native {field} differs: {observed} vs {wanted}, tolerance {tolerance}"
+                                );
+                            }
+                        }
+                    } else {
+                        // Real native executions must remain bitwise identical
+                        // across RGB/BGR/RGBA and supported strides.
+                        assert_eq!(
+                            &actual, baseline,
+                            "frame {frame}, format {format}, padding {padding}: native layouts"
+                        );
+                    }
+                } else {
+                    native_rgb_baseline = Some(actual.clone());
+                }
+                assert_eq!(
+                    actual.len(),
+                    expected.len(),
+                    "frame {frame}, format {format}, padding {padding}: detection count"
+                );
+                for (native, reference) in actual.iter().zip(&expected) {
+                    assert_eq!(
+                        native.class_id, reference.class_id,
+                        "frame {frame}, format {format}, padding {padding}: class"
+                    );
+                    for (field, observed, wanted) in [
+                        ("score", native.score, reference.score),
+                        ("x_min", native.x_min, reference.x_min),
+                        ("y_min", native.y_min, reference.y_min),
+                        ("x_max", native.x_max, reference.x_max),
+                        ("y_max", native.y_max, reference.y_max),
+                    ] {
+                        // The accepted TD1 C/C# gate uses abs 1e-4 + rel 1e-4
+                        // for F32 native-vs-portable values, not exact bits.
+                        let tolerance = 1e-4_f32 + 1e-4_f32 * wanted.abs();
+                        assert!(
+                            (observed - wanted).abs() <= tolerance,
+                            "frame {frame}, format {format}, padding {padding}: {field} differs: native {observed}, portable {wanted}, tolerance {tolerance}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        saw_background && saw_class_0 && saw_class_1,
+        "the regression must exercise suppression and both classes"
+    );
+}

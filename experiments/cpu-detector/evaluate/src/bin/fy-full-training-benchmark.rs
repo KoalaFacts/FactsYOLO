@@ -211,9 +211,7 @@ fn train_one(
     }
     let elapsed = match mode {
         Mode::Historical => training_elapsed_after_cleanup(started, ()),
-        Mode::Reused => {
-            training_elapsed_after_cleanup(started, (reused_inputs, reused_labels))
-        }
+        Mode::Reused => training_elapsed_after_cleanup(started, (reused_inputs, reused_labels)),
     };
     // A slow final optimizer step or buffer release can cross the arm budget.
     if over_arm_budget(elapsed) {

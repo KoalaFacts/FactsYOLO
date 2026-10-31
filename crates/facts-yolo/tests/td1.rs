@@ -650,6 +650,9 @@ fn native_td1_matches_portable_predictions_across_images_formats_and_row_strides
             })
             .collect::<Vec<_>>();
 
+        // Verify exact native layout parity independently of the accepted
+        // F32 numerical tolerance between native and portable reference outputs.
+        let mut native_rgb_baseline: Option<Vec<FyDetection>> = None;
         for (format, channels) in [(FY_RGB8, 3), (FY_BGR8, 3), (FY_RGBA8, 4)] {
             for padding in [0, 1, 13] {
                 let stride = 64 * channels + padding;
@@ -673,11 +676,40 @@ fn native_td1_matches_portable_predictions_across_images_formats_and_row_strides
                 let result = native.run(&image(&borrowed, format, stride), 0.5);
                 let actual = copy(result);
                 release(result);
+                if let Some(baseline) = &native_rgb_baseline {
+                    assert_eq!(
+                        &actual, baseline,
+                        "frame {frame}, format {format}, padding {padding}: native layouts"
+                    );
+                } else {
+                    native_rgb_baseline = Some(actual.clone());
+                }
                 assert_eq!(
-                    actual, expected,
-                    "frame {frame}, format {format}, padding {padding}: \
-                     native TD1 must match portable class, score and box"
+                    actual.len(),
+                    expected.len(),
+                    "frame {frame}, format {format}, padding {padding}: detection count"
                 );
+                for (native, reference) in actual.iter().zip(&expected) {
+                    assert_eq!(
+                        native.class_id, reference.class_id,
+                        "frame {frame}, format {format}, padding {padding}: class"
+                    );
+                    for (field, observed, wanted) in [
+                        ("score", native.score, reference.score),
+                        ("x_min", native.x_min, reference.x_min),
+                        ("y_min", native.y_min, reference.y_min),
+                        ("x_max", native.x_max, reference.x_max),
+                        ("y_max", native.y_max, reference.y_max),
+                    ] {
+                        // The accepted TD1 C/C# gate uses abs 1e-4 + rel 1e-4
+                        // for F32 native-vs-portable values, not exact bits.
+                        let tolerance = 1e-4_f32 + 1e-4_f32 * wanted.abs();
+                        assert!(
+                            (observed - wanted).abs() <= tolerance,
+                            "frame {frame}, format {format}, padding {padding}: {field} differs: native {observed}, portable {wanted}, tolerance {tolerance}"
+                        );
+                    }
+                }
             }
         }
     }

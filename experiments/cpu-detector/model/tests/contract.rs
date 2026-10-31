@@ -163,6 +163,10 @@ fn positive_boxes_require_nonempty_in_bounds_geometry() {
         [0.9, 0.5, 0.5, 0.5],
         [0.5, 0.1, 0.5, 0.5],
         [0.5, 0.9, 0.5, 0.5],
+        // Positive but subpixel widths/heights can collapse to exactly zero
+        // when TD1 computes F32 corners, despite passing w > 0 / h > 0.
+        [0.5, 0.5, 1e-9, 0.25],
+        [0.5, 0.5, 0.25, 1e-9],
     ] {
         let sample = Sample {
             box_xywh: invalid,

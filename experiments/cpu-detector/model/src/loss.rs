@@ -63,12 +63,18 @@ fn calculate_loss(
             // 64x64 image. Zero-area and out-of-frame boxes can never be
             // faithfully returned by decode(), which drops or clips them.
             let [cx, cy, w, h] = label.box_xywh;
+            let x_min = cx - w / 2.0;
+            let x_max = cx + w / 2.0;
+            let y_min = cy - h / 2.0;
+            let y_max = cy + h / 2.0;
             if w <= 0.0
                 || h <= 0.0
-                || cx - w / 2.0 < 0.0
-                || cx + w / 2.0 > 1.0
-                || cy - h / 2.0 < 0.0
-                || cy + h / 2.0 > 1.0
+                || x_min >= x_max
+                || y_min >= y_max
+                || x_min < 0.0
+                || x_max > 1.0
+                || y_min < 0.0
+                || y_max > 1.0
             {
                 return Err("invalid positive target box geometry".into());
             }

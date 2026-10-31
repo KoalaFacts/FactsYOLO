@@ -131,6 +131,24 @@ class FullTrainingGateTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 validate_full_training_benchmark(report, SHA, BACKEND)
 
+    def test_rejects_impossible_mean_iou_for_correct_class_non_hits(self):
+        # RED: previously 100% correct classification, only 90/102 IoU50
+        # hits, and 99% mean IoU passed. The 12 correct-class non-hits
+        # contribute strictly < 0.5 each, so max mean is 96/102.
+        report = fixture()
+        for run in report["runs"]:
+            for arm in ("historical", "reused"):
+                m = run[arm]["validation"]
+                m["class_accuracy"] = 1.0
+                m["recall_iou50"] = 90 / 102
+                m["mean_iou"] = 0.94
+        self.assertTrue(validate_full_training_benchmark(report, SHA, BACKEND))
+        for run in report["runs"]:
+            for arm in ("historical", "reused"):
+                run[arm]["validation"]["mean_iou"] = 0.99
+        with self.assertRaises(ValueError):
+            validate_full_training_benchmark(report, SHA, BACKEND)
+
     def test_accepts_valid_equal_models_without_assuming_speedup(self):
         report = fixture()
         report["runs"][0]["reused"]["training_ns"] = 120000000

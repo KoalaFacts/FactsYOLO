@@ -60,6 +60,19 @@ def _count_rate(value, count):
             and abs(value * count - round(value * count)) <= 1e-4)
 
 
+def _consistent_iou_with_accuracy(row):
+    # Metrics::measure includes IoU from wrong-class detections, but a
+    # correctly classified detection below IoU50 contributes strictly < 0.5.
+    # Even if every other detection has IoU 1, the reported mean cannot
+    # exceed this bound. Reconstruct counts from the f32 rates first.
+    positives = row["positives"]
+    correct = round(row["class_accuracy"] * positives)
+    hits = round(row["recall_iou50"] * positives)
+    maximum = 1.0 - (correct - hits) / (2 * positives)
+    # Account for f32 IoU accumulation/serialization across 102 positives.
+    return row["mean_iou"] <= maximum + 2e-5
+
+
 def _valid_validation(row):
     if not isinstance(row, dict) or set(row) != {
             "positives", "negatives", "class_accuracy", "recall_iou50",
@@ -73,6 +86,7 @@ def _valid_validation(row):
             and _count_rate(row["recall_iou50"], 102)
             and _count_rate(row["false_positive_rate"], 26)
             and row["recall_iou50"] <= row["class_accuracy"] + 1e-6
+            and _consistent_iou_with_accuracy(row)
             and row["class_accuracy"] >= CLASS_ACCURACY_MIN
             and row["recall_iou50"] >= RECALL_IOU50_MIN
             and row["mean_iou"] >= MEAN_IOU_MIN

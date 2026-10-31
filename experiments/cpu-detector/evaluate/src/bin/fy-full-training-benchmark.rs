@@ -39,6 +39,14 @@ fn require_release_measurement(debug_assertions_enabled: bool) -> Result<(), Str
     Ok(())
 }
 
+// The allocating arm releases each batch before its next step; the reused arm
+// must release its reserved buffers before the full-arm clock stops as well.
+// Otherwise the reported total training times omit one side's teardown cost.
+fn training_elapsed_after_cleanup<T>(started: Instant, buffers: T) -> Duration {
+    drop(buffers);
+    started.elapsed()
+}
+
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
 
@@ -201,8 +209,13 @@ fn train_one(
             }
         };
     }
-    let elapsed = started.elapsed();
-    // A slow final optimizer step can cross 600s with no next iteration to check.
+    let elapsed = match mode {
+        Mode::Historical => training_elapsed_after_cleanup(started, ()),
+        Mode::Reused => {
+            training_elapsed_after_cleanup(started, (reused_inputs, reused_labels))
+        }
+    };
+    // A slow final optimizer step or buffer release can cross the arm budget.
     if over_arm_budget(elapsed) {
         return Err("full-training benchmark exceeded the registered 600s arm budget".into());
     }
@@ -397,8 +410,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{over_arm_budget, require_release_measurement, ARM_BUDGET};
-    use std::time::Duration;
+    use super::{
+        over_arm_budget, require_release_measurement, training_elapsed_after_cleanup, ARM_BUDGET,
+    };
+    use std::{cell::Cell, time::{Duration, Instant}};
 
     #[test]
     fn registered_arm_budget_is_inclusive() {
@@ -410,5 +425,23 @@ mod tests {
     fn debug_build_cannot_emit_mislabelled_release_measurements() {
         assert!(require_release_measurement(true).is_err());
         assert!(require_release_measurement(false).is_ok());
+    }
+
+    #[test]
+    fn full_training_clock_includes_both_reused_buffer_drops() {
+        struct SlowDrop<'a>(&'a Cell<usize>);
+        impl Drop for SlowDrop<'_> {
+            fn drop(&mut self) {
+                std::thread::sleep(Duration::from_millis(1));
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let dropped = Cell::new(0);
+        let elapsed = training_elapsed_after_cleanup(
+            Instant::now(),
+            (SlowDrop(&dropped), SlowDrop(&dropped)),
+        );
+        assert_eq!(dropped.get(), 2);
+        assert!(elapsed >= Duration::from_millis(2));
     }
 }

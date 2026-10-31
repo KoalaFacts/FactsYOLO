@@ -572,7 +572,6 @@ fn borrowed_td1_input_matches_compact_rgb_with_last_row_without_padding() {
     }
 }
 
-
 #[test]
 fn native_td1_matches_portable_predictions_across_images_formats_and_row_strides() {
     use fy_tiny_model::{Rng, W2};

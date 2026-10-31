@@ -111,7 +111,8 @@ jobs:
           if-no-files-found: error
   miri-td1:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Full TD1 Miri interpretation is much slower than native tests.
+    timeout-minutes: 90
     steps:
       - name: Fetch exact public commit without credentials
         shell: bash
@@ -134,7 +135,11 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/miri-td1-evidence
-          cargo +nightly-2026-10-13 miri test -p facts-yolo --features td1 --test td1 --locked --offline 2>&1 | tee target/miri-td1-evidence/tests.log
+          # Run the new parity regression first so an actual panic is visible
+          # immediately, instead of being hidden by later tests on timeout.
+          # Then execute every remaining TD1 test exactly once (no gate skip).
+          cargo +nightly-2026-10-13 miri test -p facts-yolo --features td1 --test td1 --locked --offline -- --exact native_td1_matches_portable_predictions_across_images_formats_and_row_strides --nocapture 2>&1 | tee target/miri-td1-evidence/tests.log
+          cargo +nightly-2026-10-13 miri test -p facts-yolo --features td1 --test td1 --locked --offline -- --skip native_td1_matches_portable_predictions_across_images_formats_and_row_strides --nocapture 2>&1 | tee -a target/miri-td1-evidence/tests.log
       - name: Preserve TD1 evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

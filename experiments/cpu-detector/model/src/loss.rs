@@ -59,6 +59,19 @@ fn calculate_loss(
             return Err("invalid target box".into());
         }
         if target != 0 {
+            // TD1 positive targets describe a nonempty box wholly inside the
+            // 64x64 image. Zero-area and out-of-frame boxes can never be
+            // faithfully returned by decode(), which drops or clips them.
+            let [cx, cy, w, h] = label.box_xywh;
+            if w <= 0.0
+                || h <= 0.0
+                || cx - w / 2.0 < 0.0
+                || cx + w / 2.0 > 1.0
+                || cy - h / 2.0 < 0.0
+                || cy + h / 2.0 > 1.0
+            {
+                return Err("invalid positive target box geometry".into());
+            }
             for i in 0..4 {
                 let p = sigmoid(out[3 + i]);
                 let e = p - label.box_xywh[i];

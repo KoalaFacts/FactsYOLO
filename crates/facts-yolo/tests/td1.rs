@@ -673,14 +673,72 @@ fn native_td1_matches_portable_predictions_across_images_formats_and_row_strides
                         borrowed[at + 3] = ((x * 37 + y * 19) & 255) as u8;
                     }
                 }
+                // Miri deliberately perturbs imprecise floating-point
+                // intrinsics between calls. Assert exact source pixels through
+                // the checked native reader before comparing detector output.
+                // This catches row/format/alpha bugs even when Miri's math is
+                // not bitwise repeatable.
+                let view = facts_yolo::image::ImageView::from_bytes(
+                    &borrowed,
+                    64,
+                    64,
+                    stride,
+                    format,
+                    facts_yolo::image::ImageLimits {
+                        max_bytes: 65_536,
+                        max_pixels: 4096,
+                    },
+                )
+                .unwrap();
+                for (index, pixel) in rgb.chunks_exact(3).enumerate() {
+                    assert_eq!(
+                        view.rgb_at((index % 64) as u32, (index / 64) as u32),
+                        Some([pixel[0], pixel[1], pixel[2]]),
+                        "frame {frame}, format {format}, padding {padding}, pixel {index}: RGB bytes"
+                    );
+                }
+
                 let result = native.run(&image(&borrowed, format, stride), 0.5);
                 let actual = copy(result);
                 release(result);
                 if let Some(baseline) = &native_rgb_baseline {
-                    assert_eq!(
-                        &actual, baseline,
-                        "frame {frame}, format {format}, padding {padding}: native layouts"
-                    );
+                    if cfg!(miri) {
+                        // Miri injects small, independent rounding errors for
+                        // imprecise intrinsics such as exp. Keep class/count
+                        // exact and apply the existing TD1 numeric bound only
+                        // to separately executed floating-point outputs.
+                        assert_eq!(
+                            actual.len(),
+                            baseline.len(),
+                            "frame {frame}, format {format}, padding {padding}: native count"
+                        );
+                        for (detection, reference) in actual.iter().zip(baseline) {
+                            assert_eq!(
+                                detection.class_id, reference.class_id,
+                                "frame {frame}, format {format}, padding {padding}: native class"
+                            );
+                            for (field, observed, wanted) in [
+                                ("score", detection.score, reference.score),
+                                ("x_min", detection.x_min, reference.x_min),
+                                ("y_min", detection.y_min, reference.y_min),
+                                ("x_max", detection.x_max, reference.x_max),
+                                ("y_max", detection.y_max, reference.y_max),
+                            ] {
+                                let tolerance = 1e-4_f32 + 1e-4_f32 * wanted.abs();
+                                assert!(
+                                    (observed - wanted).abs() <= tolerance,
+                                    "frame {frame}, format {format}, padding {padding}: native {field} differs: {observed} vs {wanted}, tolerance {tolerance}"
+                                );
+                            }
+                        }
+                    } else {
+                        // Real native executions must remain bitwise identical
+                        // across RGB/BGR/RGBA and supported strides.
+                        assert_eq!(
+                            &actual, baseline,
+                            "frame {frame}, format {format}, padding {padding}: native layouts"
+                        );
+                    }
                 } else {
                     native_rgb_baseline = Some(actual.clone());
                 }

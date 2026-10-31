@@ -413,7 +413,10 @@ mod tests {
     use super::{
         over_arm_budget, require_release_measurement, training_elapsed_after_cleanup, ARM_BUDGET,
     };
-    use std::{cell::Cell, time::{Duration, Instant}};
+    use std::{
+        cell::Cell,
+        time::{Duration, Instant},
+    };
 
     #[test]
     fn registered_arm_budget_is_inclusive() {

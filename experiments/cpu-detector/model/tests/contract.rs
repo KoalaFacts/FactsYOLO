@@ -139,6 +139,55 @@ fn background_boxes_cannot_hide_invalid_targets() {
 }
 
 #[test]
+fn positive_boxes_require_nonempty_in_bounds_geometry() {
+    // Invalid positive labels otherwise train a target that decode() must
+    // discard (zero area) or clip (outside image), corrupting the objective.
+    let logits = [0.0_f32; 7];
+    let base = Sample {
+        pixels: vec![],
+        class: Some(0),
+        box_xywh: [0.5, 0.5, 1.0, 1.0],
+    };
+    for valid in [[0.5, 0.5, 1.0, 1.0], [0.125, 0.125, 0.25, 0.25]] {
+        let sample = Sample {
+            box_xywh: valid,
+            ..base.clone()
+        };
+        assert!(loss_value(&logits, std::slice::from_ref(&sample)).is_ok());
+        assert!(loss_gradient(&logits, std::slice::from_ref(&sample)).is_ok());
+    }
+    for invalid in [
+        [0.5, 0.5, 0.0, 0.5],
+        [0.5, 0.5, 0.5, 0.0],
+        [0.1, 0.5, 0.5, 0.5],
+        [0.9, 0.5, 0.5, 0.5],
+        [0.5, 0.1, 0.5, 0.5],
+        [0.5, 0.9, 0.5, 0.5],
+    ] {
+        let sample = Sample {
+            box_xywh: invalid,
+            ..base.clone()
+        };
+        assert!(
+            loss_value(&logits, std::slice::from_ref(&sample)).is_err(),
+            "scalar loss accepted invalid positive box {invalid:?}"
+        );
+        assert!(
+            loss_gradient(&logits, std::slice::from_ref(&sample)).is_err(),
+            "gradient loss accepted invalid positive box {invalid:?}"
+        );
+        // Background geometry is intentionally not a regression target;
+        // its normalized (but degenerate) metadata remains acceptable.
+        let background = Sample {
+            class: None,
+            ..sample
+        };
+        assert!(loss_value(&logits, std::slice::from_ref(&background)).is_ok());
+        assert!(loss_gradient(&logits, std::slice::from_ref(&background)).is_ok());
+    }
+}
+
+#[test]
 fn scalar_loss_matches_gradient_loss_and_rejects_corrupt_inputs() {
     let samples = [
         Sample {

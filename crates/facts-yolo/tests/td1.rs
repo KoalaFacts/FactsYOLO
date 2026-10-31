@@ -583,6 +583,14 @@ fn native_td1_matches_portable_predictions_across_images_formats_and_row_strides
     let mut reference = Model {
         weights: vec![0.0; PARAMETERS],
     };
+    for feature in 0..INPUTS {
+        // Every block/channel influences at least one active hidden unit.
+        // Strong corner probes additionally make both object classes observable.
+        let offset = feature * HIDDEN;
+        reference.weights[offset] = (feature % 13 + 1) as f32 * 0.001;
+        reference.weights[offset + 1] = (feature % 17 + 1) as f32 * 0.001;
+        reference.weights[offset + 2] = (feature % 19 + 1) as f32 * 0.001;
+    }
     reference.weights[0] = 4.0; // top-left red -> hidden 0
     reference.weights[(INPUTS - 1) * HIDDEN + 1] = 4.0; // bottom-right blue -> hidden 1
     reference.weights[((3 * 8 + 3) * 3 + 1) * HIDDEN + 2] = 4.0; // green -> hidden 2

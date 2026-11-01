@@ -17,6 +17,11 @@ use std::{
     time::Instant,
 };
 
+// Independently registered held-out source indices used by the trained C/C#
+// consumers. Preserve the first eight for the existing paired benchmark.
+const NATIVE_SAMPLE_INDICES: [usize; 16] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 12, 31, 47, 63, 80, 97, 111, 125,
+];
 const USAGE: &str = "usage: fy-cpu-evaluate train <burn|candle> <new-output-directory> | infer <artifact> <64x64.rgb>";
 fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
@@ -161,7 +166,7 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
         };
         predictions.push(json!({"index":index,"expected_class":sample.class,"expected_corners":sample.class.map(|_|target_corners(sample)),"prediction":prediction(detection),"iou":overlap}));
         // Separate CLI process verification consumes both positive and background examples.
-        if index < 8 {
+        if NATIVE_SAMPLE_INDICES.contains(&index) {
             fs::write(
                 destination.join(format!("sample-{index}.rgb")),
                 &sample.pixels,

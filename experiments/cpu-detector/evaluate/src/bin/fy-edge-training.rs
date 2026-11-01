@@ -15,7 +15,7 @@ use fy_cpu_evaluate::{
 use fy_tiny_model::{dataset, features, loss_gradient, Model, Rng, Sample, INPUTS, PARAMETERS};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::{fs::OpenOptions, io::Write, path::Path, time::Instant};
 
 const STEPS: usize = 2000;
 const BATCH: usize = 64;
@@ -560,13 +560,47 @@ fn evaluate(
     }))
 }
 
+// Export is opt-in and confined to ephemeral, ignored CI evidence directories.
+// Existing files must not be overwritten; the public FYTDv001 format is unchanged.
+fn save_evidence_model(model: &Model, path: &Path) -> Result<String, String> {
+    let bytes = model.to_bytes()?;
+    let loaded = Model::from_bytes(&bytes)?;
+    if model.weights.len() != loaded.weights.len()
+        || !model
+            .weights
+            .iter()
+            .zip(&loaded.weights)
+            .all(|(a, b)| a.to_bits() == b.to_bits())
+    {
+        return Err("experimental model serialization changed parameters".into());
+    }
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("create new ephemeral evidence artifact: {e}"))?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
 fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().collect();
-    let mirror_only = arguments.len() == 3 && arguments[2] == "--mirror";
+    let export_path = if arguments.len() == 5
+        && arguments[3] == "--evidence-artifact"
+        && matches!(arguments[2].as_str(), "--mirror" | "--center")
+        && !arguments[4].is_empty()
+    {
+        Some(Path::new(&arguments[4]))
+    } else {
+        None
+    };
+    let mirror_only = (arguments.len() == 3 || export_path.is_some())
+        && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
-    let center_only = arguments.len() == 3 && arguments[2] == "--center";
+    let center_only = (arguments.len() == 3 || export_path.is_some())
+        && arguments[2] == "--center";
     if arguments.len() != 2 && !mirror_only && !texture_only && !center_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center]".into());
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center] [--evidence-artifact <new-path> (mirror/center only)]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -607,6 +641,16 @@ fn run() -> Result<(), String> {
             evaluate(&*b, &model, &prospective, &validation, &validation_features)?;
         let four_side_result = evaluate_four_sides(&model, &four_sides)?;
         let disjoint_result = evaluate_disjoint_four_sides(&model, &disjoint_sides)?;
+        // Never emit weights for an experimental arm failing existing gates.
+        // Only the explicitly requested mirror/center comparison writes a
+        // temporary artifact; CI uploads JSON/logs but excludes *.fytd.
+        let artifact_sha256 = if development_result["validation_passes_original_thresholds"] == true {
+            export_path
+                .map(|path| save_evidence_model(&model, path))
+                .transpose()?
+        } else {
+            None
+        };
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
@@ -618,6 +662,7 @@ fn run() -> Result<(), String> {
                     "mirrored-edge-training-experiment-only"
                 },
                 "feature_illumination": texture_only,
+                "artifact_sha256": artifact_sha256,
                 "center_gradient_multiplier": if center_only {
                     CENTER_GRADIENT_MULTIPLIER
                 } else {
@@ -795,6 +840,23 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_evidence_export_is_bitwise_and_never_overwrites_existing_file() {
+        let model = Model::initialized(404);
+        let path = std::env::temp_dir().join(format!(
+            "fy-td1-opt-in-evidence-{}.fytd",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let hash = save_evidence_model(&model, &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(hash, format!("{:x}", Sha256::digest(&bytes)));
+        assert_eq!(Model::from_bytes(&bytes).unwrap().weights, model.weights);
+        assert!(save_evidence_model(&model, &path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn controlled_report_retains_completed_diagnostics_on_validation_failure() {

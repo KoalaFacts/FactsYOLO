@@ -112,7 +112,7 @@ pub fn illuminate_training_batch(
         return Err("invalid TD1 batch for feature illumination".into());
     }
 
-    for (slot, features) in batch.chunks_exact_mut(INPUTS).enumerate() {
+    for (slot, features) in batch.as_chunks_mut::<INPUTS>().0.iter_mut().enumerate() {
         let phase = (step + slot) % 4;
         for y in 0..8 {
             for x in 0..8 {

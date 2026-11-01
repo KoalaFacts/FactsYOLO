@@ -861,6 +861,47 @@ mod tests {
     }
 
     #[test]
+    fn center_weighted_gradient_matches_numerical_weighted_loss_derivative() {
+        use fy_tiny_model::{loss_value, sigmoid};
+
+        let labels = [Sample {
+            pixels: Vec::new(),
+            class: Some(1),
+            box_xywh: [0.35, 0.60, 0.25, 0.30],
+        }];
+        let original_logits = [0.15, -0.25, 0.7, 0.3, -0.15, 0.1, 0.2];
+        let (_, mut analytic) = loss_gradient(&original_logits, &labels).unwrap();
+        emphasize_center_gradients(&mut analytic, &labels).unwrap();
+
+        // Doubling center-error gradient must match *adding one more copy*
+        // of the center-x/y squared loss, not merely pass a scale assertion.
+        let weighted_loss = |values: &[f32; 7]| {
+            let base = loss_value(values, &labels).unwrap();
+            let extra_center_loss = (3..5)
+                .map(|column| {
+                    let difference = sigmoid(values[column]) - labels[0].box_xywh[column - 3];
+                    1.25 * difference * difference
+                })
+                .sum::<f32>();
+            base + extra_center_loss
+        };
+        let epsilon = 1e-3_f32;
+        for column in 0..7 {
+            let mut above = original_logits;
+            let mut below = original_logits;
+            above[column] += epsilon;
+            below[column] -= epsilon;
+            let numerical = (weighted_loss(&above) - weighted_loss(&below)) / (2.0 * epsilon);
+            let difference = (analytic[column] - numerical).abs();
+            assert!(
+                difference < 1e-3 + 2e-3 * numerical.abs(),
+                "weighted loss derivative mismatch for {column}: analytic={}, finite={numerical}",
+                analytic[column]
+            );
+        }
+    }
+
+    #[test]
     fn center_intervention_rejects_bad_gradients_without_partial_mutation() {
         let labels = [Sample {
             pixels: Vec::new(),

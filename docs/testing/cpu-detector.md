@@ -335,3 +335,30 @@ edges. No side-position accuracy or speed improvement is asserted until
 a separate, prospective, four-sided source-independent Rust Burn/Candle
 comparison is frozen and executed; any observed validation trade-off
 must be reported, not hidden.
+
+### Disjoint-source prospective four-side comparison (PR following #51)
+
+The earlier four-sided mirror stress test reuses each source image four times,
+so its promising reflected-target IoU50 differences are correlated rather than
+four independent source cohorts. Before seeing any model predictions on the next
+split, the [new registered evaluation](td1-four-side-disjoint.md) fixes
+seed20261123/8,192 candidates and **144 distinct source images**: 24
+independent positives per side and 48 untouched backgrounds. Original
+right/bottom gaps are filled by reflecting *different* left/top source images,
+not the same rows already used in the other side groups.
+
+Existing Burn and Candle training arms, parameters, 2,000 steps, final
+holdout isolation and original validation thresholds remain unchanged.
+The opt-in edge runner evaluates original, edge-resampled and mirror-resampled
+weights against this single new split. Each run records group hits, IoU,
+wrong-class/missing counts, background errors and exact provenance, with
+negative comparisons preserved. The verifier checks frozen fingerprint,
+per-group arithmetic and a predeclared directional criterion; failure of
+that *candidate-selection* criterion is a valid CI result, not a hidden
+accuracy regression. Linux and Windows evidence must be read together to
+establish whether the criterion was met on both hosts and backends.
+
+This is an experiment on disjoint sources from the **same synthetic
+generator**, not proof of real-image accuracy or authorization to deploy or
+publish an altered TD1 sampler. The baseline paired diagnostic remains
+available and is not reinterpreted as unseen evidence.

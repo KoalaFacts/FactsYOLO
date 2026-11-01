@@ -1008,6 +1008,103 @@ mod tests {
     }
 
     #[test]
+    fn background_intervention_only_scales_negative_class_gradients() {
+        let labels = [
+            Sample {
+                pixels: Vec::new(),
+                class: Some(0),
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            },
+            Sample {
+                pixels: Vec::new(),
+                class: None,
+                box_xywh: [0.0; 4],
+            },
+            Sample {
+                pixels: Vec::new(),
+                class: Some(1),
+                box_xywh: [0.3, 0.6, 0.25, 0.25],
+            },
+        ];
+        let logits = vec![0.1_f32; labels.len() * 7];
+        let (_, mut gradients) = loss_gradient(&logits, &labels).unwrap();
+        let original = gradients.clone();
+        emphasize_background_gradients(&mut gradients, &labels).unwrap();
+        for (index, (before, after)) in original
+            .as_chunks::<7>()
+            .0
+            .iter()
+            .zip(gradients.as_chunks::<7>().0.iter())
+            .enumerate()
+        {
+            for column in 0..7 {
+                let expected = if labels[index].class.is_none() && column < 3 {
+                    before[column] * BACKGROUND_GRADIENT_MULTIPLIER
+                } else {
+                    before[column]
+                };
+                assert_eq!(after[column], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn background_weighted_gradient_matches_numerical_cross_entropy_derivative() {
+        use fy_tiny_model::loss_value;
+
+        let label = [Sample {
+            pixels: Vec::new(),
+            class: None,
+            box_xywh: [0.0; 4],
+        }];
+        let logits = [0.2_f32, -0.4, 0.6, 0.1, -0.3, 0.4, -0.7];
+        let (_, mut analytic) = loss_gradient(&logits, &label).unwrap();
+        emphasize_background_gradients(&mut analytic, &label).unwrap();
+        let epsilon = 1e-3_f32;
+        for column in 0..7 {
+            let mut above = logits;
+            let mut below = logits;
+            above[column] += epsilon;
+            below[column] -= epsilon;
+            let numerical = BACKGROUND_GRADIENT_MULTIPLIER
+                * (loss_value(&above, &label).unwrap() - loss_value(&below, &label).unwrap())
+                / (2.0 * epsilon);
+            assert!(
+                (analytic[column] - numerical).abs() < 1e-3 + 2e-3 * numerical.abs(),
+                "weighted background derivative mismatch for column {column}"
+            );
+        }
+        assert_eq!(analytic[3..], [0.0; 4]);
+    }
+
+    #[test]
+    fn background_intervention_rejects_malformed_gradients_atomically() {
+        let label = [Sample {
+            pixels: Vec::new(),
+            class: None,
+            box_xywh: [0.0; 4],
+        }];
+        for mut bad in [
+            vec![0.0; 6],
+            vec![f32::MAX, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, f32::NAN, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ] {
+            let original = bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+            assert!(emphasize_background_gradients(&mut bad, &label).is_err());
+            assert_eq!(bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>(), original);
+        }
+        let mut valid = [0.0; 7];
+        let invalid_class = [Sample {
+            pixels: Vec::new(),
+            class: Some(2),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        }];
+        assert!(emphasize_background_gradients(&mut valid, &invalid_class).is_err());
+        assert_eq!(valid, [0.0; 7]);
+        assert!(emphasize_background_gradients(&mut valid, &[]).is_err());
+    }
+
+    #[test]
     fn texture_training_retains_mirrored_sampler_and_labels() {
         let train = dataset(101, 256);
         let pool = edge_pool(&train).unwrap();

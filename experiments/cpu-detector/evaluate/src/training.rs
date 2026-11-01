@@ -233,6 +233,78 @@ mod tests {
     }
 
     #[test]
+    fn illuminated_batch_covers_four_phases_without_changing_targets() {
+        let original = vec![0.25_f32; 64 * INPUTS];
+        let mut batch = original.clone();
+        let labels = (0..64)
+            .map(|slot| Sample {
+                pixels: vec![],
+                class: if slot % 5 == 0 { None } else { Some(0) },
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            })
+            .collect::<Vec<_>>();
+        let original_labels = labels
+            .iter()
+            .map(|sample| (sample.class, sample.box_xywh))
+            .collect::<Vec<_>>();
+
+        illuminate_training_batch(&mut batch, &labels, 1).unwrap();
+        let expected = |lift: f32| 0.25 + 0.75 * lift;
+        assert!((batch[0] - expected(0.15)).abs() < 1e-6);
+        assert!((batch[3] - expected(0.08)).abs() < 1e-6);
+        assert!((batch[INPUTS + 7 * 3] - expected(0.21)).abs() < 1e-6);
+        assert!((batch[2 * INPUTS + 7 * 8 * 3] - expected(0.21)).abs() < 1e-6);
+        assert_eq!(&batch[3 * INPUTS..4 * INPUTS], &original[3 * INPUTS..4 * INPUTS]);
+        assert!(batch.iter().all(|value| value.is_finite() && (0.0..=1.0).contains(value)));
+        assert_eq!(
+            labels
+                .iter()
+                .map(|sample| (sample.class, sample.box_xywh))
+                .collect::<Vec<_>>(),
+            original_labels
+        );
+
+        let mut replay = original;
+        illuminate_training_batch(&mut replay, &labels, 1).unwrap();
+        assert_eq!(
+            batch.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
+            replay.iter().map(|value| value.to_bits()).collect::<Vec<_>>()
+        );
+        assert_ne!(&batch[0..INPUTS], &batch[3 * INPUTS..4 * INPUTS]);
+    }
+
+    #[test]
+    fn invalid_illumination_input_is_rejected_before_any_mutation() {
+        let labels = vec![
+            Sample {
+                pixels: vec![],
+                class: Some(1),
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            };
+            64
+        ];
+        for invalid in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+            let mut batch = vec![0.25_f32; 64 * INPUTS];
+            batch[batch.len() - 1] = invalid;
+            let before = batch.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+            assert!(illuminate_training_batch(&mut batch, &labels, 1).is_err());
+            assert_eq!(
+                batch.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                before
+            );
+        }
+        let mut batch = vec![0.25_f32; 64 * INPUTS];
+        let original = batch.clone();
+        for step in [0, 2001] {
+            assert!(illuminate_training_batch(&mut batch, &labels, step).is_err());
+            assert_eq!(batch, original);
+        }
+        assert!(illuminate_training_batch(&mut batch[..batch.len() - 1], &labels, 1).is_err());
+        assert!(illuminate_training_batch(&mut batch, &labels[..63], 1).is_err());
+        assert_eq!(batch, original);
+    }
+
+    #[test]
     fn mirrored_edge_slots_match_full_resolution_pixel_reflections() {
         let sample = fy_tiny_model::dataset(101, 2).pop().unwrap();
         assert!(sample.class.is_some());

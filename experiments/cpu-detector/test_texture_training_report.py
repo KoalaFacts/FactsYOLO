@@ -7,11 +7,13 @@ from unittest.mock import patch
 from verify import checked_mirrored_edge_report
 
 
-def report(textured):
+def report(textured, *, center=False):
     return {
         "status": ("textured-mirror-training-experiment-only" if textured
-                   else "mirrored-edge-training-experiment-only"),
+                   else ("center-weighted-mirror-training-experiment-only" if center
+                         else "mirrored-edge-training-experiment-only")),
         "feature_illumination": textured,
+        "center_gradient_multiplier": 2.0 if center else 1.0,
         "illumination_phases": [
             "identity", "checkerboard", "horizontal-gradient", "vertical-gradient"],
         "source_commit": "candidate-head",
@@ -51,12 +53,13 @@ def report(textured):
 
 
 class TextureTrainingReportTests(unittest.TestCase):
-    def check_metadata(self, record, textured):
+    def check_metadata(self, record, textured, *, center=False):
         # The per-stratum arithmetic checker has its own negative controls.
-        # Isolate the new report-identity contract here.
+        # Isolate the report-identity and comparison-arm contract here.
         with patch("verify.checked_prospective_edge_report", return_value=True):
             return checked_mirrored_edge_report(
-                record, "candidate-head", textured=textured)
+                record, "candidate-head", textured=textured,
+                center_weighted=center)
 
     def test_new_texture_and_unchanged_mirror_modes_are_distinct(self):
         self.assertTrue(self.check_metadata(report(False), False))
@@ -65,6 +68,32 @@ class TextureTrainingReportTests(unittest.TestCase):
             self.check_metadata(report(False), True)
         with self.assertRaises(ValueError):
             self.check_metadata(report(True), False)
+
+    def test_center_loss_arm_is_distinct_and_fails_closed_on_mislabeling(self):
+        self.assertTrue(self.check_metadata(report(False, center=True), False,
+                                            center=True))
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False, center=True), False)
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False), False, center=True)
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(True), True, center=True)
+        for field, value in (
+            ("center_gradient_multiplier", 1.0),
+            ("center_gradient_multiplier", 2.0001),
+            ("center_gradient_multiplier", "2.0"),
+            ("center_gradient_multiplier", True),
+            ("feature_illumination", True),
+            ("status", "production-ready"),
+            ("sampler_seed", 909),
+            ("steps_per_arm", 1999),
+            ("final_holdout_evaluated", True),
+        ):
+            with self.subTest(field=field, value=value):
+                altered = copy.deepcopy(report(False, center=True))
+                altered[field] = value
+                with self.assertRaises(ValueError):
+                    self.check_metadata(altered, False, center=True)
 
     def test_wrong_phase_schedule_and_holdout_claim_fail_closed(self):
         for field, replacement in (

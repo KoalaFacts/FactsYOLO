@@ -35,7 +35,15 @@ python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/targe
 All destinations must be new. Native verification requires a passed fixed-budget
 training report for the current commit; old or failed reports are rejected. It
 builds `--no-default-features --features td1`, checks exact normal export sets,
-and executes eight fixed-prefix held-out samples (background and both target classes) from each candidate (including background).
+and executes sixteen registered held-out cases per candidate: the original first eight
+(for compatibility with paired native timing controls), plus nonprefix source
+indices 12, 31, 47, 63, 80, 97, 111 and 125. The latter sample the rest
+of the fixed 128-image seed-909 holdout without changing training or accuracy
+thresholds. Independent generator replay freezes four backgrounds, four class-0
+and eight class-1 examples. The verifier records original indices and checks
+class labels before running C and C#; the fresh-process portable inference
+check uses the same source indices. This expands synthetic trained-artifact
+integration coverage only, not production accuracy evidence.
 Linux covers C shared/static libraries; Windows covers the C DLL/import-library
 path, matching the existing C target matrix. Both execute C# JIT/Native AOT with
 the host's `linux-x64` or `win-x64` runtime identifier. The actual

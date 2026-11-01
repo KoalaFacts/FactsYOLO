@@ -40,12 +40,14 @@ internal static unsafe class Td1
     }
     internal static void Run(string artifactPath, string casesDirectory)
     {
+        // Frozen case slots are prepared by verify_native.py from seed-909 holdout.
+        const int TrainedCaseCount = 16;
         byte[] artifact = File.ReadAllBytes(artifactPath);
         Require(artifact.Length == 51284, "Wrong trained artifact length.");
         byte[] corrupt = (byte[])artifact.Clone(); corrupt[^1] ^= 1;
         Error(4, () => { using Model unexpected = Model.Open(corrupt); });
         Error(4, () => { using Model unexpected = Model.Open(artifact.AsSpan(0,100)); });
-        for (int index=0; index<8; ++index)
+        for (int index=0; index<TrainedCaseCount; ++index)
         {
             byte[] pixels = File.ReadAllBytes(Path.Combine(casesDirectory,$"sample-{index}.rgb"));
             Require(pixels.Length == 12288, "Wrong held-out RGB length.");

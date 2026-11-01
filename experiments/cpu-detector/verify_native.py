@@ -14,22 +14,29 @@ import time
 
 ROOT=Path(__file__).resolve().parents[2]
 
-# Ground-truth prefix, registered independently of trained model predictions.
-# Seed909's first six examples have background and class1 but no class0.
-NATIVE_CASES = 8
+# Registered from an independent replay of the fixed seed-909 generator,
+# before inspecting trained predictions. Keep the original first eight for
+# existing paired benchmarks, then sample all later holdout octiles.
+NATIVE_INDICES = (*range(8), 12, 31, 47, 63, 80, 97, 111, 125)
+NATIVE_CLASSES = (None, 1, 1, 1, 1, None, 1, 0,
+                  0, 1, 1, 0, None, 0, 1, None)
+NATIVE_CASES = len(NATIVE_INDICES)
+
 
 def select_native_cases(rows):
-    """Select the fixed held-out prefix, failing if any target class is absent."""
-    if not isinstance(rows, list) or len(rows) < NATIVE_CASES:
+    """Select registered nonprefix held-out inputs, verifying source labels."""
+    if not isinstance(rows, list) or len(rows) != 128:
         raise ValueError('missing native held-out predictions')
-    selected = rows[:NATIVE_CASES]
-    for i, row in enumerate(selected):
+    selected = []
+    for index, expected_class in zip(NATIVE_INDICES, NATIVE_CLASSES):
+        row = rows[index]
         if (not isinstance(row, dict) or type(row.get('index')) is not int
-                or row['index'] != i or row.get('expected_class') not in (None, 0, 1)
-                or (row.get('expected_class') is not None and type(row['expected_class']) is not int)):
-            raise ValueError('invalid native held-out reference ordering/class')
-    if {row['expected_class'] for row in selected} != {None, 0, 1}:
-        raise ValueError('native held-out inputs must cover background and both classes')
+                or row['index'] != index or 'expected_class' not in row
+                or (row['expected_class'] is not None
+                    and type(row['expected_class']) is not int)
+                or row['expected_class'] != expected_class):
+            raise ValueError(f'invalid native held-out reference ordering/class at {index}')
+        selected.append(row)
     return selected
 
 
@@ -88,13 +95,14 @@ def main():
     layout=run('rust-layout',['cargo','run','-p','facts-yolo','--example','abi_layout','--quiet',*common],stdout_only=True)
     layout_path=destination/'rust-layout.txt';layout_path.write_text(layout)
     cases=destination/'cases';cases.mkdir()
-    for i, prediction in enumerate(select_native_cases(report.get('predictions'))):
-        if prediction['index']!=i:
-            raise ValueError('unexpected reference sample ordering')
+    for slot, prediction in enumerate(select_native_cases(report.get('predictions'))):
+        index = NATIVE_INDICES[slot]
         p=prediction['prediction']
         text='0\n' if p is None else '1\n'+' '.join(map(str,[p['class'],p['score'],*p['corners']]))+'\n'
-        (cases/f'expected-{i}.txt').write_text(text)
-        shutil.copyfile(source/f'sample-{i}.rgb',cases/f'sample-{i}.rgb')
+        (cases/f'expected-{slot}.txt').write_text(text)
+        # Consumer cases are contiguous so existing C and managed interfaces
+        # remain unchanged; the report preserves the original held-out index.
+        shutil.copyfile(source/f'sample-{index}.rgb',cases/f'sample-{slot}.rgb')
     for kind,library in libraries:
         executable=destination/(f'c-{kind}.exe' if windows else f'c-{kind}')
         if windows:
@@ -120,7 +128,7 @@ def main():
         run(f'run-{mode}',[*executable,shared,layout_path,'td1',mode,artifact,cases],managed_root)
     summary={'passed':True,'source_commit':head,'source_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
              'training_backend':report['backend'],'artifact_sha256':hashlib.sha256(artifact.read_bytes()).hexdigest(),
-             'heldout_samples':NATIVE_CASES,'c_link_modes':[kind for kind,_ in libraries],'managed_execution_modes':['jit','aot'],
+             'heldout_samples':NATIVE_CASES,'selected_holdout_indices':list(NATIVE_INDICES),'c_link_modes':[kind for kind,_ in libraries],'managed_execution_modes':['jit','aot'],
              'runtime_identifier':rid,'platform':platform.platform()}
     (destination/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
     print(json.dumps(summary,indent=2))

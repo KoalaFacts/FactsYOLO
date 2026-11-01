@@ -844,11 +844,14 @@ mod tests {
     #[test]
     fn optional_evidence_export_is_bitwise_and_never_overwrites_existing_file() {
         let model = Model::initialized(404);
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "fy-td1-opt-in-evidence-{}.fytd",
+            "fy-td1-opt-in-evidence-{}-{nonce}.fytd",
             std::process::id()
         ));
-        let _ = std::fs::remove_file(&path);
         let hash = save_evidence_model(&model, &path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(hash, format!("{:x}", Sha256::digest(&bytes)));

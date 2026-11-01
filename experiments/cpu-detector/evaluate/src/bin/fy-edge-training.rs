@@ -584,7 +584,14 @@ fn run() -> Result<(), String> {
     // never reads the final seed909 holdout.
     if mirror_only || texture_only || center_only {
         let (model, seconds) = train_model(
-            &*b, &train, &cached, &pool, true, true, texture_only, center_only,
+            &*b,
+            &train,
+            &cached,
+            &pool,
+            true,
+            true,
+            texture_only,
+            center_only,
         )?;
         let development_result =
             evaluate(&*b, &model, &development, &validation, &validation_features)?;

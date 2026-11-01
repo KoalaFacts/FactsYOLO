@@ -184,6 +184,16 @@ def check_report(report, expected_commit, expected_backend):
                 or abs(recall - hits / samples) > 1e-12
                 or not 0.5 * hits / samples - 1e-6 <= mean <= maximum + 1e-6):
             raise ValueError("cross-generator metric arithmetic")
+    raw = report.get("predictions")
+    if (not isinstance(raw, list) or len(raw) != COUNT
+            or any(not isinstance(entry, dict) or set(entry) != {"index", "prediction"}
+                   or type(entry["index"]) is not int or entry["index"] != index
+                   for index, entry in enumerate(raw))):
+        raise ValueError("cross-generator inference rows missing or reordered")
+    # Full per-image prediction metadata (but no pixels/weights) makes grouped
+    # accuracy independently recomputable and rejects fabricated summaries.
+    if summarize(cohort(), [entry["prediction"] for entry in raw]) != groups:
+        raise ValueError("cross-generator aggregate disagrees with raw inference")
     return True
 
 
@@ -216,7 +226,9 @@ def evaluate(binary, artifact, metrics, *, invoke=None):
               "backend": record["backend"], "model_sha256": digest,
               "generator": GENERATOR, "seed": SEED, "count": COUNT,
               "fingerprint": FINGERPRINT, "final_holdout_evaluated": False,
-              "groups": summarize(samples, detections)}
+              "groups": summarize(samples, detections),
+              "predictions": [{"index": sample["index"], "prediction": found}
+                              for sample, found in zip(samples, detections)]}
     check_report(report, record["source_commit"], record["backend"])
     return report
 

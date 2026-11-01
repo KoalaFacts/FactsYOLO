@@ -220,10 +220,19 @@ def checked_prospective_edge_report(report, expected_sha):
 
 
 
-def checked_mirrored_edge_report(report, expected_sha, *, textured=False):
-    """Validate opt-in mirror/texture arms without selecting on observed splits."""
-    expected_status = ("textured-mirror-training-experiment-only" if textured
-                       else "mirrored-edge-training-experiment-only")
+def checked_mirrored_edge_report(report, expected_sha, *, textured=False,
+                                 center_weighted=False):
+    """Validate opt-in mirror, texture and center arms on observed diagnostics."""
+    if textured and center_weighted:
+        raise ValueError("training arms must change only one variable")
+    expected_status = (
+        "textured-mirror-training-experiment-only" if textured
+        else ("center-weighted-mirror-training-experiment-only" if center_weighted
+              else "mirrored-edge-training-experiment-only"))
+    multiplier = report.get("center_gradient_multiplier")
+    if (type(multiplier) not in (float, int)
+            or multiplier != (2.0 if center_weighted else 1.0)):
+        raise ValueError("invalid center gradient intervention metadata")
     if (report.get("source_commit") != expected_sha
             or report.get("status") != expected_status
             or report.get("feature_illumination") is not textured
@@ -600,6 +609,26 @@ def main():
             raise RuntimeError(f"texture/mirror training parity failure: {backend_name}")
         (evidence / f"texture-training-{backend_name}.json").write_text(
             json.dumps(textured, indent=2) + "\n")
+        # Fifth, *opt-in* center-loss arm. Same mirror source identities, Adam
+        # budget, initialization and unmodified image features; only center
+        # x/y gradient on positives is doubled. All scores here are already-
+        # observed diagnostics, not a new cross-generator holdout.
+        center = json.loads(run(f"center-training-{backend_name}", [
+            edge_binary, backend_name, "--center"]))
+        checked_mirrored_edge_report(
+            center, env["FACTSYOLO_BUILD_ID"], center_weighted=True)
+        checked_four_side_report(center, env["FACTSYOLO_BUILD_ID"],
+                                 ("mirrored_four_side",))
+        checked_disjoint_four_side_report(center, env["FACTSYOLO_BUILD_ID"],
+                                          ("mirrored_disjoint_four_side",))
+        if any(center[key] != mirrored[key] for key in (
+                "backend", "mirror_slots", "sampler_seed", "steps_per_arm",
+                "train_samples", "edge_override_slots_per_batch",
+                "development_fingerprint", "prospective_fingerprint",
+                "four_side_fingerprint", "disjoint_fingerprint")):
+            raise RuntimeError(f"center/mirror training parity failure: {backend_name}")
+        (evidence / f"center-training-{backend_name}.json").write_text(
+            json.dumps(center, indent=2) + "\n")
         # Record disjoint-source selection outcome even when the mirror loses.
         # Across-host qualification requires examining both OS artifact reports.
         assessment = assess_disjoint_mirror_candidate(report, mirrored)

@@ -21,6 +21,7 @@ const STEPS: usize = 2000;
 const BATCH: usize = 64;
 const EDGE_FREQUENCY: usize = 16;
 const CENTER_GRADIENT_MULTIPLIER: f32 = 2.0;
+const BACKGROUND_GRADIENT_MULTIPLIER: f32 = 2.0;
 const QUOTA: usize = 48;
 const GROUPS: [&str; 5] = [
     "small_edge",
@@ -56,6 +57,7 @@ enum TrainingArm {
     Mirror,
     Texture,
     Center,
+    Background,
 }
 
 fn stratum(sample: &Sample) -> usize {
@@ -145,6 +147,40 @@ fn emphasize_center_gradients(gradients: &mut [f32], labels: &[Sample]) -> Resul
     Ok(())
 }
 
+// Weight only the softmax cross-entropy gradient for negative training rows.
+// Keep existing positive class and box gradients untouched: this is one
+// controlled intervention against false detections, not a new decoder rule.
+// Check the *whole* buffer, including overflow, before mutating any row.
+fn emphasize_background_gradients(
+    gradients: &mut [f32],
+    labels: &[Sample],
+) -> Result<(), String> {
+    if labels.is_empty()
+        || labels.len().checked_mul(7) != Some(gradients.len())
+        || gradients.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid background gradient input".into());
+    }
+    for (row, label) in gradients.as_chunks::<7>().0.iter().zip(labels) {
+        if label.class.is_some_and(|class| class > 1)
+            || (label.class.is_none()
+                && row[..3]
+                    .iter()
+                    .any(|value| !(*value * BACKGROUND_GRADIENT_MULTIPLIER).is_finite()))
+        {
+            return Err("invalid background gradient value".into());
+        }
+    }
+    for (row, label) in gradients.as_chunks_mut::<7>().0.iter_mut().zip(labels) {
+        if label.class.is_none() {
+            for value in &mut row[..3] {
+                *value *= BACKGROUND_GRADIENT_MULTIPLIER;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn train_model(
     b: &dyn Backend,
     train: &[Sample],
@@ -156,6 +192,7 @@ fn train_model(
     let mirrored = !matches!(arm, TrainingArm::Baseline | TrainingArm::Edge);
     let textured = matches!(arm, TrainingArm::Texture);
     let center_weighted = matches!(arm, TrainingArm::Center);
+    let background_weighted = matches!(arm, TrainingArm::Background);
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
     let mut second = vec![0.0; PARAMETERS];
@@ -183,6 +220,9 @@ fn train_model(
         let (_, mut output_gradient) = loss_gradient(&predictions, &labels)?;
         if center_weighted {
             emphasize_center_gradients(&mut output_gradient, &labels)?;
+        }
+        if background_weighted {
+            emphasize_background_gradients(&mut output_gradient, &labels)?;
         }
         let gradient = b.backward(&model.weights, &inputs, BATCH, &output_gradient)?;
         adam_step(&mut model.weights, &gradient, &mut first, &mut second, step)?;
@@ -597,8 +637,9 @@ fn run() -> Result<(), String> {
     let mirror_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
     let center_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--center";
-    if arguments.len() != 2 && !mirror_only && !texture_only && !center_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center] [--evidence-artifact <new-path> (mirror/center only)]".into());
+    let background_only = arguments.len() == 3 && arguments[2] == "--background";
+    if arguments.len() != 2 && !mirror_only && !texture_only && !center_only && !background_only {
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background] [--evidence-artifact <new-path> (mirror/center only)]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -624,11 +665,13 @@ fn run() -> Result<(), String> {
     // A separately invoked, opt-in third training arm. The established two-arm
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
-    if mirror_only || texture_only || center_only {
+    if mirror_only || texture_only || center_only || background_only {
         let arm = if texture_only {
             TrainingArm::Texture
         } else if center_only {
             TrainingArm::Center
+        } else if background_only {
+            TrainingArm::Background
         } else {
             TrainingArm::Mirror
         };
@@ -657,6 +700,8 @@ fn run() -> Result<(), String> {
                     "textured-mirror-training-experiment-only"
                 } else if center_only {
                     "center-weighted-mirror-training-experiment-only"
+                } else if background_only {
+                    "background-weighted-mirror-training-experiment-only"
                 } else {
                     "mirrored-edge-training-experiment-only"
                 },
@@ -664,6 +709,11 @@ fn run() -> Result<(), String> {
                 "artifact_sha256": artifact_sha256,
                 "center_gradient_multiplier": if center_only {
                     CENTER_GRADIENT_MULTIPLIER
+                } else {
+                    1.0
+                },
+                "background_class_gradient_multiplier": if background_only {
+                    BACKGROUND_GRADIENT_MULTIPLIER
                 } else {
                     1.0
                 },

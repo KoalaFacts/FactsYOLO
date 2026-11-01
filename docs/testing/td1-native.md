@@ -35,7 +35,7 @@ python3 experiments/cpu-detector/verify_native.py experiments/cpu-detector/targe
 All destinations must be new. Native verification requires a passed fixed-budget
 training report for the current commit; old or failed reports are rejected. It
 builds `--no-default-features --features td1`, checks exact normal export sets,
-and executes six held-out samples from each candidate (including background).
+and executes eight fixed-prefix held-out samples (background and both target classes) from each candidate (including background).
 Linux covers C shared/static libraries; Windows covers the C DLL/import-library
 path, matching the existing C target matrix. Both execute C# JIT/Native AOT with
 the host's `linux-x64` or `win-x64` runtime identifier. The actual

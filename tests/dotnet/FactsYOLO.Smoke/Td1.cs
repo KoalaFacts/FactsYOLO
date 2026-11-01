@@ -45,7 +45,7 @@ internal static unsafe class Td1
         byte[] corrupt = (byte[])artifact.Clone(); corrupt[^1] ^= 1;
         Error(4, () => { using Model unexpected = Model.Open(corrupt); });
         Error(4, () => { using Model unexpected = Model.Open(artifact.AsSpan(0,100)); });
-        for (int index=0; index<6; ++index)
+        for (int index=0; index<8; ++index)
         {
             byte[] pixels = File.ReadAllBytes(Path.Combine(casesDirectory,$"sample-{index}.rgb"));
             Require(pixels.Length == 12288, "Wrong held-out RGB length.");

@@ -19,9 +19,8 @@ use std::{
 
 // Independently registered held-out source indices used by the trained C/C#
 // consumers. Preserve the first eight for the existing paired benchmark.
-const NATIVE_SAMPLE_INDICES: [usize; 16] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 12, 31, 47, 63, 80, 97, 111, 125,
-];
+const NATIVE_SAMPLE_INDICES: [usize; 16] =
+    [0, 1, 2, 3, 4, 5, 6, 7, 12, 31, 47, 63, 80, 97, 111, 125];
 const USAGE: &str = "usage: fy-cpu-evaluate train <burn|candle> <new-output-directory> | infer <artifact> <64x64.rgb>";
 fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();

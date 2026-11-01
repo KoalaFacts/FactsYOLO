@@ -382,6 +382,20 @@ def main():
     run("tests-release", ["cargo", "test", *common, "--workspace", "--release"])
     run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
     run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_*.py"])
+    # An independent stdlib LCG skip-ahead replay reproduces the registered
+    # disjoint sample identity before any candidate's trained predictions run.
+    freeze = json.loads(run("disjoint-source-freeze", [
+        sys.executable, ROOT / "tools" / "freeze_disjoint_four_sides.py"]))
+    if (freeze.get("fingerprint") != DISJOINT_FINGERPRINT
+            or freeze.get("source_rows") != 144
+            or freeze.get("last_selected_index") != 6876
+            or freeze.get("unique_pixel_arrays") != 144
+            or freeze.get("selected") != {
+                "left": 24, "top": 24, "right": 24,
+                "bottom": 24, "background": 48}):
+        raise RuntimeError("independent disjoint TD1 source replay failed")
+    (evidence / "disjoint-source-freeze.json").write_text(
+        json.dumps(freeze, indent=2) + "\n")
     run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
     binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
     # The benchmark compares only training batch preparation, not end-to-end training.

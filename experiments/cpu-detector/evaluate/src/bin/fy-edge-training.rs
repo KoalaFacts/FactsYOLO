@@ -594,11 +594,9 @@ fn run() -> Result<(), String> {
     } else {
         None
     };
-    let mirror_only = (arguments.len() == 3 || export_path.is_some())
-        && arguments[2] == "--mirror";
+    let mirror_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
-    let center_only = (arguments.len() == 3 || export_path.is_some())
-        && arguments[2] == "--center";
+    let center_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--center";
     if arguments.len() != 2 && !mirror_only && !texture_only && !center_only {
         return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center] [--evidence-artifact <new-path> (mirror/center only)]".into());
     }
@@ -644,7 +642,8 @@ fn run() -> Result<(), String> {
         // Never emit weights for an experimental arm failing existing gates.
         // Only the explicitly requested mirror/center comparison writes a
         // temporary artifact; CI uploads JSON/logs but excludes *.fytd.
-        let artifact_sha256 = if development_result["validation_passes_original_thresholds"] == true {
+        let artifact_sha256 = if development_result["validation_passes_original_thresholds"] == true
+        {
             export_path
                 .map(|path| save_evidence_model(&model, path))
                 .transpose()?

@@ -103,3 +103,43 @@ publication and does not read the seed909 final holdout. No improvement
 claim is permitted until those actual runs pass and a separately frozen,
 previously unseen cross-generator distribution evaluates the candidate
 against the unmodified mirror strategy on equal conditions.
+
+
+## Opt-in center-gradient controlled comparison (2026-11-02, experimental)
+
+The independent generator previously exposed **13/96** correct-class
+IoU>=0.5 detections and substantial box-*center* displacement. A later
+feature-only illumination arm made the registered development scores worse.
+Before running a new center intervention, the following comparison is fixed:
+
+- `fy-edge-training <burn|candle> --center` shares the existing `--mirror`
+  initialization (404), source images (101, 4,096), sampler stream (707),
+  four mirror slots/orientations, model (192->64->7), Adam, batch 64, and
+  2,000-step training budget, with no new random draws.
+- Only the **positive-label center-x/center-y gradients** (TD1 output logits
+  3 and 4) are multiplied by exactly **2.0**, *after* the unchanged,
+  validated loss gradient is computed. Class logits, width/height gradients,
+  background gradients and all labels remain unchanged. This is equivalent
+  to doubling the center terms of the box-regression objective. A whole-batch
+  preflight rejects malformed, nonfinite or overflowing gradient buffers
+  without partially changing them.
+- Linux/Windows CI executes the *real Burn/Candle forward/backward and full
+  budget* for mirror, illumination and center interventions. Each center
+  report records `center_gradient_multiplier: 2.0`, train duration, source
+  commit, model/seed/budget provenance, original seed202 validation and the
+  already-known development, prospective, paired and disjoint side probes.
+  The verifier requires the same source fingerprints and mirror sampling
+  metadata and fails closed if an arm is mislabeled. Raw JSON evidence is
+  preserved without uploading model weights or generated pixels.
+- Existing seed202 thresholds are unchanged and mandatory for the experimental
+  arm. The other scores are **diagnostics already observed in previous
+  experiments**, including the disjoint four-side source; they are not new
+  unseen accuracy evidence, cannot be repurposed as a model-selection test and
+  must be reported even if the center arm loses. The reserved seed909 final
+  holdout is not accessed by this arm.
+- The center multiplier is a fixed *hypothesis*, not a tuned parameter or
+  approved production default. This comparison can falsify that hypothesis;
+  no improvement percentage is claimed before actual measurements. New
+  cross-generator generalization or promotion requires an independently
+  frozen, previously unevaluated source and a separate review. Public model
+  format, ABI, library defaults and dependency policy are untouched.

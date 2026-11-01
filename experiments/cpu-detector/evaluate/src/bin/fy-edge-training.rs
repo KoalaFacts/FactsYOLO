@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Experimental TD1 training intervention: fixed-frequency edge-positive sampling.
 //! No final holdout, changed model format, native ABI, or production inference path.
+
+// The wide experimental evidence JSON objects exceed serde_json::json!'s default
+// macro expansion depth; this changes compilation only, not the report schema.
+#![recursion_limit = "256"]
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},
@@ -35,6 +39,12 @@ const FOUR_SIDE_SEED: u64 = 20261113;
 const FOUR_SIDE_CANDIDATES: usize = 4096;
 const FOUR_SIDE_FINGERPRINT: &str =
     "59a4a885ff0ca2c5c8e700f8ccaaefbdaf454f2f2d0e6a72d280026b8398b3bd";
+const DISJOINT_SEED: u64 = 20261123;
+const DISJOINT_CANDIDATES: usize = 8192;
+const DISJOINT_FINGERPRINT: &str =
+    "e156306394733b94c5d99daec4ae22647819cab6976bc3dd55938eb988500a56";
+const DISJOINT_NAMES: [&str; 5] = ["left", "top", "right", "bottom", "background"];
+
 const FOUR_SIDE_NAMES: [&str; 4] = ["left", "top", "right", "bottom"];
 
 fn stratum(sample: &Sample) -> usize {
@@ -277,6 +287,124 @@ fn frozen_four_sides() -> Result<[Vec<Sample>; 4], String> {
     Ok(groups)
 }
 
+/// A different frozen seed and 144 distinct source images: no positive source
+/// is evaluated on more than one side. Right and bottom images are reflected
+/// from *different* original samples, not the left/top evaluation examples.
+/// The final seed909 holdout is never loaded or used for training selection.
+fn frozen_disjoint_four_sides() -> Result<[Vec<Sample>; 5], String> {
+    let mut groups: [Vec<Sample>; 5] = std::array::from_fn(|_| Vec::with_capacity(48));
+    let (mut left_sources, mut top_sources) = (0_usize, 0_usize);
+
+    for sample in dataset(DISJOINT_SEED, DISJOINT_CANDIDATES) {
+        if sample.class.is_none() {
+            if groups[4].len() < 48 {
+                groups[4].push(sample);
+            }
+            continue;
+        }
+        let [x1, y1, x2, y2] = target_corners(&sample);
+        if (x2 - x1) * (y2 - y1) > 256.0 {
+            continue;
+        }
+        let left = x1 <= 2.0;
+        let top = y1 <= 2.0;
+        let right = 64.0 - x2 <= 2.0;
+        let bottom = 64.0 - y2 <= 2.0;
+        if left && !top && !right && !bottom && left_sources < 48 {
+            let side = if left_sources < 24 { 0 } else { 2 };
+            left_sources += 1;
+            groups[side].push(if side == 2 {
+                reflect_four_side_sample(&sample, true, false)
+            } else {
+                sample
+            });
+        } else if top && !left && !right && !bottom && top_sources < 48 {
+            let side = if top_sources < 24 { 1 } else { 3 };
+            top_sources += 1;
+            groups[side].push(if side == 3 {
+                reflect_four_side_sample(&sample, false, true)
+            } else {
+                sample
+            });
+        }
+        if left_sources == 48 && top_sources == 48 && groups[4].len() == 48 {
+            break;
+        }
+    }
+
+    if left_sources != 48
+        || top_sources != 48
+        || groups[..4].iter().any(|rows| rows.len() != 24)
+        || groups[4].len() != 48
+    {
+        return Err("frozen disjoint four-side source selection incomplete".into());
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"TD1-four-side-disjoint-v1");
+    for rows in &groups {
+        for row in rows {
+            digest.update([row.class.map_or(255, |class| class as u8)]);
+            for coordinate in row.box_xywh {
+                digest.update(coordinate.to_le_bytes());
+            }
+            digest.update(&row.pixels);
+        }
+    }
+    if format!("{:x}", digest.finalize()) != DISJOINT_FINGERPRINT {
+        return Err("frozen disjoint four-side source/pixel fingerprint drift".into());
+    }
+    Ok(groups)
+}
+
+fn evaluate_disjoint_four_sides(model: &Model, groups: &[Vec<Sample>; 5]) -> Result<Value, String> {
+    let mut result = Map::new();
+    for (side, samples) in DISJOINT_NAMES.into_iter().zip(groups) {
+        let mut record = Slice::default();
+        for sample in samples {
+            record.count += 1;
+            let detection = model.detect(&sample.pixels)?;
+            if side == "background" {
+                if sample.class.is_some() {
+                    return Err("disjoint background sample has a target".into());
+                }
+                record.false_positives += usize::from(detection.is_some());
+                continue;
+            }
+            if sample.class.is_none() {
+                return Err("disjoint four-side positive sample lacks a target".into());
+            }
+            match detection {
+                None => record.missing += 1,
+                Some(found) if Some(found.class) != sample.class => record.wrong_class += 1,
+                Some(found) => {
+                    let overlap = iou(found.corners, target_corners(sample));
+                    record.sum_iou += overlap;
+                    record.correct_class_iou50 += usize::from(overlap >= 0.5);
+                }
+            }
+        }
+        let quota = if side == "background" { 48 } else { 24 };
+        if record.count != quota {
+            return Err(format!("incomplete frozen disjoint group: {side}"));
+        }
+        let row = if side == "background" {
+            json!({"samples": record.count, "false_positives": record.false_positives})
+        } else {
+            json!({
+                "samples": record.count,
+                "correct_class_iou50": record.correct_class_iou50,
+                "recall_correct_class_iou50":
+                    record.correct_class_iou50 as f64 / record.count as f64,
+                "mean_iou_including_misses": record.sum_iou / record.count as f32,
+                "missing_detections": record.missing,
+                "wrong_class_detections": record.wrong_class
+            })
+        };
+        result.insert(side.to_string(), row);
+    }
+    Ok(Value::Object(result))
+}
+
 fn evaluate_four_sides(model: &Model, groups: &[Vec<Sample>; 4]) -> Result<Value, String> {
     let mut output = Map::new();
     for (name, samples) in FOUR_SIDE_NAMES.into_iter().zip(groups) {
@@ -401,6 +529,7 @@ fn run() -> Result<(), String> {
     let development = frozen_development()?;
     let prospective = frozen_prospective()?;
     let four_sides = frozen_four_sides()?;
+    let disjoint_sides = frozen_disjoint_four_sides()?;
     let validation = dataset(202, 128);
     let mut validation_features = Vec::with_capacity(validation.len() * INPUTS);
     for sample in &validation {
@@ -417,6 +546,7 @@ fn run() -> Result<(), String> {
         let prospective_result =
             evaluate(&*b, &model, &prospective, &validation, &validation_features)?;
         let four_side_result = evaluate_four_sides(&model, &four_sides)?;
+        let disjoint_result = evaluate_disjoint_four_sides(&model, &disjoint_sides)?;
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
@@ -450,6 +580,13 @@ fn run() -> Result<(), String> {
                 "four_side_transformed_samples": 192,
                 "four_side_fingerprint": FOUR_SIDE_FINGERPRINT,
                 "mirrored_four_side": four_side_result,
+                "disjoint_generator": "TD1-four-side-disjoint-v1",
+                "disjoint_seed": DISJOINT_SEED,
+                "disjoint_candidate_budget": DISJOINT_CANDIDATES,
+                "disjoint_source_rows": 144,
+                "disjoint_last_source_index": 6876,
+                "disjoint_fingerprint": DISJOINT_FINGERPRINT,
+                "mirrored_disjoint_four_side": disjoint_result,
                 "training_seconds": seconds,
                 "validation": development_result["validation"],
                 "validation_passes_original_thresholds":
@@ -482,6 +619,7 @@ fn run() -> Result<(), String> {
         &validation_features,
     )?;
     let baseline_four_side = evaluate_four_sides(&baseline_model, &four_sides)?;
+    let baseline_disjoint = evaluate_disjoint_four_sides(&baseline_model, &disjoint_sides)?;
     let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true, false)?;
     let boosted = evaluate(
         &*b,
@@ -498,6 +636,7 @@ fn run() -> Result<(), String> {
         &validation_features,
     )?;
     let boosted_four_side = evaluate_four_sides(&boosted_model, &four_sides)?;
+    let boosted_disjoint = evaluate_disjoint_four_sides(&boosted_model, &disjoint_sides)?;
     let recall = |run: &Value, group: &str| -> Result<f64, String> {
         run["development"][group]["recall_correct_class_iou50"]
             .as_f64()
@@ -537,6 +676,14 @@ fn run() -> Result<(), String> {
         "four_side_fingerprint": FOUR_SIDE_FINGERPRINT,
         "baseline_four_side": baseline_four_side,
         "edge_sampling_four_side": boosted_four_side,
+        "disjoint_generator": "TD1-four-side-disjoint-v1",
+        "disjoint_seed": DISJOINT_SEED,
+        "disjoint_candidate_budget": DISJOINT_CANDIDATES,
+        "disjoint_source_rows": 144,
+        "disjoint_last_source_index": 6876,
+        "disjoint_fingerprint": DISJOINT_FINGERPRINT,
+        "baseline_disjoint_four_side": baseline_disjoint,
+        "edge_sampling_disjoint_four_side": boosted_disjoint,
         "baseline_seconds": baseline_seconds,
         "edge_sampling_seconds": boosted_seconds,
         "baseline": baseline,
@@ -673,6 +820,33 @@ mod tests {
     #[test]
     fn frozen_development_identity_is_rechecked_before_training_comparison() {
         assert_eq!(frozen_development().unwrap().len(), QUOTA * GROUPS.len());
+    }
+
+    #[test]
+    fn disjoint_four_side_split_has_unique_sources_and_correct_side_geometry() {
+        let groups = frozen_disjoint_four_sides().unwrap();
+        let mut unique = std::collections::HashSet::new();
+        for (side, samples) in groups.iter().enumerate() {
+            assert_eq!(samples.len(), if side == 4 { 48 } else { 24 });
+            for sample in samples {
+                let hash = Sha256::digest(&sample.pixels).to_vec();
+                assert!(
+                    unique.insert(hash),
+                    "a source is repeated in the disjoint split"
+                );
+                if side == 4 {
+                    assert!(sample.class.is_none());
+                    continue;
+                }
+                assert!(sample.class.is_some());
+                let [x1, y1, x2, y2] = target_corners(sample);
+                assert!((x2 - x1) * (y2 - y1) <= 256.0);
+                let borders = [x1 <= 2.0, y1 <= 2.0, 64.0 - x2 <= 2.0, 64.0 - y2 <= 2.0];
+                assert_eq!(borders.iter().filter(|&&near| near).count(), 1);
+                assert!(borders[side]);
+            }
+        }
+        assert_eq!(unique.len(), 144);
     }
 
     #[test]

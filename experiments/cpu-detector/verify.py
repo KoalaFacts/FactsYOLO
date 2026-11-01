@@ -73,6 +73,90 @@ def checked_four_side_report(report, expected_sha, arms):
     return True
 
 
+# Preregistered while the new seed's predictions were still unobserved.
+DISJOINT_FINGERPRINT = "e156306394733b94c5d99daec4ae22647819cab6976bc3dd55938eb988500a56"
+DISJOINT_NAMES = ("left", "top", "right", "bottom", "background")
+
+
+def checked_disjoint_four_side_report(report, expected_sha, arms):
+    """Check one-source-per-side synthetic evidence, including the background."""
+    if (report.get("source_commit") != expected_sha
+            or report.get("disjoint_generator") != "TD1-four-side-disjoint-v1"
+            or report.get("disjoint_seed") != 20261123
+            or report.get("disjoint_candidate_budget") != 8192
+            or report.get("disjoint_source_rows") != 144
+            or report.get("disjoint_last_source_index") != 6876
+            or report.get("disjoint_fingerprint") != DISJOINT_FINGERPRINT
+            or report.get("final_holdout_evaluated") is not False):
+        raise ValueError("disjoint four-side provenance mismatch")
+    for arm in arms:
+        groups = report.get(arm)
+        if not isinstance(groups, dict) or set(groups) != set(DISJOINT_NAMES):
+            raise ValueError(f"missing disjoint four-side groups: {arm}")
+        for name in DISJOINT_NAMES:
+            row = groups[name]
+            quota = 48 if name == "background" else 24
+            if not isinstance(row, dict) or type(row.get("samples")) is not int or row["samples"] != quota:
+                raise ValueError(f"invalid disjoint group population: {arm}/{name}")
+            if name == "background":
+                errors = row.get("false_positives")
+                if type(errors) is not int or not 0 <= errors <= quota:
+                    raise ValueError(f"invalid disjoint background errors: {arm}")
+                continue
+            hits = row.get("correct_class_iou50")
+            missing = row.get("missing_detections")
+            wrong = row.get("wrong_class_detections")
+            if (any(type(n) is not int or n < 0 for n in (hits, missing, wrong))
+                    or hits + missing + wrong > quota):
+                raise ValueError(f"invalid disjoint detection counts: {arm}/{name}")
+            recall = row.get("recall_correct_class_iou50")
+            if (type(recall) not in (int, float) or not math.isfinite(recall)
+                    or abs(recall - hits / quota) > 1e-12):
+                raise ValueError(f"inconsistent disjoint recall: {arm}/{name}")
+            mean = row.get("mean_iou_including_misses")
+            correct = quota - missing - wrong
+            minimum = 0.5 * hits / quota
+            maximum = (hits + 0.5 * (correct - hits)) / quota
+            if (type(mean) not in (int, float) or not math.isfinite(mean)
+                    or not 0 <= mean <= 1 or mean < minimum - 1e-6
+                    or mean > maximum + 1e-6):
+                raise ValueError(f"inconsistent disjoint IoU: {arm}/{name}")
+    return True
+
+
+def assess_disjoint_mirror_candidate(baseline, mirrored):
+    """Apply the fixed directional rule; a negative result is valid evidence."""
+    if (baseline.get("source_commit") != mirrored.get("source_commit")
+            or baseline.get("backend") != mirrored.get("backend")
+            or baseline.get("disjoint_fingerprint") != mirrored.get("disjoint_fingerprint")):
+        raise ValueError("disjoint candidate arms have incompatible provenance")
+    base = baseline["baseline_disjoint_four_side"]
+    mirror = mirrored["mirrored_disjoint_four_side"]
+    deltas = {side: (mirror[side]["correct_class_iou50"] -
+                     base[side]["correct_class_iou50"]) for side in DISJOINT_NAMES[:4]}
+    baseline_fp = base["background"]["false_positives"]
+    mirror_fp = mirror["background"]["false_positives"]
+    original_ok = baseline["baseline"]["validation_passes_original_thresholds"] is True
+    mirrored_ok = mirrored["validation_passes_original_thresholds"] is True
+    qualifies = (deltas["right"] >= 8 and deltas["bottom"] >= 8
+                 and deltas["left"] >= -2 and deltas["top"] >= -2
+                 and mirror_fp <= baseline_fp and original_ok and mirrored_ok)
+    return {
+        "status": "synthetic-research-only",
+        "qualified_for_further_synthetic_research": qualifies,
+        "correct_class_iou50_hit_delta_mirror_minus_baseline": deltas,
+        "background_false_positives": {"baseline": baseline_fp, "mirrored": mirror_fp},
+        "baseline_validation_passes_original_thresholds": original_ok,
+        "mirrored_validation_passes_original_thresholds": mirrored_ok,
+        "source_commit": baseline["source_commit"],
+        "backend": baseline["backend"],
+        "seed": 20261123,
+        "source_rows": 144,
+        "fingerprint": DISJOINT_FINGERPRINT,
+        "final_holdout_evaluated": False,
+    }
+
+
 def checked_prospective_edge_report(report, expected_sha):
     """Fail closed on wrong split/provenance/arithmetic, not on a negative accuracy result."""
     if (report.get("source_commit") != expected_sha
@@ -298,6 +382,20 @@ def main():
     run("tests-release", ["cargo", "test", *common, "--workspace", "--release"])
     run("portable-msrv", ["cargo", "+1.85.0", "test", *common, "-p", "fy-tiny-model"])
     run("report-audit-tests", [sys.executable, "-m", "unittest", "discover", "-s", str(ROOT), "-p", "test_*.py"])
+    # An independent stdlib LCG skip-ahead replay reproduces the registered
+    # disjoint sample identity before any candidate's trained predictions run.
+    freeze = json.loads(run("disjoint-source-freeze", [
+        sys.executable, ROOT / "tools" / "freeze_disjoint_four_sides.py"]))
+    if (freeze.get("fingerprint") != DISJOINT_FINGERPRINT
+            or freeze.get("source_rows") != 144
+            or freeze.get("last_selected_index") != 6876
+            or freeze.get("unique_pixel_arrays") != 144
+            or freeze.get("selected") != {
+                "left": 24, "top": 24, "right": 24,
+                "bottom": 24, "background": 48}):
+        raise RuntimeError("independent disjoint TD1 source replay failed")
+    (evidence / "disjoint-source-freeze.json").write_text(
+        json.dumps(freeze, indent=2) + "\n")
     run("build-release", ["cargo", "build", *common, "--release", "-p", "fy-cpu-evaluate"])
     binary = ROOT / "target" / "release" / ("fy-cpu-evaluate.exe" if os.name == "nt" else "fy-cpu-evaluate")
     # The benchmark compares only training batch preparation, not end-to-end training.
@@ -438,6 +536,9 @@ def main():
         checked_prospective_edge_report(report, env["FACTSYOLO_BUILD_ID"])
         checked_four_side_report(report, env["FACTSYOLO_BUILD_ID"],
                                  ("baseline_four_side", "edge_sampling_four_side"))
+        checked_disjoint_four_side_report(report, env["FACTSYOLO_BUILD_ID"],
+                                          ("baseline_disjoint_four_side",
+                                           "edge_sampling_disjoint_four_side"))
         reference = reports[backend_name]["validation"]
         paired = report["baseline"]["validation"]
         for key in ("positives", "negatives", "class_accuracy", "recall_iou50",
@@ -457,10 +558,17 @@ def main():
         checked_mirrored_edge_report(mirrored, env["FACTSYOLO_BUILD_ID"])
         checked_four_side_report(mirrored, env["FACTSYOLO_BUILD_ID"],
                                  ("mirrored_four_side",))
+        checked_disjoint_four_side_report(mirrored, env["FACTSYOLO_BUILD_ID"],
+                                          ("mirrored_disjoint_four_side",))
         if mirrored["backend"] != {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}[backend_name]:
             raise RuntimeError(f"mirrored backend mismatch: {backend_name}")
         (evidence / f"mirror-training-{backend_name}.json").write_text(
             json.dumps(mirrored, indent=2) + "\n")
+        # Record disjoint-source selection outcome even when the mirror loses.
+        # Across-host qualification requires examining both OS artifact reports.
+        assessment = assess_disjoint_mirror_candidate(report, mirrored)
+        (evidence / f"disjoint-four-side-{backend_name}.json").write_text(
+            json.dumps(assessment, indent=2) + "\n")
 
     require_clean_source_tree(REPO, env["FACTSYOLO_BUILD_ID"])
     summary = {"passed": True, "source_commit": env["FACTSYOLO_BUILD_ID"], "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"],cwd=REPO,text=True).strip()), "platform": platform.platform(),

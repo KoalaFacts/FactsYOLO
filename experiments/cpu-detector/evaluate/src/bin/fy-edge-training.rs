@@ -819,6 +819,30 @@ mod tests {
     }
 
     #[test]
+    fn disjoint_four_side_split_has_unique_sources_and_correct_side_geometry() {
+        let groups = frozen_disjoint_four_sides().unwrap();
+        let mut unique = std::collections::HashSet::new();
+        for (side, samples) in groups.iter().enumerate() {
+            assert_eq!(samples.len(), if side == 4 { 48 } else { 24 });
+            for sample in samples {
+                let hash = Sha256::digest(&sample.pixels).to_vec();
+                assert!(unique.insert(hash), "a source is repeated in the disjoint split");
+                if side == 4 {
+                    assert!(sample.class.is_none());
+                    continue;
+                }
+                assert!(sample.class.is_some());
+                let [x1, y1, x2, y2] = target_corners(sample);
+                assert!((x2 - x1) * (y2 - y1) <= 256.0);
+                let borders = [x1 <= 2.0, y1 <= 2.0, 64.0 - x2 <= 2.0, 64.0 - y2 <= 2.0];
+                assert_eq!(borders.iter().filter(|&&near| near).count(), 1);
+                assert!(borders[side]);
+            }
+        }
+        assert_eq!(unique.len(), 144);
+    }
+
+    #[test]
     fn new_four_side_split_is_frozen_unique_and_has_correct_geometry() {
         let groups = frozen_four_sides().unwrap();
         let mut unique = std::collections::HashSet::new();

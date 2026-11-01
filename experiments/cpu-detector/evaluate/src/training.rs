@@ -85,6 +85,55 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
     Ok(())
 }
 
+/// Opt-in TD1 feature-space illumination experiment. Model inputs are the
+/// established 8x8 RGB block means, so changing them here cannot change the
+/// original images, the sampler/RNG stream, targets or native inference ABI.
+///
+/// Phase selection uses only the fixed step and batch slot, never the class,
+/// geometry or split identity. A shared additive channel lift preserves the
+/// red/blue dominance of each object while exposing the network to varying
+/// brightness, checkerboard and horizontal/vertical backgrounds. The identity
+/// phase deliberately retains a quarter of the historical features.
+///
+/// Validate the entire batch before writing: a corrupted last feature must
+/// not partially transform the earlier slots.
+pub fn illuminate_training_batch(
+    batch: &mut [f32],
+    labels: &[Sample],
+    step: usize,
+) -> Result<(), String> {
+    if batch.len() != 64 * INPUTS
+        || labels.len() != 64
+        || !(1..=2000).contains(&step)
+        || batch
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        return Err("invalid TD1 batch for feature illumination".into());
+    }
+
+    for (slot, features) in batch.chunks_exact_mut(INPUTS).enumerate() {
+        let phase = (step + slot) % 4;
+        for y in 0..8 {
+            for x in 0..8 {
+                let lift = match phase {
+                    0 => 0.0_f32,
+                    1 if (x + y) % 2 == 0 => 0.15_f32,
+                    1 => 0.08_f32,
+                    2 => 0.07_f32 + 0.02_f32 * x as f32,
+                    _ => 0.07_f32 + 0.02_f32 * y as f32,
+                };
+                for channel in 0..3 {
+                    let index = (y * 8 + x) * 3 + channel;
+                    let value = features[index];
+                    features[index] = value + (1.0 - value) * lift;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 // Preserve the original operation order in both the validation and commit pass.
 fn candidate(weight: f32, gradient: f32, m: f32, v: f32, a: f32, b: f32) -> (f32, f32, f32) {
     let nm = 0.9 * m + 0.1 * gradient;
@@ -285,7 +334,8 @@ mod tests {
         ];
         for invalid in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
             let mut batch = vec![0.25_f32; 64 * INPUTS];
-            batch[batch.len() - 1] = invalid;
+            let last = batch.len() - 1;
+            batch[last] = invalid;
             let before = batch.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
             assert!(illuminate_training_batch(&mut batch, &labels, 1).is_err());
             assert_eq!(
@@ -299,7 +349,8 @@ mod tests {
             assert!(illuminate_training_batch(&mut batch, &labels, step).is_err());
             assert_eq!(batch, original);
         }
-        assert!(illuminate_training_batch(&mut batch[..batch.len() - 1], &labels, 1).is_err());
+        let short_len = batch.len() - 1;
+        assert!(illuminate_training_batch(&mut batch[..short_len], &labels, 1).is_err());
         assert!(illuminate_training_batch(&mut batch, &labels[..63], 1).is_err());
         assert_eq!(batch, original);
     }

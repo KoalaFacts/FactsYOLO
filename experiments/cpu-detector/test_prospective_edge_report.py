@@ -157,6 +157,7 @@ def mirrored_report():
     return {
         "status": "mirrored-edge-training-experiment-only",
         "feature_illumination": False,
+        "center_gradient_multiplier": 1.0,
         "illumination_phases": [
             "identity", "checkerboard", "horizontal-gradient", "vertical-gradient"],
         "source_commit": "tested-commit",

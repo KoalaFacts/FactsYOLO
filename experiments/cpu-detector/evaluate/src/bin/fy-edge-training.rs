@@ -20,6 +20,7 @@ use std::time::Instant;
 const STEPS: usize = 2000;
 const BATCH: usize = 64;
 const EDGE_FREQUENCY: usize = 16;
+const CENTER_GRADIENT_MULTIPLIER: f32 = 2.0;
 const QUOTA: usize = 48;
 const GROUPS: [&str; 5] = [
     "small_edge",
@@ -104,6 +105,37 @@ fn fill_edge_batch(
     }
 }
 
+// An opt-in *loss intervention* on the existing TD1 output gradient, not a
+// postprocessing correction. Loss logits 3 and 4 encode center x/y; 5 and 6
+// encode width/height. Background rows must not acquire any box gradient.
+// Validate the whole buffer before mutation so malformed input is atomic.
+fn emphasize_center_gradients(gradients: &mut [f32], labels: &[Sample]) -> Result<(), String> {
+    if labels.is_empty()
+        || labels.len().checked_mul(7) != Some(gradients.len())
+        || gradients.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid center gradient input".into());
+    }
+    for (row, label) in gradients.chunks_exact(7).zip(labels) {
+        if label.class.is_some_and(|class| class > 1)
+            || (label.class.is_some()
+                && row[3..5]
+                    .iter()
+                    .any(|value| !(*value * CENTER_GRADIENT_MULTIPLIER).is_finite()))
+        {
+            return Err("invalid center gradient value".into());
+        }
+    }
+    for (row, label) in gradients.chunks_exact_mut(7).zip(labels) {
+        if label.class.is_some() {
+            for value in &mut row[3..5] {
+                *value *= CENTER_GRADIENT_MULTIPLIER;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn train_model(
     b: &dyn Backend,
     train: &[Sample],
@@ -112,6 +144,7 @@ fn train_model(
     boosted: bool,
     mirrored: bool,
     textured: bool,
+    center_weighted: bool,
 ) -> Result<(Model, f64), String> {
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
@@ -137,7 +170,10 @@ fn train_model(
             illuminate_training_batch(&mut inputs, &labels, step)?;
         }
         let predictions = b.forward(&model.weights, &inputs, BATCH)?;
-        let (_, output_gradient) = loss_gradient(&predictions, &labels)?;
+        let (_, mut output_gradient) = loss_gradient(&predictions, &labels)?;
+        if center_weighted {
+            emphasize_center_gradients(&mut output_gradient, &labels)?;
+        }
         let gradient = b.backward(&model.weights, &inputs, BATCH, &output_gradient)?;
         adam_step(&mut model.weights, &gradient, &mut first, &mut second, step)?;
     }
@@ -518,8 +554,9 @@ fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().collect();
     let mirror_only = arguments.len() == 3 && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
-    if arguments.len() != 2 && !mirror_only && !texture_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture]".into());
+    let center_only = arguments.len() == 3 && arguments[2] == "--center";
+    if arguments.len() != 2 && !mirror_only && !texture_only && !center_only {
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -545,8 +582,10 @@ fn run() -> Result<(), String> {
     // A separately invoked, opt-in third training arm. The established two-arm
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
-    if mirror_only || texture_only {
-        let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true, texture_only)?;
+    if mirror_only || texture_only || center_only {
+        let (model, seconds) = train_model(
+            &*b, &train, &cached, &pool, true, true, texture_only, center_only,
+        )?;
         let development_result =
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =
@@ -558,10 +597,17 @@ fn run() -> Result<(), String> {
             serde_json::to_string_pretty(&json!({
                 "status": if texture_only {
                     "textured-mirror-training-experiment-only"
+                } else if center_only {
+                    "center-weighted-mirror-training-experiment-only"
                 } else {
                     "mirrored-edge-training-experiment-only"
                 },
                 "feature_illumination": texture_only,
+                "center_gradient_multiplier": if center_only {
+                    CENTER_GRADIENT_MULTIPLIER
+                } else {
+                    1.0
+                },
                 "illumination_phases": [
                     "identity", "checkerboard", "horizontal-gradient", "vertical-gradient"
                 ],
@@ -617,7 +663,7 @@ fn run() -> Result<(), String> {
     }
 
     let (baseline_model, baseline_seconds) =
-        train_model(&*b, &train, &cached, &pool, false, false, false)?;
+        train_model(&*b, &train, &cached, &pool, false, false, false, false)?;
     let baseline = evaluate(
         &*b,
         &baseline_model,
@@ -635,7 +681,7 @@ fn run() -> Result<(), String> {
     let baseline_four_side = evaluate_four_sides(&baseline_model, &four_sides)?;
     let baseline_disjoint = evaluate_disjoint_four_sides(&baseline_model, &disjoint_sides)?;
     let (boosted_model, boosted_seconds) =
-        train_model(&*b, &train, &cached, &pool, true, false, false)?;
+        train_model(&*b, &train, &cached, &pool, true, false, false, false)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,
@@ -773,6 +819,62 @@ mod tests {
         let pool = edge_pool(&train).unwrap();
         assert!(pool.iter().all(|&index| stratum(&train[index]) == 0));
         assert!(!pool.is_empty());
+    }
+
+    #[test]
+    fn center_intervention_only_scales_positive_center_gradients() {
+        let labels = vec![
+            Sample {
+                pixels: Vec::new(), class: Some(0), box_xywh: [0.5, 0.5, 0.25, 0.25],
+            },
+            Sample {
+                pixels: Vec::new(), class: None, box_xywh: [0.0; 4],
+            },
+            Sample {
+                pixels: Vec::new(), class: Some(1), box_xywh: [0.3, 0.6, 0.25, 0.25],
+            },
+        ];
+        let outputs = vec![0.1_f32; labels.len() * 7];
+        let (_, mut gradient) = loss_gradient(&outputs, &labels).unwrap();
+        let original = gradient.clone();
+        emphasize_center_gradients(&mut gradient, &labels).unwrap();
+        for (index, (before, after)) in original
+            .chunks_exact(7)
+            .zip(gradient.chunks_exact(7))
+            .enumerate()
+        {
+            for component in 0..7 {
+                let expected = if labels[index].class.is_some() && (3..5).contains(&component) {
+                    before[component] * CENTER_GRADIENT_MULTIPLIER
+                } else {
+                    before[component]
+                };
+                assert_eq!(after[component], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn center_intervention_rejects_bad_gradients_without_partial_mutation() {
+        let labels = [Sample {
+            pixels: Vec::new(), class: Some(0), box_xywh: [0.5, 0.5, 0.25, 0.25],
+        }];
+        for mut bad in [
+            vec![0.0; 6],
+            vec![0.0, 0.0, 0.0, f32::MAX, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0, 0.5, f32::NAN, 0.0, 0.0],
+        ] {
+            let original = bad.clone();
+            assert!(emphasize_center_gradients(&mut bad, &labels).is_err());
+            // NaN is not equal to itself; compare raw bits for no mutation.
+            assert_eq!(
+                bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                original.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+            );
+        }
+        let mut empty = [0.0; 7];
+        assert!(emphasize_center_gradients(&mut empty, &[]).is_err());
+        assert_eq!(empty, [0.0; 7]);
     }
 
     #[test]

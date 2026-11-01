@@ -546,8 +546,7 @@ fn run() -> Result<(), String> {
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
     if mirror_only || texture_only {
-        let (model, seconds) =
-            train_model(&*b, &train, &cached, &pool, true, true, texture_only)?;
+        let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true, texture_only)?;
         let development_result =
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =

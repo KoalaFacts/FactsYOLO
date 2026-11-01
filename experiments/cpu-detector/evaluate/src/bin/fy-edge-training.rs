@@ -826,7 +826,10 @@ mod tests {
             assert_eq!(samples.len(), if side == 4 { 48 } else { 24 });
             for sample in samples {
                 let hash = Sha256::digest(&sample.pixels).to_vec();
-                assert!(unique.insert(hash), "a source is repeated in the disjoint split");
+                assert!(
+                    unique.insert(hash),
+                    "a source is repeated in the disjoint split"
+                );
                 if side == 4 {
                     assert!(sample.class.is_none());
                     continue;

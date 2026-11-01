@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """Run the additive CPU experiment gates, preserving commands and actual results."""
+import hashlib
 import json
 import math
 import os
@@ -17,6 +18,7 @@ from full_training_gate import (validate_full_training_benchmark,
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 from verify_native import NATIVE_INDICES
 from cross_generator_validation import check_report as check_cross_generator_report
+from blind_center_comparison import check_report as check_blind_center_report
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -578,9 +580,12 @@ def main():
         # identities and four fixed slot reflections. Existing two-arm
         # prospective results remain unchanged; both observed splits here
         # are exploratory diagnostics, NOT a new independent quality gate.
+        mirror_artifact = evidence / f"mirror-model-{backend_name}.fytd"
         mirrored = json.loads(run(f"mirror-training-{backend_name}", [
-            edge_binary, backend_name, "--mirror"]))
+            edge_binary, backend_name, "--mirror", "--evidence-artifact", mirror_artifact]))
         checked_mirrored_edge_report(mirrored, env["FACTSYOLO_BUILD_ID"])
+        if mirrored.get("artifact_sha256") != hashlib.sha256(mirror_artifact.read_bytes()).hexdigest():
+            raise RuntimeError(f"mirrored model evidence digest mismatch: {backend_name}")
         checked_four_side_report(mirrored, env["FACTSYOLO_BUILD_ID"],
                                  ("mirrored_four_side",))
         checked_disjoint_four_side_report(mirrored, env["FACTSYOLO_BUILD_ID"],
@@ -613,10 +618,13 @@ def main():
         # budget, initialization and unmodified image features; only center
         # x/y gradient on positives is doubled. All scores here are already-
         # observed diagnostics, not a new cross-generator holdout.
+        center_artifact = evidence / f"center-model-{backend_name}.fytd"
         center = json.loads(run(f"center-training-{backend_name}", [
-            edge_binary, backend_name, "--center"]))
+            edge_binary, backend_name, "--center", "--evidence-artifact", center_artifact]))
         checked_mirrored_edge_report(
             center, env["FACTSYOLO_BUILD_ID"], center_weighted=True)
+        if center.get("artifact_sha256") != hashlib.sha256(center_artifact.read_bytes()).hexdigest():
+            raise RuntimeError(f"center model evidence digest mismatch: {backend_name}")
         checked_four_side_report(center, env["FACTSYOLO_BUILD_ID"],
                                  ("mirrored_four_side",))
         checked_disjoint_four_side_report(center, env["FACTSYOLO_BUILD_ID"],
@@ -629,6 +637,22 @@ def main():
             raise RuntimeError(f"center/mirror training parity failure: {backend_name}")
         (evidence / f"center-training-{backend_name}.json").write_text(
             json.dumps(center, indent=2) + "\n")
+        # This cohort was source-frozen before reading either model's predictions.
+        # Both arms must use independently reloaded real trained artifacts,
+        # identical source/order/model architecture and the same test images.
+        # The result is an experimental synthetic diagnostic, not a new
+        # production accuracy claim or a training-treatment selection rule.
+        blind = json.loads(run(f"blind-center-{backend_name}", [
+            sys.executable, ROOT / "blind_center_comparison.py", binary,
+            mirror_artifact, center_artifact,
+            evidence / f"mirror-training-{backend_name}.json",
+            evidence / f"center-training-{backend_name}.json",
+        ]))
+        check_blind_center_report(
+            blind, env["FACTSYOLO_BUILD_ID"], mirrored["backend"],
+            mirrored["artifact_sha256"], center["artifact_sha256"])
+        (evidence / f"blind-center-{backend_name}.json").write_text(
+            json.dumps(blind, indent=2) + "\n")
         # Record disjoint-source selection outcome even when the mirror loses.
         # Across-host qualification requires examining both OS artifact reports.
         assessment = assess_disjoint_mirror_candidate(report, mirrored)

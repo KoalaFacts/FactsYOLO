@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Experimental TD1 training intervention: fixed-frequency edge-positive sampling.
 //! No final holdout, changed model format, native ABI, or production inference path.
+
+// The wide experimental evidence JSON objects exceed serde_json::json!'s default
+// macro expansion depth; this changes compilation only, not the report schema.
+#![recursion_limit = "256"]
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},

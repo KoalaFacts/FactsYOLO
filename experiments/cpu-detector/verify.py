@@ -15,6 +15,7 @@ from full_training_gate import (validate_full_training_benchmark,
                                 validate_full_training_diagnostics,
                                 validate_interrupted_full_training_diagnostics)
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
+from verify_native import NATIVE_INDICES
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -398,7 +399,7 @@ def main():
             raise RuntimeError("unverifiable prospective edge diagnostics")
         (evidence / f"edge-validation-{backend}.json").write_text(
             json.dumps(edge_report, indent=2) + "\n")
-        for i in range(6):
+        for i in NATIVE_INDICES:
             result = json.loads(run(f"infer-{backend}-{i}", [binary, "infer", output / "model.fytd", output / f"sample-{i}.rgb"]))
             if result != report["predictions"][i]["prediction"]:
                 raise RuntimeError(f"fresh process inference disagrees: {backend}/{i}")

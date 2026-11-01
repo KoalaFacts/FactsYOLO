@@ -151,10 +151,7 @@ fn emphasize_center_gradients(gradients: &mut [f32], labels: &[Sample]) -> Resul
 // Keep existing positive class and box gradients untouched: this is one
 // controlled intervention against false detections, not a new decoder rule.
 // Check the *whole* buffer, including overflow, before mutating any row.
-fn emphasize_background_gradients(
-    gradients: &mut [f32],
-    labels: &[Sample],
-) -> Result<(), String> {
+fn emphasize_background_gradients(gradients: &mut [f32], labels: &[Sample]) -> Result<(), String> {
     if labels.is_empty()
         || labels.len().checked_mul(7) != Some(gradients.len())
         || gradients.iter().any(|value| !value.is_finite())
@@ -1141,7 +1138,10 @@ mod tests {
         ] {
             let original = bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
             assert!(emphasize_background_gradients(&mut bad, &label).is_err());
-            assert_eq!(bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>(), original);
+            assert_eq!(
+                bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                original
+            );
         }
         let mut valid = [0.0; 7];
         let invalid_class = [Sample {

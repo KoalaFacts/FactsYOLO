@@ -303,8 +303,13 @@ mod tests {
         assert!((batch[3] - expected(0.08)).abs() < 1e-6);
         assert!((batch[INPUTS + 7 * 3] - expected(0.21)).abs() < 1e-6);
         assert!((batch[2 * INPUTS + 7 * 8 * 3] - expected(0.21)).abs() < 1e-6);
-        assert_eq!(&batch[3 * INPUTS..4 * INPUTS], &original[3 * INPUTS..4 * INPUTS]);
-        assert!(batch.iter().all(|value| value.is_finite() && (0.0..=1.0).contains(value)));
+        assert_eq!(
+            &batch[3 * INPUTS..4 * INPUTS],
+            &original[3 * INPUTS..4 * INPUTS]
+        );
+        assert!(batch
+            .iter()
+            .all(|value| value.is_finite() && (0.0..=1.0).contains(value)));
         assert_eq!(
             labels
                 .iter()
@@ -316,8 +321,14 @@ mod tests {
         let mut replay = original;
         illuminate_training_batch(&mut replay, &labels, 1).unwrap();
         assert_eq!(
-            batch.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
-            replay.iter().map(|value| value.to_bits()).collect::<Vec<_>>()
+            batch
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            replay
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>()
         );
         assert_ne!(&batch[0..INPUTS], &batch[3 * INPUTS..4 * INPUTS]);
     }

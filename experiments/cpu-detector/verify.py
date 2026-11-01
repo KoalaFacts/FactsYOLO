@@ -126,6 +126,10 @@ def checked_disjoint_four_side_report(report, expected_sha, arms):
 
 def assess_disjoint_mirror_candidate(baseline, mirrored):
     """Apply the fixed directional rule; a negative result is valid evidence."""
+    if (baseline.get("source_commit") != mirrored.get("source_commit")
+            or baseline.get("backend") != mirrored.get("backend")
+            or baseline.get("disjoint_fingerprint") != mirrored.get("disjoint_fingerprint")):
+        raise ValueError("disjoint candidate arms have incompatible provenance")
     base = baseline["baseline_disjoint_four_side"]
     mirror = mirrored["mirrored_disjoint_four_side"]
     deltas = {side: (mirror[side]["correct_class_iou50"] -

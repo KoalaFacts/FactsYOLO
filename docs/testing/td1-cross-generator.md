@@ -65,3 +65,41 @@ A low or uneven result can motivate a separately designed, preregistered
 training intervention using independent-source distributions. Do not
 retroactively train on this frozen cohort and still claim it is an unseen
 test; any later training intervention needs a new evaluation source.
+
+## Opt-in illumination-training follow-up (experimental, not evaluated here)
+
+The previously observed 13/96 cross-generator correct-class IoU>=0.5
+result and the centre-location error decomposition motivate an additional,
+**controlled training arm**. It does **not** re-label the observed 120-image
+cohort as unseen, alter the accepted seed909 final holdout, or establish
+production accuracy.
+
+The standalone `fy-edge-training <burn|candle> --texture` arm starts with
+exactly the same seed404 weights, seed101/4096 original training examples,
+seed707 sampled edge-positive indices, four reserved mirror slots, 2,000
+steps, batch64 and Adam/loss as the established `--mirror` arm. Only the
+cached 8x8 RGB block-mean training features are illuminated after the mirror.
+For each step and slot, phase `(step + slot) % 4` chooses:
+
+- identity (unchanged input);
+- checkerboard: lift 0.15 on even-parity feature blocks, 0.08 otherwise;
+- horizontal: lift `0.07 + 0.02 * block_x`;
+- vertical: lift `0.07 + 0.02 * block_y`.
+
+Each channel becomes `v + (1-v)*lift`. This bounded common-channel
+transformation preserves relative red/blue dominance; it uses neither
+label geometry nor additional PRNG draws, and cannot alter target boxes or
+saved model format. It approximates photometric changes **at TD1's feature
+resolution**; it does not reproduce the pixels of natural photographs or
+the cross-generator program. The all-slot identity fraction is 1/4.
+Full-batch validation precedes mutation, including a corrupt last feature.
+
+The existing CI runs real training for both Burn and Candle on Linux and
+Windows, preserving raw `texture-training-{burn,candle}.json` reports.
+The unchanged seed202 validation gates must still pass; the registered
+development/prospective/four-side datasets report gains **or losses**, not
+a post-hoc success criterion. The training arm produces no weights for
+publication and does not read the seed909 final holdout. No improvement
+claim is permitted until those actual runs pass and a separately frozen,
+previously unseen cross-generator distribution evaluates the candidate
+against the unmodified mirror strategy on equal conditions.

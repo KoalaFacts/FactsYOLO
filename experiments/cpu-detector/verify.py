@@ -220,10 +220,15 @@ def checked_prospective_edge_report(report, expected_sha):
 
 
 
-def checked_mirrored_edge_report(report, expected_sha):
-    """Validate the opt-in third arm without treating observed splits as new evidence."""
+def checked_mirrored_edge_report(report, expected_sha, *, textured=False):
+    """Validate opt-in mirror/texture arms without selecting on observed splits."""
+    expected_status = ("textured-mirror-training-experiment-only" if textured
+                       else "mirrored-edge-training-experiment-only")
     if (report.get("source_commit") != expected_sha
-            or report.get("status") != "mirrored-edge-training-experiment-only"
+            or report.get("status") != expected_status
+            or report.get("feature_illumination") is not textured
+            or report.get("illumination_phases") !=
+                ["identity", "checkerboard", "horizontal-gradient", "vertical-gradient"]
             or report.get("model") != "TD1-v1-192-64-7"
             or report.get("backend") not in ("burn-flex-0.22.0", "candle-cpu-0.11.0")
             or report.get("training_seed") != 101
@@ -575,6 +580,26 @@ def main():
             raise RuntimeError(f"mirrored backend mismatch: {backend_name}")
         (evidence / f"mirror-training-{backend_name}.json").write_text(
             json.dumps(mirrored, indent=2) + "\n")
+        # Fourth, opt-in training arm: same mirrored edge draws, initialized
+        # weights, Adam, budget and labels; only RGB block-mean illumination
+        # differs. These already-observed geometry probes are development
+        # diagnostics, NOT a fresh cross-generator generalization result.
+        textured = json.loads(run(f"texture-training-{backend_name}", [
+            edge_binary, backend_name, "--texture"]))
+        checked_mirrored_edge_report(
+            textured, env["FACTSYOLO_BUILD_ID"], textured=True)
+        checked_four_side_report(textured, env["FACTSYOLO_BUILD_ID"],
+                                 ("mirrored_four_side",))
+        checked_disjoint_four_side_report(textured, env["FACTSYOLO_BUILD_ID"],
+                                          ("mirrored_disjoint_four_side",))
+        if (textured["backend"] != mirrored["backend"]
+                or textured["mirror_slots"] != mirrored["mirror_slots"]
+                or textured["sampler_seed"] != mirrored["sampler_seed"]
+                or textured["steps_per_arm"] != mirrored["steps_per_arm"]
+                or textured["train_samples"] != mirrored["train_samples"]):
+            raise RuntimeError(f"texture/mirror training parity failure: {backend_name}")
+        (evidence / f"texture-training-{backend_name}.json").write_text(
+            json.dumps(textured, indent=2) + "\n")
         # Record disjoint-source selection outcome even when the mirror loses.
         # Across-host qualification requires examining both OS artifact reports.
         assessment = assess_disjoint_mirror_candidate(report, mirrored)

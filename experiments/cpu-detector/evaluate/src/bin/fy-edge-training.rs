@@ -5,6 +5,7 @@
 // The wide experimental evidence JSON objects exceed serde_json::json!'s default
 // macro expansion depth; this changes compilation only, not the report schema.
 #![recursion_limit = "256"]
+use fy_cpu_evaluate::training::illuminate_training_batch;
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},
@@ -110,6 +111,7 @@ fn train_model(
     pool: &[usize],
     boosted: bool,
     mirrored: bool,
+    textured: bool,
 ) -> Result<(Model, f64), String> {
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
@@ -130,6 +132,9 @@ fn train_model(
             }
         } else {
             fill_training_batch(train, cached, &mut rng, &mut inputs, &mut labels);
+        }
+        if textured {
+            illuminate_training_batch(&mut inputs, &labels, step)?;
         }
         let predictions = b.forward(&model.weights, &inputs, BATCH)?;
         let (_, output_gradient) = loss_gradient(&predictions, &labels)?;
@@ -512,8 +517,9 @@ fn evaluate(
 fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().collect();
     let mirror_only = arguments.len() == 3 && arguments[2] == "--mirror";
-    if arguments.len() != 2 && !mirror_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror]".into());
+    let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
+    if arguments.len() != 2 && !mirror_only && !texture_only {
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -539,8 +545,8 @@ fn run() -> Result<(), String> {
     // A separately invoked, opt-in third training arm. The established two-arm
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
-    if mirror_only {
-        let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true)?;
+    if mirror_only || texture_only {
+        let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true, texture_only)?;
         let development_result =
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =
@@ -550,7 +556,15 @@ fn run() -> Result<(), String> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "status": "mirrored-edge-training-experiment-only",
+                "status": if texture_only {
+                    "textured-mirror-training-experiment-only"
+                } else {
+                    "mirrored-edge-training-experiment-only"
+                },
+                "feature_illumination": texture_only,
+                "illumination_phases": [
+                    "identity", "checkerboard", "horizontal-gradient", "vertical-gradient"
+                ],
                 "source_commit": source,
                 "backend": b.name(),
                 "model": "TD1-v1-192-64-7",
@@ -597,13 +611,13 @@ fn run() -> Result<(), String> {
             .map_err(|e| e.to_string())?
         );
         if development_result["validation_passes_original_thresholds"] != true {
-            return Err("mirrored training failed original validation thresholds".into());
+            return Err("opt-in training failed original validation thresholds".into());
         }
         return Ok(());
     }
 
     let (baseline_model, baseline_seconds) =
-        train_model(&*b, &train, &cached, &pool, false, false)?;
+        train_model(&*b, &train, &cached, &pool, false, false, false)?;
     let baseline = evaluate(
         &*b,
         &baseline_model,
@@ -620,7 +634,8 @@ fn run() -> Result<(), String> {
     )?;
     let baseline_four_side = evaluate_four_sides(&baseline_model, &four_sides)?;
     let baseline_disjoint = evaluate_disjoint_four_sides(&baseline_model, &disjoint_sides)?;
-    let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true, false)?;
+    let (boosted_model, boosted_seconds) =
+        train_model(&*b, &train, &cached, &pool, true, false, false)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,
@@ -758,6 +773,55 @@ mod tests {
         let pool = edge_pool(&train).unwrap();
         assert!(pool.iter().all(|&index| stratum(&train[index]) == 0));
         assert!(!pool.is_empty());
+    }
+
+    #[test]
+    fn texture_training_retains_mirrored_sampler_and_labels() {
+        let train = dataset(101, 256);
+        let pool = edge_pool(&train).unwrap();
+        let mut cached = Vec::with_capacity(train.len() * INPUTS);
+        for sample in &train {
+            cached.extend(features(&sample.pixels).unwrap());
+        }
+        let mut base_rng = Rng::new(707);
+        let mut texture_rng = Rng::new(707);
+        let (mut base_input, mut texture_input) = (Vec::new(), Vec::new());
+        let (mut base_labels, mut texture_labels) = (Vec::new(), Vec::new());
+        for step in 1..=4 {
+            fill_edge_batch(
+                &train,
+                &cached,
+                &pool,
+                &mut base_rng,
+                &mut base_input,
+                &mut base_labels,
+            );
+            fill_edge_batch(
+                &train,
+                &cached,
+                &pool,
+                &mut texture_rng,
+                &mut texture_input,
+                &mut texture_labels,
+            );
+            mirror_reserved_edge_batch(&mut base_input, &mut base_labels).unwrap();
+            mirror_reserved_edge_batch(&mut texture_input, &mut texture_labels).unwrap();
+            assert_eq!(base_input, texture_input);
+            let before = texture_labels
+                .iter()
+                .map(|sample| (sample.class, sample.box_xywh))
+                .collect::<Vec<_>>();
+            illuminate_training_batch(&mut texture_input, &texture_labels, step).unwrap();
+            assert_ne!(base_input, texture_input);
+            assert_eq!(
+                texture_labels
+                    .iter()
+                    .map(|sample| (sample.class, sample.box_xywh))
+                    .collect::<Vec<_>>(),
+                before
+            );
+            assert_eq!(base_rng.next_u32(), texture_rng.next_u32());
+        }
     }
 
     #[test]

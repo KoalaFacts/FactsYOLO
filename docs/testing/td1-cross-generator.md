@@ -46,7 +46,7 @@ infer` child processes. It checks the unchanged trained-artifact provenance,
 registered legacy seed909 fingerprint (without evaluating seed909 here), the
 independent cohort fingerprint, immutability of model bytes, every reported
 class/side population, correct-class hits, missing/wrong-class counts,
-IoU arithmetic and background errors. Results are written as
+IoU arithmetic and background errors. Each report also includes ordered\nper-image detection metadata (class, confidence and corners, but no RGB bytes),\nwhich the verifier replays to reject fabricated aggregate scores. Results are written as
 `cross-generator-{burn,candle}.json` in the Linux and Windows experimental
 CI evidence artifacts, with exact source revision and model SHA-256. All
 negative and mixed accuracy outcomes remain recorded.

@@ -49,6 +49,15 @@ const DISJOINT_NAMES: [&str; 5] = ["left", "top", "right", "bottom", "background
 
 const FOUR_SIDE_NAMES: [&str; 4] = ["left", "top", "right", "bottom"];
 
+#[derive(Clone, Copy)]
+enum TrainingArm {
+    Baseline,
+    Edge,
+    Mirror,
+    Texture,
+    Center,
+}
+
 fn stratum(sample: &Sample) -> usize {
     if sample.class.is_none() {
         return 4;
@@ -116,7 +125,7 @@ fn emphasize_center_gradients(gradients: &mut [f32], labels: &[Sample]) -> Resul
     {
         return Err("invalid center gradient input".into());
     }
-    for (row, label) in gradients.chunks_exact(7).zip(labels) {
+    for (row, label) in gradients.as_chunks::<7>().0.iter().zip(labels) {
         if label.class.is_some_and(|class| class > 1)
             || (label.class.is_some()
                 && row[3..5]
@@ -126,7 +135,7 @@ fn emphasize_center_gradients(gradients: &mut [f32], labels: &[Sample]) -> Resul
             return Err("invalid center gradient value".into());
         }
     }
-    for (row, label) in gradients.chunks_exact_mut(7).zip(labels) {
+    for (row, label) in gradients.as_chunks_mut::<7>().0.iter_mut().zip(labels) {
         if label.class.is_some() {
             for value in &mut row[3..5] {
                 *value *= CENTER_GRADIENT_MULTIPLIER;
@@ -141,11 +150,12 @@ fn train_model(
     train: &[Sample],
     cached: &[f32],
     pool: &[usize],
-    boosted: bool,
-    mirrored: bool,
-    textured: bool,
-    center_weighted: bool,
+    arm: TrainingArm,
 ) -> Result<(Model, f64), String> {
+    let boosted = !matches!(arm, TrainingArm::Baseline);
+    let mirrored = !matches!(arm, TrainingArm::Baseline | TrainingArm::Edge);
+    let textured = matches!(arm, TrainingArm::Texture);
+    let center_weighted = matches!(arm, TrainingArm::Center);
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
     let mut second = vec![0.0; PARAMETERS];
@@ -583,16 +593,14 @@ fn run() -> Result<(), String> {
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
     if mirror_only || texture_only || center_only {
-        let (model, seconds) = train_model(
-            &*b,
-            &train,
-            &cached,
-            &pool,
-            true,
-            true,
-            texture_only,
-            center_only,
-        )?;
+        let arm = if texture_only {
+            TrainingArm::Texture
+        } else if center_only {
+            TrainingArm::Center
+        } else {
+            TrainingArm::Mirror
+        };
+        let (model, seconds) = train_model(&*b, &train, &cached, &pool, arm)?;
         let development_result =
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =
@@ -670,7 +678,7 @@ fn run() -> Result<(), String> {
     }
 
     let (baseline_model, baseline_seconds) =
-        train_model(&*b, &train, &cached, &pool, false, false, false, false)?;
+        train_model(&*b, &train, &cached, &pool, TrainingArm::Baseline)?;
     let baseline = evaluate(
         &*b,
         &baseline_model,
@@ -688,7 +696,7 @@ fn run() -> Result<(), String> {
     let baseline_four_side = evaluate_four_sides(&baseline_model, &four_sides)?;
     let baseline_disjoint = evaluate_disjoint_four_sides(&baseline_model, &disjoint_sides)?;
     let (boosted_model, boosted_seconds) =
-        train_model(&*b, &train, &cached, &pool, true, false, false, false)?;
+        train_model(&*b, &train, &cached, &pool, TrainingArm::Edge)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,
@@ -852,8 +860,10 @@ mod tests {
         let original = gradient.clone();
         emphasize_center_gradients(&mut gradient, &labels).unwrap();
         for (index, (before, after)) in original
-            .chunks_exact(7)
-            .zip(gradient.chunks_exact(7))
+            .as_chunks::<7>()
+            .0
+            .iter()
+            .zip(gradient.as_chunks::<7>().0.iter())
             .enumerate()
         {
             for component in 0..7 {

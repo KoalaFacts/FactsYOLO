@@ -823,15 +823,21 @@ mod tests {
 
     #[test]
     fn center_intervention_only_scales_positive_center_gradients() {
-        let labels = vec![
+        let labels = [
             Sample {
-                pixels: Vec::new(), class: Some(0), box_xywh: [0.5, 0.5, 0.25, 0.25],
+                pixels: Vec::new(),
+                class: Some(0),
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
             },
             Sample {
-                pixels: Vec::new(), class: None, box_xywh: [0.0; 4],
+                pixels: Vec::new(),
+                class: None,
+                box_xywh: [0.0; 4],
             },
             Sample {
-                pixels: Vec::new(), class: Some(1), box_xywh: [0.3, 0.6, 0.25, 0.25],
+                pixels: Vec::new(),
+                class: Some(1),
+                box_xywh: [0.3, 0.6, 0.25, 0.25],
             },
         ];
         let outputs = vec![0.1_f32; labels.len() * 7];
@@ -857,7 +863,9 @@ mod tests {
     #[test]
     fn center_intervention_rejects_bad_gradients_without_partial_mutation() {
         let labels = [Sample {
-            pixels: Vec::new(), class: Some(0), box_xywh: [0.5, 0.5, 0.25, 0.25],
+            pixels: Vec::new(),
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
         }];
         for mut bad in [
             vec![0.0; 6],

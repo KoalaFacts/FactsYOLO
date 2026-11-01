@@ -156,6 +156,9 @@ def mirrored_report():
     groups = copy.deepcopy(report()["edge_sampling_prospective"])
     return {
         "status": "mirrored-edge-training-experiment-only",
+        "feature_illumination": False,
+        "illumination_phases": [
+            "identity", "checkerboard", "horizontal-gradient", "vertical-gradient"],
         "source_commit": "tested-commit",
         "backend": "burn-flex-0.22.0",
         "model": "TD1-v1-192-64-7",

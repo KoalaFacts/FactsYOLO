@@ -14,6 +14,25 @@ import time
 
 ROOT=Path(__file__).resolve().parents[2]
 
+# Ground-truth prefix, registered independently of trained model predictions.
+# Seed909's first six examples have background and class1 but no class0.
+NATIVE_CASES = 8
+
+def select_native_cases(rows):
+    """Select the fixed held-out prefix, failing if any target class is absent."""
+    if not isinstance(rows, list) or len(rows) < NATIVE_CASES:
+        raise ValueError('missing native held-out predictions')
+    selected = rows[:NATIVE_CASES]
+    for i, row in enumerate(selected):
+        if (not isinstance(row, dict) or type(row.get('index')) is not int
+                or row['index'] != i or row.get('expected_class') not in (None, 0, 1)
+                or (row.get('expected_class') is not None and type(row['expected_class']) is not int)):
+            raise ValueError('invalid native held-out reference ordering/class')
+    if {row['expected_class'] for row in selected} != {None, 0, 1}:
+        raise ValueError('native held-out inputs must cover background and both classes')
+    return selected
+
+
 
 def main():
     if len(sys.argv)!=3:
@@ -69,8 +88,7 @@ def main():
     layout=run('rust-layout',['cargo','run','-p','facts-yolo','--example','abi_layout','--quiet',*common],stdout_only=True)
     layout_path=destination/'rust-layout.txt';layout_path.write_text(layout)
     cases=destination/'cases';cases.mkdir()
-    for i in range(6):
-        prediction=report['predictions'][i]
+    for i, prediction in enumerate(select_native_cases(report.get('predictions'))):
         if prediction['index']!=i:
             raise ValueError('unexpected reference sample ordering')
         p=prediction['prediction']
@@ -87,7 +105,7 @@ def main():
         else:
             flags=['-DFY_STATIC'] if kind=='static' else []
             run(f'c-build-{kind}',[os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror',*flags,'-I',ROOT/'include',ROOT/'tests/c/td1.c',library,'-Wl,-rpath,'+str(release),'-ldl','-lpthread','-lm','-o',executable])
-        for i in range(6):
+        for i in range(NATIVE_CASES):
             run(f'c-{kind}-{i}',[executable,artifact,cases/f'sample-{i}.rgb',cases/f'expected-{i}.txt'])
     managed_root=ROOT/'tests/dotnet'
     sdk=run('dotnet-version',['dotnet','--version'],managed_root,stdout_only=True).strip()
@@ -102,7 +120,7 @@ def main():
         run(f'run-{mode}',[*executable,shared,layout_path,'td1',mode,artifact,cases],managed_root)
     summary={'passed':True,'source_commit':head,'source_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
              'training_backend':report['backend'],'artifact_sha256':hashlib.sha256(artifact.read_bytes()).hexdigest(),
-             'heldout_samples':6,'c_link_modes':[kind for kind,_ in libraries],'managed_execution_modes':['jit','aot'],
+             'heldout_samples':NATIVE_CASES,'c_link_modes':[kind for kind,_ in libraries],'managed_execution_modes':['jit','aot'],
              'runtime_identifier':rid,'platform':platform.platform()}
     (destination/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
     print(json.dumps(summary,indent=2))

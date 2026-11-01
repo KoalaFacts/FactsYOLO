@@ -39,7 +39,9 @@ class CrossGeneratorTests(unittest.TestCase):
                   "backend": "burn-flex-0.22.0", "model_sha256": "a"*64,
                   "generator": cv.GENERATOR, "seed": cv.SEED, "count": cv.COUNT,
                   "fingerprint": cv.FINGERPRINT, "final_holdout_evaluated": False,
-                  "groups": groups}
+                  "groups": groups,
+                  "predictions": [{"index": item["index"], "prediction": perfect(item)}
+                                  for item in rows]}
         self.assertTrue(cv.check_report(report, "1"*40, "burn-flex-0.22.0"))
         for name in ("left_class0", "right_class1"):
             self.assertEqual(groups[name]["hits"], 12)
@@ -56,7 +58,10 @@ class CrossGeneratorTests(unittest.TestCase):
         for bad_change in (lambda r: r.update(source_commit="0"*40),
                            lambda r: r.update(final_holdout_evaluated=True),
                            lambda r: r["groups"].pop("background"),
-                           lambda r: r["groups"]["background"].update(false_positives=25)):
+                           lambda r: r["groups"]["background"].update(false_positives=25),
+                           lambda r: r["predictions"][0].update(index=1),
+                           lambda r: r["predictions"][0].update(prediction=None),
+                           lambda r: r["predictions"].pop()):
             bad = copy.deepcopy(report)
             bad_change(bad)
             with self.assertRaises(ValueError):

@@ -161,7 +161,7 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
         };
         predictions.push(json!({"index":index,"expected_class":sample.class,"expected_corners":sample.class.map(|_|target_corners(sample)),"prediction":prediction(detection),"iou":overlap}));
         // Separate CLI process verification consumes both positive and background examples.
-        if index < 6 {
+        if index < 8 {
             fs::write(
                 destination.join(format!("sample-{index}.rgb")),
                 &sample.pixels,

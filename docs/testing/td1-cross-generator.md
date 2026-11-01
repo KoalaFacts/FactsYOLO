@@ -143,3 +143,54 @@ Before running a new center intervention, the following comparison is fixed:
   cross-generator generalization or promotion requires an independently
   frozen, previously unevaluated source and a separate review. Public model
   format, ABI, library defaults and dependency policy are untouched.
+
+
+## Frozen second-generator blind paired training comparison (2026-11-02)
+
+This **new evaluation source was committed with a fixed fingerprint before
+running inference from either training arm**. The previous 120-image
+cross-generator set, four-side geometry pools, and development/validation
+splits have already been observed. They are not reused as a blind metric.
+
+- Source implementation: \`experiments/cpu-detector/blind_center_comparison.py\`,
+  project-original Python stdlib only, domain \`TD1-independent-striped-boxes-v2\`,
+  fixed seed \`20261102\`.
+- Samples: 96 new positive RGB images (12 for each class at each left/top/right/
+  bottom side; edge inset 0..3 pixels; sizes 11..23), plus 24 new backgrounds.
+  Each 64×64 RGB image has a coordinate-varying neutral striped background and
+  nonflat red- or blue-dominant target. No photos or external code/weights.
+- Each image's XorShift32 state comes from the first four LE bytes of
+  SHA-256(\`TD1-independent-striped-boxes-v2:20261102:<index>\`).
+  Per-pixel background and target draws are deterministic, with no model
+  outputs involved. The fingerprint hashes the domain, per-row class byte,
+  normalized XYWH LE F32 labels, and 12,288 RGB bytes in row order:
+  \`aed8aaef623c07588159e3319ce59acdd02c0e41ad1622abbaf47a315c2f3ab2\`.
+- **Arms frozen before prediction**: TD1 mirrored-edge sampling vs exactly the
+  same sampler with positive center-x/y gradients doubled. Both use seed404
+  initial weights, seed101/4,096 training data, seed707 sampling, four fixed
+  mirror slots, 2,000 steps, batch64, Adam and unchanged original thresholds.
+  No data-based threshold, checkpoint or treatment choice is added.
+- For each Burn/Candle backend on Linux/Windows, the existing experiment
+  optionally saves both models to separate ephemeral ignored \`*.fytd\` files
+  **only after** original validation succeeds; files are created without
+  overwriting existing files and byte-reloaded for exact parameter equality.
+  They are fed through fresh \`fy-cpu-evaluate infer\` child processes on the
+  same 120 samples in the same order. The saved model byte SHA-256 values
+  must match the corresponding training evidence and remain unchanged.
+- JSON artifact \`blind-center-{burn,candle}.json\` preserves ordered raw
+  per-image detections, model and source SHA-256 identities, group counts,
+  hits at correct-class IoU≥0.5, mean IoU including misses, mean pixel-space
+  center error for correct-class detections, missing/wrong-class counts,
+  background false positives, and the paired hit delta. The verifier replays
+  every aggregate from the frozen inputs and raw predictions; tampering,
+  missing/reordered detections and invalid provenance fail closed.
+- **No trained weights or RGB bytes are uploaded by CI**: evidence upload
+  patterns include JSON/logs but exclude \`*.fytd\` files and raw images.
+
+This is a *fresh synthetic* blind diagnostic, not the seed909 final holdout,
+not natural-image performance, and not permission to declare the center-weighted
+treatment a default. All positive and negative results are retained. The
+prediction difference on one frozen cohort is exploratory; decisions about
+architecture, broader distributions or shipping require separate design and
+validation. The model format, public ABI and training seed909 test remain
+unchanged.

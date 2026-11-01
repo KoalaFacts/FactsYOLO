@@ -16,6 +16,7 @@ from full_training_gate import (validate_full_training_benchmark,
                                 validate_interrupted_full_training_diagnostics)
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 from verify_native import NATIVE_INDICES
+from cross_generator_validation import check_report as check_cross_generator_report
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -497,6 +498,16 @@ def main():
             raise RuntimeError("unverifiable prospective edge diagnostics")
         (evidence / f"edge-validation-{backend}.json").write_text(
             json.dumps(edge_report, indent=2) + "\n")
+        # Independent xorshift/patterned-background source distribution; no
+        # training change, final holdout reuse or post-hoc quality threshold.
+        cross_report = json.loads(run(f"cross-generator-{backend}", [
+            sys.executable, ROOT / "cross_generator_validation.py", binary,
+            output / "model.fytd", output / "metrics.json",
+        ]))
+        check_cross_generator_report(
+            cross_report, env["FACTSYOLO_BUILD_ID"], report["backend"])
+        (evidence / f"cross-generator-{backend}.json").write_text(
+            json.dumps(cross_report, indent=2) + "\n")
         for i in NATIVE_INDICES:
             result = json.loads(run(f"infer-{backend}-{i}", [binary, "infer", output / "model.fytd", output / f"sample-{i}.rgb"]))
             if result != report["predictions"][i]["prediction"]:

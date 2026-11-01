@@ -546,7 +546,8 @@ fn run() -> Result<(), String> {
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
     if mirror_only || texture_only {
-        let (model, seconds) = train_model(&*b, &train, &cached, &pool, true, true, texture_only)?;
+        let (model, seconds) =
+            train_model(&*b, &train, &cached, &pool, true, true, texture_only)?;
         let development_result =
             evaluate(&*b, &model, &development, &validation, &validation_features)?;
         let prospective_result =
@@ -634,7 +635,8 @@ fn run() -> Result<(), String> {
     )?;
     let baseline_four_side = evaluate_four_sides(&baseline_model, &four_sides)?;
     let baseline_disjoint = evaluate_disjoint_four_sides(&baseline_model, &disjoint_sides)?;
-    let (boosted_model, boosted_seconds) = train_model(&*b, &train, &cached, &pool, true, false, false)?;
+    let (boosted_model, boosted_seconds) =
+        train_model(&*b, &train, &cached, &pool, true, false, false)?;
     let boosted = evaluate(
         &*b,
         &boosted_model,
@@ -788,10 +790,19 @@ mod tests {
         let (mut base_labels, mut texture_labels) = (Vec::new(), Vec::new());
         for step in 1..=4 {
             fill_edge_batch(
-                &train, &cached, &pool, &mut base_rng, &mut base_input, &mut base_labels,
+                &train,
+                &cached,
+                &pool,
+                &mut base_rng,
+                &mut base_input,
+                &mut base_labels,
             );
             fill_edge_batch(
-                &train, &cached, &pool, &mut texture_rng, &mut texture_input,
+                &train,
+                &cached,
+                &pool,
+                &mut texture_rng,
+                &mut texture_input,
                 &mut texture_labels,
             );
             mirror_reserved_edge_batch(&mut base_input, &mut base_labels).unwrap();

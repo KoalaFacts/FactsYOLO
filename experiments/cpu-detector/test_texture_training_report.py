@@ -7,13 +7,15 @@ from unittest.mock import patch
 from verify import checked_mirrored_edge_report
 
 
-def report(textured, *, center=False):
+def report(textured, *, center=False, background=False):
     return {
         "status": ("textured-mirror-training-experiment-only" if textured
                    else ("center-weighted-mirror-training-experiment-only" if center
-                         else "mirrored-edge-training-experiment-only")),
+                         else ("background-weighted-mirror-training-experiment-only" if background
+                                else "mirrored-edge-training-experiment-only"))),
         "feature_illumination": textured,
         "center_gradient_multiplier": 2.0 if center else 1.0,
+        "background_class_gradient_multiplier": 2.0 if background else 1.0,
         "illumination_phases": [
             "identity", "checkerboard", "horizontal-gradient", "vertical-gradient"],
         "source_commit": "candidate-head",
@@ -53,13 +55,13 @@ def report(textured, *, center=False):
 
 
 class TextureTrainingReportTests(unittest.TestCase):
-    def check_metadata(self, record, textured, *, center=False):
+    def check_metadata(self, record, textured, *, center=False, background=False):
         # The per-stratum arithmetic checker has its own negative controls.
         # Isolate the report-identity and comparison-arm contract here.
         with patch("verify.checked_prospective_edge_report", return_value=True):
             return checked_mirrored_edge_report(
                 record, "candidate-head", textured=textured,
-                center_weighted=center)
+                center_weighted=center, background_weighted=background)
 
     def test_new_texture_and_unchanged_mirror_modes_are_distinct(self):
         self.assertTrue(self.check_metadata(report(False), False))
@@ -94,6 +96,33 @@ class TextureTrainingReportTests(unittest.TestCase):
                 altered[field] = value
                 with self.assertRaises(ValueError):
                     self.check_metadata(altered, False, center=True)
+
+    def test_background_only_arm_is_provenance_distinct_and_rejects_tampering(self):
+        self.assertTrue(self.check_metadata(report(False, background=True),
+                                            False, background=True))
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False, background=True), False)
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False), False, background=True)
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False, background=True), False,
+                                center=True, background=True)
+        for field, value in (
+            ("background_class_gradient_multiplier", 1.0),
+            ("background_class_gradient_multiplier", 2.0001),
+            ("background_class_gradient_multiplier", "2.0"),
+            ("background_class_gradient_multiplier", True),
+            ("center_gradient_multiplier", 2.0),
+            ("feature_illumination", True),
+            ("sampler_seed", 909),
+            ("steps_per_arm", 1999),
+            ("final_holdout_evaluated", True),
+        ):
+            with self.subTest(field=field, value=value):
+                altered = copy.deepcopy(report(False, background=True))
+                altered[field] = value
+                with self.assertRaises(ValueError):
+                    self.check_metadata(altered, False, background=True)
 
     def test_wrong_phase_schedule_and_holdout_claim_fail_closed(self):
         for field, replacement in (

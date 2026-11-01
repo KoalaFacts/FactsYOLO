@@ -194,3 +194,40 @@ prediction difference on one frozen cohort is exploratory; decisions about
 architecture, broader distributions or shipping require separate design and
 validation. The model format, public ABI and training seed909 test remain
 unchanged.
+
+## Opt-in background classification gradient arm (2026-11-02)
+
+The already-observed second-generator blind comparison found **24/24 false
+detections on background-only images** for both mirror and center arms. That
+exposes a negative-class generalization failure, not proof that an increased
+negative loss weight will solve it. This follow-up fixes exactly one
+training variable **before** its first execution:
+
+- New internal experiment 'fy-edge-training <burn|candle> --background' starts
+  with exactly the same seed404 initialization, original seed101/4096 source,
+  seed707 RNG, four reserved reflected edge slots, 2,000 steps, batch64, Adam,
+  and 192->64->7 network as the unchanged '--mirror' arm.
+- For rows with class=None, multiply only the softmax-classification
+  output gradients at columns 0..2 by **2.0**. Positive classification and
+  every box component retain their original gradients; background box
+  gradients stay masked. No new samples, sampler draws, preprocessing, class
+  threshold, inference change or other training intervention is added.
+- Buffer shape, class indices, finiteness and multiplication overflow are
+  preflight-checked before any mutation. Finite-difference and mixed-label
+  regression tests check the objective, positive-row isolation and atomicity.
+- Linux and Windows execute real 2,000-step Burn and Candle training with
+  the existing unmodified seed202 validation gates. The evidence checker
+  validates exact source commit and training-arm identity, seed/budget/source
+  parity with '--mirror', unchanged observed geometry fingerprints and
+  class-stratum arithmetic. JSON contains actual validation and background
+  false-positive measurements. No trained weights or input pixels are
+  uploaded by this arm.
+- Previously evaluated development, prospective, four-side and second-generator
+  cohorts are **not unseen benchmarks** for this arm; a positive result there
+  would not justify promoting the intervention. The registered seed909 final
+  holdout stays reserved and unexamined by this experimental arm. A new
+  independently frozen evaluation source is required before any generalization
+  comparison, and that still would not establish natural-image performance.
+
+This is an opt-in training experiment only. Public ABI, FYTDv001 artifact
+format, default native backend and release policy are unchanged.

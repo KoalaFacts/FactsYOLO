@@ -223,18 +223,23 @@ def checked_prospective_edge_report(report, expected_sha):
 
 
 def checked_mirrored_edge_report(report, expected_sha, *, textured=False,
-                                 center_weighted=False):
-    """Validate opt-in mirror, texture and center arms on observed diagnostics."""
-    if textured and center_weighted:
+                                 center_weighted=False, background_weighted=False):
+    """Validate opt-in mirror, texture, center and background arms."""
+    if sum((textured, center_weighted, background_weighted)) > 1:
         raise ValueError("training arms must change only one variable")
     expected_status = (
         "textured-mirror-training-experiment-only" if textured
         else ("center-weighted-mirror-training-experiment-only" if center_weighted
-              else "mirrored-edge-training-experiment-only"))
+              else ("background-weighted-mirror-training-experiment-only"
+                    if background_weighted else "mirrored-edge-training-experiment-only")))
     multiplier = report.get("center_gradient_multiplier")
     if (type(multiplier) not in (float, int)
             or multiplier != (2.0 if center_weighted else 1.0)):
         raise ValueError("invalid center gradient intervention metadata")
+    negative_multiplier = report.get("background_class_gradient_multiplier")
+    if (type(negative_multiplier) not in (float, int)
+            or negative_multiplier != (2.0 if background_weighted else 1.0)):
+        raise ValueError("invalid background gradient intervention metadata")
     if (report.get("source_commit") != expected_sha
             or report.get("status") != expected_status
             or report.get("feature_illumination") is not textured
@@ -637,6 +642,26 @@ def main():
             raise RuntimeError(f"center/mirror training parity failure: {backend_name}")
         (evidence / f"center-training-{backend_name}.json").write_text(
             json.dumps(center, indent=2) + "\n")
+        # Sixth, opt-in background classification intervention on the *same*
+        # mirrored sampled batches: double only background softmax gradients.
+        # All geometry observations here are already known; the previously
+        # examined blind cohort is not a fresh evaluation of this new arm.
+        background = json.loads(run(f"background-training-{backend_name}", [
+            edge_binary, backend_name, "--background"]))
+        checked_mirrored_edge_report(
+            background, env["FACTSYOLO_BUILD_ID"], background_weighted=True)
+        checked_four_side_report(background, env["FACTSYOLO_BUILD_ID"],
+                                 ("mirrored_four_side",))
+        checked_disjoint_four_side_report(background, env["FACTSYOLO_BUILD_ID"],
+                                          ("mirrored_disjoint_four_side",))
+        if any(background[key] != mirrored[key] for key in (
+                "backend", "mirror_slots", "sampler_seed", "steps_per_arm",
+                "train_samples", "edge_override_slots_per_batch",
+                "development_fingerprint", "prospective_fingerprint",
+                "four_side_fingerprint", "disjoint_fingerprint")):
+            raise RuntimeError(f"background/mirror training parity failure: {backend_name}")
+        (evidence / f"background-training-{backend_name}.json").write_text(
+            json.dumps(background, indent=2) + "\n")
         # This cohort was source-frozen before reading either model's predictions.
         # Both arms must use independently reloaded real trained artifacts,
         # identical source/order/model architecture and the same test images.

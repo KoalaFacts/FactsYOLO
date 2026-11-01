@@ -21,6 +21,7 @@ const STEPS: usize = 2000;
 const BATCH: usize = 64;
 const EDGE_FREQUENCY: usize = 16;
 const CENTER_GRADIENT_MULTIPLIER: f32 = 2.0;
+const BACKGROUND_GRADIENT_MULTIPLIER: f32 = 2.0;
 const QUOTA: usize = 48;
 const GROUPS: [&str; 5] = [
     "small_edge",
@@ -56,6 +57,7 @@ enum TrainingArm {
     Mirror,
     Texture,
     Center,
+    Background,
 }
 
 fn stratum(sample: &Sample) -> usize {
@@ -145,6 +147,37 @@ fn emphasize_center_gradients(gradients: &mut [f32], labels: &[Sample]) -> Resul
     Ok(())
 }
 
+// Weight only the softmax cross-entropy gradient for negative training rows.
+// Keep existing positive class and box gradients untouched: this is one
+// controlled intervention against false detections, not a new decoder rule.
+// Check the *whole* buffer, including overflow, before mutating any row.
+fn emphasize_background_gradients(gradients: &mut [f32], labels: &[Sample]) -> Result<(), String> {
+    if labels.is_empty()
+        || labels.len().checked_mul(7) != Some(gradients.len())
+        || gradients.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid background gradient input".into());
+    }
+    for (row, label) in gradients.as_chunks::<7>().0.iter().zip(labels) {
+        if label.class.is_some_and(|class| class > 1)
+            || (label.class.is_none()
+                && row[..3]
+                    .iter()
+                    .any(|value| !(*value * BACKGROUND_GRADIENT_MULTIPLIER).is_finite()))
+        {
+            return Err("invalid background gradient value".into());
+        }
+    }
+    for (row, label) in gradients.as_chunks_mut::<7>().0.iter_mut().zip(labels) {
+        if label.class.is_none() {
+            for value in &mut row[..3] {
+                *value *= BACKGROUND_GRADIENT_MULTIPLIER;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn train_model(
     b: &dyn Backend,
     train: &[Sample],
@@ -156,6 +189,7 @@ fn train_model(
     let mirrored = !matches!(arm, TrainingArm::Baseline | TrainingArm::Edge);
     let textured = matches!(arm, TrainingArm::Texture);
     let center_weighted = matches!(arm, TrainingArm::Center);
+    let background_weighted = matches!(arm, TrainingArm::Background);
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
     let mut second = vec![0.0; PARAMETERS];
@@ -183,6 +217,9 @@ fn train_model(
         let (_, mut output_gradient) = loss_gradient(&predictions, &labels)?;
         if center_weighted {
             emphasize_center_gradients(&mut output_gradient, &labels)?;
+        }
+        if background_weighted {
+            emphasize_background_gradients(&mut output_gradient, &labels)?;
         }
         let gradient = b.backward(&model.weights, &inputs, BATCH, &output_gradient)?;
         adam_step(&mut model.weights, &gradient, &mut first, &mut second, step)?;
@@ -597,8 +634,9 @@ fn run() -> Result<(), String> {
     let mirror_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
     let center_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--center";
-    if arguments.len() != 2 && !mirror_only && !texture_only && !center_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center] [--evidence-artifact <new-path> (mirror/center only)]".into());
+    let background_only = arguments.len() == 3 && arguments[2] == "--background";
+    if arguments.len() != 2 && !mirror_only && !texture_only && !center_only && !background_only {
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background] [--evidence-artifact <new-path> (mirror/center only)]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -624,11 +662,13 @@ fn run() -> Result<(), String> {
     // A separately invoked, opt-in third training arm. The established two-arm
     // comparison remains unchanged; this branch produces no model artifact and
     // never reads the final seed909 holdout.
-    if mirror_only || texture_only || center_only {
+    if mirror_only || texture_only || center_only || background_only {
         let arm = if texture_only {
             TrainingArm::Texture
         } else if center_only {
             TrainingArm::Center
+        } else if background_only {
+            TrainingArm::Background
         } else {
             TrainingArm::Mirror
         };
@@ -657,6 +697,8 @@ fn run() -> Result<(), String> {
                     "textured-mirror-training-experiment-only"
                 } else if center_only {
                     "center-weighted-mirror-training-experiment-only"
+                } else if background_only {
+                    "background-weighted-mirror-training-experiment-only"
                 } else {
                     "mirrored-edge-training-experiment-only"
                 },
@@ -664,6 +706,11 @@ fn run() -> Result<(), String> {
                 "artifact_sha256": artifact_sha256,
                 "center_gradient_multiplier": if center_only {
                     CENTER_GRADIENT_MULTIPLIER
+                } else {
+                    1.0
+                },
+                "background_class_gradient_multiplier": if background_only {
+                    BACKGROUND_GRADIENT_MULTIPLIER
                 } else {
                     1.0
                 },
@@ -1005,6 +1052,106 @@ mod tests {
         let mut empty = [0.0; 7];
         assert!(emphasize_center_gradients(&mut empty, &[]).is_err());
         assert_eq!(empty, [0.0; 7]);
+    }
+
+    #[test]
+    fn background_intervention_only_scales_negative_class_gradients() {
+        let labels = [
+            Sample {
+                pixels: Vec::new(),
+                class: Some(0),
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            },
+            Sample {
+                pixels: Vec::new(),
+                class: None,
+                box_xywh: [0.0; 4],
+            },
+            Sample {
+                pixels: Vec::new(),
+                class: Some(1),
+                box_xywh: [0.3, 0.6, 0.25, 0.25],
+            },
+        ];
+        let logits = vec![0.1_f32; labels.len() * 7];
+        let (_, mut gradients) = loss_gradient(&logits, &labels).unwrap();
+        let original = gradients.clone();
+        emphasize_background_gradients(&mut gradients, &labels).unwrap();
+        for (index, (before, after)) in original
+            .as_chunks::<7>()
+            .0
+            .iter()
+            .zip(gradients.as_chunks::<7>().0.iter())
+            .enumerate()
+        {
+            for column in 0..7 {
+                let expected = if labels[index].class.is_none() && column < 3 {
+                    before[column] * BACKGROUND_GRADIENT_MULTIPLIER
+                } else {
+                    before[column]
+                };
+                assert_eq!(after[column], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn background_weighted_gradient_matches_numerical_cross_entropy_derivative() {
+        use fy_tiny_model::loss_value;
+
+        let label = [Sample {
+            pixels: Vec::new(),
+            class: None,
+            box_xywh: [0.0; 4],
+        }];
+        let logits = [0.2_f32, -0.4, 0.6, 0.1, -0.3, 0.4, -0.7];
+        let (_, mut analytic) = loss_gradient(&logits, &label).unwrap();
+        emphasize_background_gradients(&mut analytic, &label).unwrap();
+        let epsilon = 1e-3_f32;
+        for column in 0..7 {
+            let mut above = logits;
+            let mut below = logits;
+            above[column] += epsilon;
+            below[column] -= epsilon;
+            let numerical = BACKGROUND_GRADIENT_MULTIPLIER
+                * (loss_value(&above, &label).unwrap() - loss_value(&below, &label).unwrap())
+                / (2.0 * epsilon);
+            assert!(
+                (analytic[column] - numerical).abs() < 1e-3 + 2e-3 * numerical.abs(),
+                "weighted background derivative mismatch for column {column}"
+            );
+        }
+        assert_eq!(analytic[3..], [0.0; 4]);
+    }
+
+    #[test]
+    fn background_intervention_rejects_malformed_gradients_atomically() {
+        let label = [Sample {
+            pixels: Vec::new(),
+            class: None,
+            box_xywh: [0.0; 4],
+        }];
+        for mut bad in [
+            vec![0.0; 6],
+            vec![f32::MAX, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, f32::NAN, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ] {
+            let original = bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+            assert!(emphasize_background_gradients(&mut bad, &label).is_err());
+            assert_eq!(
+                bad.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                original
+            );
+        }
+        let mut valid = [0.0; 7];
+        let invalid_class = [Sample {
+            pixels: Vec::new(),
+            class: Some(2),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        }];
+        assert!(emphasize_background_gradients(&mut valid, &invalid_class).is_err());
+        assert_eq!(valid, [0.0; 7]);
+        assert!(emphasize_background_gradients(&mut valid, &[]).is_err());
     }
 
     #[test]

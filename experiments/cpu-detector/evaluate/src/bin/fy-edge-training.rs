@@ -5,7 +5,7 @@
 // The wide experimental evidence JSON objects exceed serde_json::json!'s default
 // macro expansion depth; this changes compilation only, not the report schema.
 #![recursion_limit = "256"]
-use fy_cpu_evaluate::training::illuminate_training_batch;
+use fy_cpu_evaluate::training::{illuminate_training_batch, neutral_background_training_batch};
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},
@@ -58,6 +58,7 @@ enum TrainingArm {
     Texture,
     Center,
     Background,
+    NeutralBackground,
 }
 
 fn stratum(sample: &Sample) -> usize {
@@ -190,6 +191,7 @@ fn train_model(
     let textured = matches!(arm, TrainingArm::Texture);
     let center_weighted = matches!(arm, TrainingArm::Center);
     let background_weighted = matches!(arm, TrainingArm::Background);
+    let neutral_background = matches!(arm, TrainingArm::NeutralBackground);
     let mut model = Model::initialized(404);
     let mut first = vec![0.0; PARAMETERS];
     let mut second = vec![0.0; PARAMETERS];
@@ -212,6 +214,9 @@ fn train_model(
         }
         if textured {
             illuminate_training_batch(&mut inputs, &labels, step)?;
+        }
+        if neutral_background {
+            neutral_background_training_batch(&mut inputs, &labels, step)?;
         }
         let predictions = b.forward(&model.weights, &inputs, BATCH)?;
         let (_, mut output_gradient) = loss_gradient(&predictions, &labels)?;
@@ -626,7 +631,7 @@ fn run() -> Result<(), String> {
         && arguments[3] == "--evidence-artifact"
         && matches!(
             arguments[2].as_str(),
-            "--mirror" | "--center" | "--background"
+            "--mirror" | "--center" | "--background" | "--neutral-background"
         )
         && !arguments[4].is_empty()
     {
@@ -639,8 +644,16 @@ fn run() -> Result<(), String> {
     let center_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--center";
     let background_only =
         (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--background";
-    if arguments.len() != 2 && !mirror_only && !texture_only && !center_only && !background_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background] [--evidence-artifact <new-path> (mirror/center/background only)]".into());
+    let neutral_background_only =
+        (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--neutral-background";
+    if arguments.len() != 2
+        && !mirror_only
+        && !texture_only
+        && !center_only
+        && !background_only
+        && !neutral_background_only
+    {
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background|--neutral-background] [--evidence-artifact <new-path> (mirror/center/background/neutral-background only)]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -666,13 +679,15 @@ fn run() -> Result<(), String> {
     // A separately invoked, opt-in third training arm. The established two-arm
     // comparison remains unchanged; artifacts require an explicit opt-in and
     // never reads the final seed909 holdout.
-    if mirror_only || texture_only || center_only || background_only {
+    if mirror_only || texture_only || center_only || background_only || neutral_background_only {
         let arm = if texture_only {
             TrainingArm::Texture
         } else if center_only {
             TrainingArm::Center
         } else if background_only {
             TrainingArm::Background
+        } else if neutral_background_only {
+            TrainingArm::NeutralBackground
         } else {
             TrainingArm::Mirror
         };
@@ -684,7 +699,7 @@ fn run() -> Result<(), String> {
         let four_side_result = evaluate_four_sides(&model, &four_sides)?;
         let disjoint_result = evaluate_disjoint_four_sides(&model, &disjoint_sides)?;
         // Never emit weights for an experimental arm failing existing gates.
-        // Only explicitly requested mirror/center/background arms write a
+        // Only explicitly requested model-training arms write a
         // temporary artifact; CI uploads JSON/logs but excludes *.fytd.
         let artifact_sha256 = if development_result["validation_passes_original_thresholds"] == true
         {
@@ -703,10 +718,16 @@ fn run() -> Result<(), String> {
                     "center-weighted-mirror-training-experiment-only"
                 } else if background_only {
                     "background-weighted-mirror-training-experiment-only"
+                } else if neutral_background_only {
+                    "neutral-background-mirror-training-experiment-only"
                 } else {
                     "mirrored-edge-training-experiment-only"
                 },
                 "feature_illumination": texture_only,
+                "neutral_negative_features": neutral_background_only,
+                "neutral_background_phases": [
+                    "identity", "uniform-neutral", "checkerboard-neutral", "rectangle-neutral"
+                ],
                 "artifact_sha256": artifact_sha256,
                 "center_gradient_multiplier": if center_only {
                     CENTER_GRADIENT_MULTIPLIER

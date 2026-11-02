@@ -83,7 +83,12 @@ fn background_artifact_export_is_opt_in_and_texture_remains_unsupported() {
     };
     // Invalid backend avoids spending 2,000 training steps, while proving
     // the --background export command reaches actual backend validation.
-    let allowed = command(&["not-a-backend", "--background", "--evidence-artifact", "new.fytd"]);
+    let allowed = command(&[
+        "not-a-backend",
+        "--background",
+        "--evidence-artifact",
+        "new.fytd",
+    ]);
     assert!(!allowed.status.success());
     let diagnostic = String::from_utf8_lossy(&allowed.stderr);
     assert!(
@@ -93,7 +98,12 @@ fn background_artifact_export_is_opt_in_and_texture_remains_unsupported() {
     );
 
     for invalid in [
-        vec!["not-a-backend", "--texture", "--evidence-artifact", "new.fytd"],
+        vec![
+            "not-a-backend",
+            "--texture",
+            "--evidence-artifact",
+            "new.fytd",
+        ],
         vec!["not-a-backend", "--background", "--evidence-artifact"],
         vec!["not-a-backend", "--background", "--evidence-artifact", ""],
     ] {

@@ -362,3 +362,44 @@ This is an experiment on disjoint sources from the **same synthetic
 generator**, not proof of real-image accuracy or authorization to deploy or
 publish an altered TD1 sampler. The baseline paired diagnostic remains
 available and is not reinterpreted as unseen evidence.
+
+## Controlled neutral hard-negative feature exposure (experimental only)
+
+The independent, **now-observed** mosaic/background diagnostic in #58 found
+24/24 false detections with both the mirror and background-gradient ×2
+training arms. The seed101 source background is only 0–11 in each RGB channel;
+the #58 source-only audit found all 1,536 negative 8×8 blocks outside that
+training background brightness range. This motivates testing exposure to
+neutral backgrounds, **not** claiming that brightness is the only cause or
+tuning a threshold on the observed #58 images.
+
+The separately invoked `fy-edge-training <burn|candle> --neutral-background`
+arm keeps original seed101/4096 source images, seed404 initial weights, seed707
+draw order, four reserved mirrored edge-positive slots, 2,000 steps, batch64,
+Adam and 192→64→7 topology. Exactly the *negative* sample feature rows are
+transformed after batch sampling/mirroring. Every positive feature and label
+remains bit-identical to the original mirrored arm; no new RNG draw is used.
+Four phases indexed by `(step + batch_slot) % 4` include an identity phase,
+uniform neutral lift (0.12), neutral checkerboard lifts (0.08/0.24), and a
+neutral rectangular distractor (0.10/0.40). All lifts use
+`feature + (1-feature)*lift` equally across RGB channels and cannot by
+themselves introduce a red/blue object-class cue. The candidate is training
+augmentation only, never a change to deployed preprocessing or the C ABI.
+
+The new regression checks determinism, exact positive preservation,
+negative-only treatment, unchanged sampler/RNG order and atomic rejection of
+bad inputs. Python provenance regressions reject mislabeled treatment,
+mixed experimental arms, altered phases/steps/seeds or false holdout claims.
+The regular Linux/Windows CPU experiment now trains genuine Burn and Candle
+arms and records original seed202 validation plus **already-observed**
+development/four-side diagnostics. Those gates must still meet the original
+validation thresholds. A failed experiment is retained as negative evidence,
+not turned into a reported improvement or a default setting. Temporary
+weight files are create-new-only, hashed, and not uploaded. It does not read
+or tune against final holdout seed909.
+
+**Decision boundary:** this work does not yet establish cross-generator or
+natural-image gains. Model comparison requires a later, genuinely untouched,
+pre-registered image generator and independent-process inference of both arms
+before considering a change in the default training path. The #56 and #58
+cohorts are already observed and cannot serve as fresh holdouts.

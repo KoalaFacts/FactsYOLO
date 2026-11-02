@@ -7,13 +7,17 @@ from unittest.mock import patch
 from verify import checked_mirrored_edge_report
 
 
-def report(textured, *, center=False, background=False):
+def report(textured, *, center=False, background=False, neutral=False):
     return {
         "status": ("textured-mirror-training-experiment-only" if textured
                    else ("center-weighted-mirror-training-experiment-only" if center
                          else ("background-weighted-mirror-training-experiment-only" if background
-                                else "mirrored-edge-training-experiment-only"))),
+                                else ("neutral-background-mirror-training-experiment-only"
+                                      if neutral else "mirrored-edge-training-experiment-only")))),
         "feature_illumination": textured,
+        "neutral_negative_features": neutral,
+        "neutral_background_phases": [
+            "identity", "uniform-neutral", "checkerboard-neutral", "rectangle-neutral"],
         "center_gradient_multiplier": 2.0 if center else 1.0,
         "background_class_gradient_multiplier": 2.0 if background else 1.0,
         "illumination_phases": [
@@ -55,13 +59,14 @@ def report(textured, *, center=False, background=False):
 
 
 class TextureTrainingReportTests(unittest.TestCase):
-    def check_metadata(self, record, textured, *, center=False, background=False):
+    def check_metadata(self, record, textured, *, center=False, background=False, neutral=False):
         # The per-stratum arithmetic checker has its own negative controls.
         # Isolate the report-identity and comparison-arm contract here.
         with patch("verify.checked_prospective_edge_report", return_value=True):
             return checked_mirrored_edge_report(
                 record, "candidate-head", textured=textured,
-                center_weighted=center, background_weighted=background)
+                center_weighted=center, background_weighted=background,
+                neutral_background=neutral)
 
     def test_new_texture_and_unchanged_mirror_modes_are_distinct(self):
         self.assertTrue(self.check_metadata(report(False), False))
@@ -123,6 +128,34 @@ class TextureTrainingReportTests(unittest.TestCase):
                 altered[field] = value
                 with self.assertRaises(ValueError):
                     self.check_metadata(altered, False, background=True)
+
+    def test_neutral_background_arm_is_distinct_and_rejects_provenance_drift(self):
+        self.assertTrue(self.check_metadata(report(False, neutral=True), False,
+                                            neutral=True))
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False, neutral=True), False)
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False), False, neutral=True)
+        with self.assertRaises(ValueError):
+            self.check_metadata(report(False, neutral=True), False, neutral=True,
+                                background=True)
+        for field, value in (
+            ("neutral_negative_features", False),
+            ("neutral_negative_features", "true"),
+            ("neutral_background_phases", ["identity"]),
+            ("background_class_gradient_multiplier", 2.0),
+            ("center_gradient_multiplier", 2.0),
+            ("feature_illumination", True),
+            ("sampler_seed", 909),
+            ("final_holdout_evaluated", True),
+            ("steps_per_arm", 1000),
+            ("status", "production-ready"),
+        ):
+            with self.subTest(field=field, value=value):
+                altered = copy.deepcopy(report(False, neutral=True))
+                altered[field] = value
+                with self.assertRaises(ValueError):
+                    self.check_metadata(altered, False, neutral=True)
 
     def test_wrong_phase_schedule_and_holdout_claim_fail_closed(self):
         for field, replacement in (

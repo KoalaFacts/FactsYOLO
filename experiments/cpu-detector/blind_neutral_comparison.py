@@ -74,6 +74,8 @@ def check_training(mirror, neutral, mirror_model, neutral_model):
                 or arm.get('initialization_seed') != 404 or arm.get('sampler_seed') != 707
                 or arm.get('train_samples') != 4096 or arm.get('batch_size') != 64
                 or arm.get('steps_per_arm') != 2000
+                or arm.get('mirror_slots') != [0, 16, 32, 48]
+                or arm.get('edge_override_slots_per_batch') != 4
                 or arm.get('center_gradient_multiplier') != 1.0
                 or arm.get('background_class_gradient_multiplier') != 1.0
                 or arm.get('feature_illumination') is not False

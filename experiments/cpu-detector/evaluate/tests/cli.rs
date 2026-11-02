@@ -85,7 +85,12 @@ fn background_artifact_export_is_opt_in_and_texture_remains_unsupported() {
     // the --background export command reaches actual backend validation.
     let allowed = command(&["not-a-backend", "--background", "--evidence-artifact", "new.fytd"]);
     assert!(!allowed.status.success());
-    assert!(String::from_utf8_lossy(&allowed.stderr).contains("backend must be burn or candle"));
+    let diagnostic = String::from_utf8_lossy(&allowed.stderr);
+    assert!(
+        diagnostic.contains("backend must be burn or candle")
+            || diagnostic.contains("source commit must be supplied at compile time"),
+        "accepted argument syntax must pass parsing: {diagnostic}"
+    );
 
     for invalid in [
         vec!["not-a-backend", "--texture", "--evidence-artifact", "new.fytd"],

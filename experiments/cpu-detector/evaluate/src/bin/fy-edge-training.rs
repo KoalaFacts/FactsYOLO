@@ -624,7 +624,10 @@ fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().collect();
     let export_path = if arguments.len() == 5
         && arguments[3] == "--evidence-artifact"
-        && matches!(arguments[2].as_str(), "--mirror" | "--center")
+        && matches!(
+            arguments[2].as_str(),
+            "--mirror" | "--center" | "--background"
+        )
         && !arguments[4].is_empty()
     {
         Some(Path::new(&arguments[4]))
@@ -634,9 +637,10 @@ fn run() -> Result<(), String> {
     let mirror_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
     let center_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--center";
-    let background_only = arguments.len() == 3 && arguments[2] == "--background";
+    let background_only =
+        (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--background";
     if arguments.len() != 2 && !mirror_only && !texture_only && !center_only && !background_only {
-        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background] [--evidence-artifact <new-path> (mirror/center only)]".into());
+        return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background] [--evidence-artifact <new-path> (mirror/center/background only)]".into());
     }
     let source = option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown");
     if source == "unknown" {
@@ -660,7 +664,7 @@ fn run() -> Result<(), String> {
     }
 
     // A separately invoked, opt-in third training arm. The established two-arm
-    // comparison remains unchanged; this branch produces no model artifact and
+    // comparison remains unchanged; artifacts require an explicit opt-in and
     // never reads the final seed909 holdout.
     if mirror_only || texture_only || center_only || background_only {
         let arm = if texture_only {
@@ -680,7 +684,7 @@ fn run() -> Result<(), String> {
         let four_side_result = evaluate_four_sides(&model, &four_sides)?;
         let disjoint_result = evaluate_disjoint_four_sides(&model, &disjoint_sides)?;
         // Never emit weights for an experimental arm failing existing gates.
-        // Only the explicitly requested mirror/center comparison writes a
+        // Only explicitly requested mirror/center/background arms write a
         // temporary artifact; CI uploads JSON/logs but excludes *.fytd.
         let artifact_sha256 = if development_result["validation_passes_original_thresholds"] == true
         {

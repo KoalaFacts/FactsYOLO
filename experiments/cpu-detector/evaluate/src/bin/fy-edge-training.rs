@@ -624,7 +624,10 @@ fn run() -> Result<(), String> {
     let arguments: Vec<String> = std::env::args().collect();
     let export_path = if arguments.len() == 5
         && arguments[3] == "--evidence-artifact"
-        && matches!(arguments[2].as_str(), "--mirror" | "--center" | "--background")
+        && matches!(
+            arguments[2].as_str(),
+            "--mirror" | "--center" | "--background"
+        )
         && !arguments[4].is_empty()
     {
         Some(Path::new(&arguments[4]))

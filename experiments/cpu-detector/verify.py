@@ -19,6 +19,7 @@ from verify_report import enforce_heldout_thresholds, verify_test_predictions
 from verify_native import NATIVE_INDICES
 from cross_generator_validation import check_report as check_cross_generator_report
 from blind_center_comparison import check_report as check_blind_center_report
+from blind_background_comparison import check_report as check_blind_background_report
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -646,10 +647,15 @@ def main():
         # mirrored sampled batches: double only background softmax gradients.
         # All geometry observations here are already known; the previously
         # examined blind cohort is not a fresh evaluation of this new arm.
+        background_artifact = evidence / f"background-model-{backend_name}.fytd"
         background = json.loads(run(f"background-training-{backend_name}", [
-            edge_binary, backend_name, "--background"]))
+            edge_binary, backend_name, "--background", "--evidence-artifact",
+            background_artifact]))
         checked_mirrored_edge_report(
             background, env["FACTSYOLO_BUILD_ID"], background_weighted=True)
+        if background.get("artifact_sha256") != hashlib.sha256(
+                background_artifact.read_bytes()).hexdigest():
+            raise RuntimeError(f"background model evidence digest mismatch: {backend_name}")
         checked_four_side_report(background, env["FACTSYOLO_BUILD_ID"],
                                  ("mirrored_four_side",))
         checked_disjoint_four_side_report(background, env["FACTSYOLO_BUILD_ID"],
@@ -662,6 +668,21 @@ def main():
             raise RuntimeError(f"background/mirror training parity failure: {backend_name}")
         (evidence / f"background-training-{backend_name}.json").write_text(
             json.dumps(background, indent=2) + "\n")
+        # Independent mosaic background hard negatives and four-side positives.
+        # This freshly frozen cohort is separate from the *already examined*
+        # center comparison. Actual weight bytes are loaded in fresh Rust
+        # processes; model/image files remain ephemeral and never uploaded.
+        blind_background = json.loads(run(f"blind-background-{backend_name}", [
+            sys.executable, ROOT / "blind_background_comparison.py", binary,
+            mirror_artifact, background_artifact,
+            evidence / f"mirror-training-{backend_name}.json",
+            evidence / f"background-training-{backend_name}.json",
+        ]))
+        check_blind_background_report(
+            blind_background, env["FACTSYOLO_BUILD_ID"], mirrored["backend"],
+            mirrored["artifact_sha256"], background["artifact_sha256"])
+        (evidence / f"blind-background-{backend_name}.json").write_text(
+            json.dumps(blind_background, indent=2) + "\n")
         # This cohort was source-frozen before reading either model's predictions.
         # Both arms must use independently reloaded real trained artifacts,
         # identical source/order/model architecture and the same test images.

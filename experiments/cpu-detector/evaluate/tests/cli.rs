@@ -72,3 +72,43 @@ fn independent_process_uses_artifact_weights_and_rejects_bad_files() {
     assert!(String::from_utf8_lossy(&occupied.stderr).contains("create new output directory"));
     std::fs::remove_dir_all(&directory).unwrap();
 }
+
+#[test]
+fn background_artifact_export_is_opt_in_and_texture_remains_unsupported() {
+    let command = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_fy-edge-training"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    // Invalid backend avoids spending 2,000 training steps, while proving
+    // the --background export command reaches actual backend validation.
+    let allowed = command(&[
+        "not-a-backend",
+        "--background",
+        "--evidence-artifact",
+        "new.fytd",
+    ]);
+    assert!(!allowed.status.success());
+    let diagnostic = String::from_utf8_lossy(&allowed.stderr);
+    assert!(
+        diagnostic.contains("backend must be burn or candle")
+            || diagnostic.contains("source commit must be supplied at compile time"),
+        "accepted argument syntax must pass parsing: {diagnostic}"
+    );
+
+    for invalid in [
+        vec![
+            "not-a-backend",
+            "--texture",
+            "--evidence-artifact",
+            "new.fytd",
+        ],
+        vec!["not-a-backend", "--background", "--evidence-artifact"],
+        vec!["not-a-backend", "--background", "--evidence-artifact", ""],
+    ] {
+        let outcome = command(&invalid);
+        assert!(!outcome.status.success());
+        assert!(String::from_utf8_lossy(&outcome.stderr).contains("usage: fy-edge-training"));
+    }
+}

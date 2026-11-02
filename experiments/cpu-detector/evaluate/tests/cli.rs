@@ -135,9 +135,23 @@ fn neutral_background_cli_is_opt_in_and_rejects_partial_export_options() {
         "valid syntax must reach backend validation: {diagnostic}"
     );
     for invalid in [
-        vec!["not-a-backend", "--neutral-background", "--evidence-artifact"],
-        vec!["not-a-backend", "--neutral-background", "--evidence-artifact", ""],
-        vec!["not-a-backend", "--texture", "--evidence-artifact", "new.fytd"],
+        vec![
+            "not-a-backend",
+            "--neutral-background",
+            "--evidence-artifact",
+        ],
+        vec![
+            "not-a-backend",
+            "--neutral-background",
+            "--evidence-artifact",
+            "",
+        ],
+        vec![
+            "not-a-backend",
+            "--texture",
+            "--evidence-artifact",
+            "new.fytd",
+        ],
     ] {
         let outcome = run(&invalid);
         assert!(!outcome.status.success());

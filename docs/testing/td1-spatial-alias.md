@@ -53,6 +53,37 @@ split, weights, images or outside code are loaded. The negative control with
 two adjacent 4×4 targets verifies that **some** disjoint boxes *can* share a
 predicted IoU50 box, so diagonal separation is essential to the proof.
 
+## Current TD1 generator range: exhaustive collision counterbalance
+
+The strict IoU50 impossibility witness above is **outside** the registered
+training range. To avoid using it to justify a model change prematurely,
+`inrange_alias_audit.py` exhaustively enumerates all
+40 × 40 × 11 × 11 = **193,600** allowed pixel-edge rectangles with
+x/y origins 2..41 and widths/heights 12..22. It groups rectangles by
+the exact count of foreground pixels in each 8×8 block, which gives
+identical 192 TD1 F32 means **when both images use the same foreground
+RGB and the same uniform background**. No model or held-out data is used.
+
+There are **193,543 distinct signatures**, **57 colliding pairs** and no
+groups larger than two. The smallest true-box IoU among those pairs is
+**0.60**, attained by [10,8,22,24] versus [8,10,24,22].
+Thus every colliding pair in *this restricted geometry/color model*
+has at least one common IoU50-capable prediction (one of its true boxes).
+An alias here is real information loss, **not automatically an IoU50
+impossibility** at the current generator's object sizes.
+
+Reproduce with:
+```sh
+python3 -m unittest discover -s experiments/cpu-detector -p 'test_*alias_audit.py' -v
+python3 experiments/cpu-detector/inrange_alias_audit.py
+```
+
+This does **not** enumerate variable-background/foreground collisions,
+occlusion, textured images or prediction errors of an actual trained
+network. It does not show that 8×8 is adequate, or that 4×4 would
+improve detection; matched, real Rust training evidence and approval
+remain necessary for any architecture/format change.
+
 ## Decision required before a new model
 
 A candidate 4×4 RGB mean encoder distinguishes this exact pair. It has 768

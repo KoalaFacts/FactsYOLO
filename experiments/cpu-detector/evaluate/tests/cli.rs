@@ -112,3 +112,35 @@ fn background_artifact_export_is_opt_in_and_texture_remains_unsupported() {
         assert!(String::from_utf8_lossy(&outcome.stderr).contains("usage: fy-edge-training"));
     }
 }
+
+#[test]
+fn neutral_background_cli_is_opt_in_and_rejects_partial_export_options() {
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_fy-edge-training"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let allowed = run(&[
+        "not-a-backend",
+        "--neutral-background",
+        "--evidence-artifact",
+        "new.fytd",
+    ]);
+    assert!(!allowed.status.success());
+    let diagnostic = String::from_utf8_lossy(&allowed.stderr);
+    assert!(
+        diagnostic.contains("backend must be burn or candle")
+            || diagnostic.contains("source commit must be supplied at compile time"),
+        "valid syntax must reach backend validation: {diagnostic}"
+    );
+    for invalid in [
+        vec!["not-a-backend", "--neutral-background", "--evidence-artifact"],
+        vec!["not-a-backend", "--neutral-background", "--evidence-artifact", ""],
+        vec!["not-a-backend", "--texture", "--evidence-artifact", "new.fytd"],
+    ] {
+        let outcome = run(&invalid);
+        assert!(!outcome.status.success());
+        assert!(String::from_utf8_lossy(&outcome.stderr).contains("usage: fy-edge-training"));
+    }
+}

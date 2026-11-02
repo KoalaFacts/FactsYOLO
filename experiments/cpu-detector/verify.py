@@ -20,6 +20,7 @@ from verify_native import NATIVE_INDICES
 from cross_generator_validation import check_report as check_cross_generator_report
 from blind_center_comparison import check_report as check_blind_center_report
 from blind_background_comparison import check_report as check_blind_background_report
+from blind_neutral_comparison import check_report as check_blind_neutral_report
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -702,6 +703,20 @@ def main():
             raise RuntimeError(f"neutral/mirror training parity failure: {backend_name}")
         (evidence / f"neutral-background-training-{backend_name}.json").write_text(
             json.dumps(neutral, indent=2) + "\n")
+        # New 256-image cross-generator cohort independently frozen before any
+        # candidate predictions. Only per-image scalar results and provenance
+        # are preserved; model weights and RGB inputs remain ephemeral.
+        blind_neutral = json.loads(run(f"blind-neutral-{backend_name}", [
+            sys.executable, ROOT / "blind_neutral_comparison.py", binary,
+            mirror_artifact, neutral_path,
+            evidence / f"mirror-training-{backend_name}.json",
+            evidence / f"neutral-background-training-{backend_name}.json",
+        ]))
+        check_blind_neutral_report(
+            blind_neutral, env["FACTSYOLO_BUILD_ID"], mirrored["backend"],
+            mirrored["artifact_sha256"], neutral["artifact_sha256"])
+        (evidence / f"blind-neutral-{backend_name}.json").write_text(
+            json.dumps(blind_neutral, indent=2) + "\n")
         # Independent mosaic background hard negatives and four-side positives.
         # This freshly frozen cohort is separate from the *already examined*
         # center comparison. Actual weight bytes are loaded in fresh Rust

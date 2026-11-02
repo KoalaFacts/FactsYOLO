@@ -89,6 +89,14 @@ class BlindNeutralComparisonTests(unittest.TestCase):
             corrupt = dict(neutral, sampler_seed=909)
             with self.assertRaises(ValueError):
                 cmp.check_training(mirror, corrupt, first, second)
+            # Both arms can be consistently mislabeled; pairwise equality alone
+            # must not allow a different edge-slot schedule or slot budget.
+            for spoof in ({'mirror_slots': [1, 17, 33, 49]},
+                          {'edge_override_slots_per_batch': 5}):
+                with self.subTest(spoof=spoof):
+                    with self.assertRaises(ValueError):
+                        cmp.check_training(dict(mirror, **spoof),
+                                           dict(neutral, **spoof), first, second)
             with self.assertRaises(ValueError):
                 cmp.check_training(mirror, neutral, first, first)
             result = cmp.evaluate(None, first, second, mirror, neutral,

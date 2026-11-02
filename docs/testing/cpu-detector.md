@@ -398,8 +398,24 @@ not turned into a reported improvement or a default setting. Temporary
 weight files are create-new-only, hashed, and not uploaded. It does not read
 or tune against final holdout seed909.
 
-**Decision boundary:** this work does not yet establish cross-generator or
-natural-image gains. Model comparison requires a later, genuinely untouched,
-pre-registered image generator and independent-process inference of both arms
-before considering a change in the default training path. The #56 and #58
-cohorts are already observed and cannot serve as fresh holdouts.
+**Observed cross-generator result, 2026-11-02.** The separately
+pre-registered 256-image blind-v1 cohort (192 positives, 64 negatives) was
+evaluated on both trained arms by fresh-process Rust inference on Linux and
+Windows, for both Burn and Candle. The neutral arm reduced background false
+positives from **64/64 to 0/64**, but correct-class positive detections
+collapsed from **181 to 49 of 192** on Linux and **182 to 50 of 192** on
+Windows. Its correct-class IoU50 hits were only **3/192**, compared with
+**0/192** for the badly mislocalized mirror arm. The fact that 3 exceeds 0
+is not evidence of a usable detector. Raw predictions and source identities
+are preserved in the corresponding CPU CI artifacts and PR #59 evidence
+discussion; these already-observed images are no longer blind for tuning.
+
+The experimental comparison component now guards **correct-class positive
+detection coverage** in addition to the existing relative IoU50/side and
+background-FP checks. This prevents a near-total detection collapse from
+passing solely because the baseline has zero IoU50 localization hits. The
+component flag is still not a production threshold or a complete model
+acceptance gate; a later genuinely untouched pre-registered cohort would be
+required to evaluate any new approach. Neither this negative result nor
+successful CI authorizes changing the default training path, ABI or format.
+The older #56 and #58 cohorts are also already observed.

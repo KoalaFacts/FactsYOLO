@@ -634,7 +634,8 @@ fn run() -> Result<(), String> {
     let mirror_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--mirror";
     let texture_only = arguments.len() == 3 && arguments[2] == "--texture";
     let center_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--center";
-    let background_only = (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--background";
+    let background_only =
+        (arguments.len() == 3 || export_path.is_some()) && arguments[2] == "--background";
     if arguments.len() != 2 && !mirror_only && !texture_only && !center_only && !background_only {
         return Err("usage: fy-edge-training <burn|candle> [--mirror|--texture|--center|--background] [--evidence-artifact <new-path> (mirror/center/background only)]".into());
     }

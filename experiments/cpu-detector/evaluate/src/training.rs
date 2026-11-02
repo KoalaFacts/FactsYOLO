@@ -447,4 +447,95 @@ mod tests {
             original_boxes
         );
     }
+
+    #[test]
+    fn neutral_background_augmentation_preserves_positives_and_is_deterministic() {
+        let labels = (0..64)
+            .map(|slot| Sample {
+                pixels: Vec::new(),
+                class: if slot % 3 == 0 { None } else { Some(slot % 2) },
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            })
+            .collect::<Vec<_>>();
+        let original = (0..64 * INPUTS)
+            .map(|index| (index % 12) as f32 / 255.0)
+            .collect::<Vec<_>>();
+        let mut saw_neutral = false;
+        let mut saw_identity = false;
+        for step in 1..=4 {
+            let mut actual = original.clone();
+            neutral_background_training_batch(&mut actual, &labels, step).unwrap();
+            let mut replay = original.clone();
+            neutral_background_training_batch(&mut replay, &labels, step).unwrap();
+            assert_eq!(actual, replay, "augmentation must be deterministic");
+            for (slot, label) in labels.iter().enumerate() {
+                let start = slot * INPUTS;
+                let before = &original[start..start + INPUTS];
+                let after = &actual[start..start + INPUTS];
+                if label.class.is_some() {
+                    assert_eq!(before, after, "positive training features must be unchanged");
+                } else if (step + slot) % 4 == 0 {
+                    saw_identity = true;
+                    assert_eq!(before, after, "identity phase must be exact");
+                } else {
+                    saw_neutral = true;
+                    assert_ne!(before, after, "background must include neutral brightness");
+                    for (old, new) in before.iter().zip(after) {
+                        assert!(*new >= *old && *new <= 1.0);
+                    }
+                }
+            }
+        }
+        assert!(saw_neutral && saw_identity);
+    }
+
+    #[test]
+    fn neutral_background_invalid_last_element_is_rejected_before_any_write() {
+        let labels = (0..64)
+            .map(|slot| Sample {
+                pixels: Vec::new(),
+                class: if slot == 63 { None } else { Some(0) },
+                box_xywh: [0.5, 0.5, 0.25, 0.25],
+            })
+            .collect::<Vec<_>>();
+        let mut input = vec![0.01_f32; 64 * INPUTS];
+        input[64 * INPUTS - 1] = f32::NAN;
+        let before = input.iter().map(|value| value.to_bits()).collect::<Vec<_>>();
+        assert!(neutral_background_training_batch(&mut input, &labels, 1).is_err());
+        assert_eq!(input.iter().map(|value| value.to_bits()).collect::<Vec<_>>(), before);
+        let mut valid = vec![0.01_f32; 64 * INPUTS];
+        assert!(neutral_background_training_batch(&mut valid, &labels, 0).is_err());
+        assert!(neutral_background_training_batch(&mut valid, &labels, 2001).is_err());
+        assert!(neutral_background_training_batch(&mut valid[..valid.len() - INPUTS], &labels, 1).is_err());
+        let mut malformed_labels = labels.clone();
+        malformed_labels[63].class = Some(2);
+        assert!(neutral_background_training_batch(&mut valid, &malformed_labels, 1).is_err());
+        assert!(valid.iter().all(|v| *v == 0.01));
+    }
+
+    #[test]
+    fn neutral_background_training_preserves_sampler_order_and_labels() {
+        let train = fy_tiny_model::dataset(101, 256);
+        let cached = train.iter().flat_map(|sample| {
+            fy_tiny_model::features(&sample.pixels).unwrap()
+        }).collect::<Vec<_>>();
+        let (mut left_rng, mut right_rng) = (Rng::new(707), Rng::new(707));
+        let (mut left, mut right) = (Vec::new(), Vec::new());
+        let (mut left_labels, mut right_labels) = (Vec::new(), Vec::new());
+        for step in 1..=8 {
+            fill_training_batch(&train, &cached, &mut left_rng, &mut left, &mut left_labels);
+            fill_training_batch(&train, &cached, &mut right_rng, &mut right, &mut right_labels);
+            neutral_background_training_batch(&mut right, &right_labels, step).unwrap();
+            assert_eq!(left_rng.next_u32(), right_rng.next_u32());
+            assert_eq!(left_labels.iter().map(|s| (s.class, s.box_xywh)).collect::<Vec<_>>(),
+                       right_labels.iter().map(|s| (s.class, s.box_xywh)).collect::<Vec<_>>());
+            for (slot, label) in left_labels.iter().enumerate() {
+                if label.class.is_some() {
+                    assert_eq!(left[slot * INPUTS..(slot + 1) * INPUTS],
+                               right[slot * INPUTS..(slot + 1) * INPUTS]);
+                }
+            }
+        }
+    }
+
 }

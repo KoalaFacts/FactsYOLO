@@ -37,6 +37,9 @@ jobs:
       - name: Reject malformed full-training benchmark reports
         run: |
           ${{ matrix.python }} -m unittest discover -s experiments/cpu-detector -p 'test_full_training_gate.py' -v
+      - name: Verify spatial-resolution aliasing negative controls
+        run: |
+          ${{ matrix.python }} -m unittest discover -s experiments/cpu-detector -p 'test_*alias_audit.py' -v
       - name: Install exact evaluation and portable toolchains
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy

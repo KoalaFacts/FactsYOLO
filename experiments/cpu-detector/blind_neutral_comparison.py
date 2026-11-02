@@ -129,6 +129,14 @@ def make_report(cases, mirror_predictions, neutral_predictions, commit, backend,
     delta = {side: b['sides'][side]['hits'] - a['sides'][side]['hits'] for side in frozen.SIDES}
     fp_improved = b['background_false_positives'] < a['background_false_positives']
     nonregressed = b['positive_hits'] >= a['positive_hits']
+    # IoU50-only nonregression is insufficient when the reference predicts
+    # badly localized boxes: 0 -> 1 IoU50 hits can mask 191 new misses.
+    # Preserve correct-class detection coverage separately from box quality.
+    correct_class_a = sum(s['samples'] - s['missing'] - s['wrong_class']
+                          for s in a['sides'].values())
+    correct_class_b = sum(s['samples'] - s['missing'] - s['wrong_class']
+                          for s in b['sides'].values())
+    positive_detection_nonregressed = correct_class_b >= correct_class_a
     return {'status': STATUS, 'source_commit': commit, 'backend': backend,
             'generator': frozen.VERSION, 'generator_source_sha256': SOURCE_SHA256,
             'cohort_sha256': COHORT_SHA256, 'count': len(cases),
@@ -141,8 +149,10 @@ def make_report(cases, mirror_predictions, neutral_predictions, commit, backend,
                                         for c, p in zip(cases, neutral_predictions)]},
             'comparison': {'side_hit_delta_neutral_minus_mirror': delta,
                            'positive_hits_delta': b['positive_hits']-a['positive_hits'],
+                           'positive_correct_class_detections_delta': correct_class_b - correct_class_a,
                            'background_fp_reduction': a['background_false_positives']-b['background_false_positives'],
                            'passes_this_backend_as_one_required_component_only': fp_improved and nonregressed
+                           and positive_detection_nonregressed
                            and all(v >= -2 for v in delta.values())}}
 
 

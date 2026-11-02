@@ -134,6 +134,55 @@ pub fn illuminate_training_batch(
     Ok(())
 }
 
+/// Opt-in neutral hard-negative feature augmentation, for controlled TD1
+/// training research only. The original synthetic source pixels, labels,
+/// sampler draws, model input shape and deployed preprocessing stay unchanged.
+///
+/// All positive rows remain bit-identical. Background rows vary across four
+/// deterministic phases: historical identity, uniform neutral brightness,
+/// neutral checkerboard and a neutral rectangular distractor. The same lift
+/// is applied to all RGB channels in each block, so no red/blue class cue is
+/// introduced by the treatment. This does not claim to match natural images.
+pub fn neutral_background_training_batch(
+    batch: &mut [f32],
+    labels: &[Sample],
+    step: usize,
+) -> Result<(), String> {
+    if batch.len() != 64 * INPUTS
+        || labels.len() != 64
+        || !(1..=2000).contains(&step)
+        || labels.iter().any(|sample| sample.class.is_some_and(|class| class > 1))
+        || batch.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+    {
+        return Err("invalid TD1 batch for neutral background augmentation".into());
+    }
+
+    for (slot, values) in batch.as_chunks_mut::<INPUTS>().0.iter_mut().enumerate() {
+        if labels[slot].class.is_some() {
+            continue;
+        }
+        let phase = (step + slot) % 4;
+        for y in 0..8 {
+            for x in 0..8 {
+                let neutral_lift = match phase {
+                    0 => 0.0_f32,
+                    1 => 0.12_f32,
+                    2 if (x + y) % 2 == 0 => 0.24_f32,
+                    2 => 0.08_f32,
+                    _ if (2..6).contains(&x) && (1..5).contains(&y) => 0.40_f32,
+                    _ => 0.10_f32,
+                };
+                for channel in 0..3 {
+                    let at = (y * 8 + x) * 3 + channel;
+                    let before = values[at];
+                    values[at] = before + (1.0 - before) * neutral_lift;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 // Preserve the original operation order in both the validation and commit pass.
 fn candidate(weight: f32, gradient: f32, m: f32, v: f32, a: f32, b: f32) -> (f32, f32, f32) {
     let nm = 0.9 * m + 0.1 * gradient;
@@ -506,7 +555,8 @@ mod tests {
         let mut valid = vec![0.01_f32; 64 * INPUTS];
         assert!(neutral_background_training_batch(&mut valid, &labels, 0).is_err());
         assert!(neutral_background_training_batch(&mut valid, &labels, 2001).is_err());
-        assert!(neutral_background_training_batch(&mut valid[..valid.len() - INPUTS], &labels, 1).is_err());
+        let incomplete = valid.len() - INPUTS;
+        assert!(neutral_background_training_batch(&mut valid[..incomplete], &labels, 1).is_err());
         let mut malformed_labels = labels.clone();
         malformed_labels[63].class = Some(2);
         assert!(neutral_background_training_batch(&mut valid, &malformed_labels, 1).is_err());

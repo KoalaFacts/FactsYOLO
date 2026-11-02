@@ -224,15 +224,22 @@ def checked_prospective_edge_report(report, expected_sha):
 
 
 def checked_mirrored_edge_report(report, expected_sha, *, textured=False,
-                                 center_weighted=False, background_weighted=False):
-    """Validate opt-in mirror, texture, center and background arms."""
-    if sum((textured, center_weighted, background_weighted)) > 1:
+                                 center_weighted=False, background_weighted=False,
+                                 neutral_background=False):
+    """Validate provenance of strictly opt-in, single-variable training arms."""
+    if sum((textured, center_weighted, background_weighted, neutral_background)) > 1:
         raise ValueError("training arms must change only one variable")
     expected_status = (
         "textured-mirror-training-experiment-only" if textured
-        else ("center-weighted-mirror-training-experiment-only" if center_weighted
-              else ("background-weighted-mirror-training-experiment-only"
-                    if background_weighted else "mirrored-edge-training-experiment-only")))
+        else "center-weighted-mirror-training-experiment-only" if center_weighted
+        else "background-weighted-mirror-training-experiment-only" if background_weighted
+        else "neutral-background-mirror-training-experiment-only" if neutral_background
+        else "mirrored-edge-training-experiment-only")
+    if report.get("neutral_negative_features", False) is not neutral_background:
+        raise ValueError("invalid negative-only feature augmentation metadata")
+    if neutral_background and report.get("neutral_background_phases") != [
+            "identity", "uniform-neutral", "checkerboard-neutral", "rectangle-neutral"]:
+        raise ValueError("invalid neutral-negative phase provenance")
     multiplier = report.get("center_gradient_multiplier")
     if (type(multiplier) not in (float, int)
             or multiplier != (2.0 if center_weighted else 1.0)):
@@ -668,6 +675,33 @@ def main():
             raise RuntimeError(f"background/mirror training parity failure: {backend_name}")
         (evidence / f"background-training-{backend_name}.json").write_text(
             json.dumps(background, indent=2) + "\n")
+        # New controlled negative-only brightness exposure. All 2000 sampled
+        # batches, positive inputs, mirror views, labels and model/ABI remain
+        # unchanged; only existing background feature rows receive deterministic
+        # neutral phases. This only measures already-observed development
+        # splits and original validation. No generalization claim or model
+        # selection is allowed from these reports.
+        neutral_path = evidence / f"neutral-background-model-{backend_name}.fytd"
+        neutral = json.loads(run(f"neutral-background-training-{backend_name}", [
+            edge_binary, backend_name, "--neutral-background",
+            "--evidence-artifact", neutral_path]))
+        checked_mirrored_edge_report(
+            neutral, env["FACTSYOLO_BUILD_ID"], neutral_background=True)
+        if neutral.get("artifact_sha256") != hashlib.sha256(
+                neutral_path.read_bytes()).hexdigest():
+            raise RuntimeError(f"neutral model artifact digest mismatch: {backend_name}")
+        checked_four_side_report(neutral, env["FACTSYOLO_BUILD_ID"],
+                                 ("mirrored_four_side",))
+        checked_disjoint_four_side_report(neutral, env["FACTSYOLO_BUILD_ID"],
+                                          ("mirrored_disjoint_four_side",))
+        if any(neutral[key] != mirrored[key] for key in (
+                "backend", "mirror_slots", "sampler_seed", "steps_per_arm",
+                "train_samples", "edge_override_slots_per_batch",
+                "development_fingerprint", "prospective_fingerprint",
+                "four_side_fingerprint", "disjoint_fingerprint")):
+            raise RuntimeError(f"neutral/mirror training parity failure: {backend_name}")
+        (evidence / f"neutral-background-training-{backend_name}.json").write_text(
+            json.dumps(neutral, indent=2) + "\n")
         # Independent mosaic background hard negatives and four-side positives.
         # This freshly frozen cohort is separate from the *already examined*
         # center comparison. Actual weight bytes are loaded in fresh Rust

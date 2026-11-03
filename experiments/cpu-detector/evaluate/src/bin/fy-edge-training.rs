@@ -5,7 +5,9 @@
 // The wide experimental evidence JSON objects exceed serde_json::json!'s default
 // macro expansion depth; this changes compilation only, not the report schema.
 #![recursion_limit = "256"]
-use fy_cpu_evaluate::training::illuminate_training_batch;
+use fy_cpu_evaluate::training::{
+    cache_training_features_and_release_pixels, illuminate_training_batch,
+};
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},
@@ -647,12 +649,11 @@ fn run() -> Result<(), String> {
         return Err("source commit must be supplied at compile time".into());
     }
     let b = backend(&arguments[1])?;
-    let train = dataset(101, 4096);
+    let mut train = dataset(101, 4096);
     let pool = edge_pool(&train)?;
-    let mut cached = Vec::with_capacity(train.len() * INPUTS);
-    for sample in &train {
-        cached.extend(features(&sample.pixels)?);
-    }
+    // The trainer only reads cached features, class and box after this point.
+    // Discard the original 4,096 RGB allocations before running training arms.
+    let cached = cache_training_features_and_release_pixels(&mut train)?;
     let development = frozen_development()?;
     let prospective = frozen_prospective()?;
     let four_sides = frozen_four_sides()?;
@@ -1205,6 +1206,57 @@ mod tests {
             );
             assert_eq!(base_rng.next_u32(), texture_rng.next_u32());
         }
+    }
+
+    #[test]
+    fn compact_training_source_preserves_edge_pool_and_boosted_batches() {
+        let original = dataset(101, 256);
+        let mut compact = original.clone();
+        let pool = edge_pool(&original).unwrap();
+        let mut historical_features = Vec::with_capacity(original.len() * INPUTS);
+        for sample in &original {
+            historical_features.extend(features(&sample.pixels).unwrap());
+        }
+        let cached = cache_training_features_and_release_pixels(&mut compact).unwrap();
+        assert_eq!(edge_pool(&compact).unwrap(), pool);
+
+        let (mut historical_rng, mut compact_rng) = (Rng::new(707), Rng::new(707));
+        let (mut historical_inputs, mut compact_inputs) = (Vec::new(), Vec::new());
+        let (mut historical_labels, mut compact_labels) = (Vec::new(), Vec::new());
+        for step in 1..=32 {
+            fill_edge_batch(
+                &original,
+                &historical_features,
+                &pool,
+                &mut historical_rng,
+                &mut historical_inputs,
+                &mut historical_labels,
+            );
+            fill_edge_batch(
+                &compact,
+                &cached,
+                &pool,
+                &mut compact_rng,
+                &mut compact_inputs,
+                &mut compact_labels,
+            );
+            assert_eq!(
+                historical_inputs
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
+                compact_inputs
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
+                "edge input changed at step {step}"
+            );
+            for (a, b) in historical_labels.iter().zip(&compact_labels) {
+                assert_eq!(a.class, b.class);
+                assert_eq!(a.box_xywh.map(f32::to_bits), b.box_xywh.map(f32::to_bits));
+            }
+        }
+        assert_eq!(historical_rng.next_u32(), compact_rng.next_u32());
     }
 
     #[test]

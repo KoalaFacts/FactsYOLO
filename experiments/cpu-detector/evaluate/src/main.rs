@@ -337,4 +337,57 @@ mod tests {
             assert_eq!(labels.as_ptr(), labels_ptr, "label buffer reallocated");
         }
     }
+
+    #[test]
+    fn canonical_training_cache_preserves_real_backend_outputs_and_labels() {
+        // 513 rows exercise both sides of the 512-row inference chunk boundary.
+        // Compare with the historical path while raw pixels are still present.
+        let original = dataset(101, 513);
+        let original_fingerprint = fingerprint(&original);
+        let legacy_inputs = input(&original).unwrap();
+        let model = Model::initialized(404);
+        for name in ["burn", "candle"] {
+            let b = backend(name).unwrap();
+            let historical = forward(&*b, &model, &original).unwrap();
+            let mut compact = original.clone();
+            let cached = cache_training_features_and_release_pixels(&mut compact).unwrap();
+            assert_eq!(
+                cached.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                legacy_inputs.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+            );
+            assert!(compact.iter().all(|sample| sample.pixels.is_empty()
+                && sample.pixels.capacity() == 0));
+            for (before, after) in original.iter().zip(&compact) {
+                assert_eq!(before.class, after.class);
+                assert_eq!(before.box_xywh.map(f32::to_bits), after.box_xywh.map(f32::to_bits));
+            }
+            let current = forward_cached(&*b, &model, &cached).unwrap();
+            assert_eq!(
+                historical.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                current.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                "cached source changed {name} network output"
+            );
+            let historical_loss = loss_gradient(&historical, &original).unwrap().0;
+            let compact_loss = loss_gradient(&current, &compact).unwrap().0;
+            assert_eq!(historical_loss.to_bits(), compact_loss.to_bits());
+            let old_metrics = measure(&historical, &original).unwrap();
+            let new_metrics = measure(&current, &compact).unwrap();
+            assert_eq!(
+                serde_json::to_value(old_metrics).unwrap(),
+                serde_json::to_value(new_metrics).unwrap()
+            );
+        }
+        assert_eq!(fingerprint(&original), original_fingerprint);
+    }
+
+    #[test]
+    fn cached_forward_rejects_malformed_training_feature_rows() {
+        let b = backend("candle").unwrap();
+        let model = Model::initialized(404);
+        assert!(forward_cached(&*b, &model, &[]).is_err());
+        assert!(forward_cached(&*b, &model, &[0.0; INPUTS - 1]).is_err());
+        let mut invalid = [0.0_f32; INPUTS];
+        invalid[INPUTS - 1] = f32::NAN;
+        assert!(forward_cached(&*b, &model, &invalid).is_err());
+    }
 }

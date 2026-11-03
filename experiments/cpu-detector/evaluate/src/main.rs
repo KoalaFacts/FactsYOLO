@@ -87,7 +87,9 @@ fn forward_cached(b: &dyn Backend, model: &Model, cached: &[f32]) -> Result<Vec<
         return Err("invalid cached TD1 feature rows".into());
     }
     let rows = cached.len() / INPUTS;
-    let capacity = rows.checked_mul(7).ok_or("cached TD1 output size overflow")?;
+    let capacity = rows
+        .checked_mul(7)
+        .ok_or("cached TD1 output size overflow")?;
     let mut output = Vec::with_capacity(capacity);
     for chunk in cached.chunks(512 * INPUTS) {
         output.extend(b.forward(&model.weights, chunk, chunk.len() / INPUTS)?);
@@ -371,13 +373,20 @@ mod tests {
             let cached = cache_training_features_and_release_pixels(&mut compact).unwrap();
             assert_eq!(
                 cached.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-                legacy_inputs.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+                legacy_inputs
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>()
             );
-            assert!(compact.iter().all(|sample| sample.pixels.is_empty()
-                && sample.pixels.capacity() == 0));
+            assert!(compact
+                .iter()
+                .all(|sample| sample.pixels.is_empty() && sample.pixels.capacity() == 0));
             for (before, after) in original.iter().zip(&compact) {
                 assert_eq!(before.class, after.class);
-                assert_eq!(before.box_xywh.map(f32::to_bits), after.box_xywh.map(f32::to_bits));
+                assert_eq!(
+                    before.box_xywh.map(f32::to_bits),
+                    after.box_xywh.map(f32::to_bits)
+                );
             }
             let current = forward_cached(&*b, &model, &cached).unwrap();
             assert_eq!(

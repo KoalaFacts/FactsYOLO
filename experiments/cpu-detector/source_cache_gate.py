@@ -4,7 +4,7 @@ import re
 
 SOURCE_BYTES = 4096 * 64 * 64 * 3
 SCOPE = "feature caching and source buffer residency only; excludes training"
-ALLOCATOR_METRIC = "System allocator live requested payload bytes, not RSS"
+ALLOCATOR_METRIC = "System allocator live payload plus successful allocation requests/bytes, not RSS"
 
 
 def _integer(value, minimum=0):
@@ -15,7 +15,7 @@ def validate_cache_report(report, source_commit):
     """Only claim the freed source payload after checking matched sample identity."""
     if (not isinstance(report, dict)
             or not re.fullmatch(r"[0-9a-f]{40}", source_commit)
-            or report.get("schema") != "fy-td1-source-cache-allocation-v1"
+            or report.get("schema") != "fy-td1-source-cache-allocation-v2"
             or report.get("source_commit") != source_commit
             or report.get("build") != "release"
             or report.get("scope") != SCOPE
@@ -46,12 +46,15 @@ def validate_cache_report(report, source_commit):
             arm = pair[name]
             if (not isinstance(arm, dict)
                     or set(arm) != {
-                        "elapsed_ns", "source_capacity_bytes",
+                        "elapsed_ns", "allocation_requests", "requested_bytes",
+                        "source_capacity_bytes",
                         "live_after_cache_bytes",
                         "peak_live_during_preparation_bytes",
                         "feature_label_sha256"}):
                 raise ValueError("incomplete source-cache arm")
             if (not _integer(arm["elapsed_ns"], 1)
+                    or not _integer(arm["allocation_requests"], 1)
+                    or not _integer(arm["requested_bytes"], 1)
                     or not _integer(arm["source_capacity_bytes"], SOURCE_BYTES)
                     or arm["source_capacity_bytes"] != SOURCE_BYTES
                     or not _integer(arm["live_after_cache_bytes"], 1)
@@ -68,8 +71,11 @@ def validate_cache_report(report, source_commit):
 
         retained, released = arms
         if (retained["live_after_cache_bytes"] - released["live_after_cache_bytes"]
-                != SOURCE_BYTES):
+                != SOURCE_BYTES
+                or retained["allocation_requests"] <= released["allocation_requests"]
+                or retained["requested_bytes"] <= released["requested_bytes"]):
             raise ValueError("live source allocation difference not confirmed")
-        # A release *after* feature extraction cannot reduce the earlier peak
-        # during feature preparation; do not infer peak RSS or full training speed.
+        # Fewer temporary feature Vec allocations can reduce allocator requests;
+        # releasing RGB reduces post-cache live bytes. Neither proves peak RSS
+        # or whole-training speed. Both modes use the same source population.
     return True

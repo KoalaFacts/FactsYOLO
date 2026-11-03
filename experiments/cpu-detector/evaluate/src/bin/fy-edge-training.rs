@@ -1207,6 +1207,51 @@ mod tests {
     }
 
     #[test]
+    fn compact_training_source_preserves_edge_pool_and_boosted_batches() {
+        let original = dataset(101, 256);
+        let mut compact = original.clone();
+        let pool = edge_pool(&original).unwrap();
+        let mut historical_features = Vec::with_capacity(original.len() * INPUTS);
+        for sample in &original {
+            historical_features.extend(features(&sample.pixels).unwrap());
+        }
+        let cached = cache_training_features_and_release_pixels(&mut compact).unwrap();
+        assert_eq!(edge_pool(&compact).unwrap(), pool);
+
+        let (mut historical_rng, mut compact_rng) = (Rng::new(707), Rng::new(707));
+        let (mut historical_inputs, mut compact_inputs) = (Vec::new(), Vec::new());
+        let (mut historical_labels, mut compact_labels) = (Vec::new(), Vec::new());
+        for step in 1..=32 {
+            fill_edge_batch(
+                &original,
+                &historical_features,
+                &pool,
+                &mut historical_rng,
+                &mut historical_inputs,
+                &mut historical_labels,
+            );
+            fill_edge_batch(
+                &compact,
+                &cached,
+                &pool,
+                &mut compact_rng,
+                &mut compact_inputs,
+                &mut compact_labels,
+            );
+            assert_eq!(
+                historical_inputs.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                compact_inputs.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                "edge input changed at step {step}"
+            );
+            for (a, b) in historical_labels.iter().zip(&compact_labels) {
+                assert_eq!(a.class, b.class);
+                assert_eq!(a.box_xywh.map(f32::to_bits), b.box_xywh.map(f32::to_bits));
+            }
+        }
+        assert_eq!(historical_rng.next_u32(), compact_rng.next_u32());
+    }
+
+    #[test]
     fn boosted_sampler_preserves_rng_and_every_non_reserved_draw() {
         let train = dataset(101, 256);
         let pool = edge_pool(&train).unwrap();

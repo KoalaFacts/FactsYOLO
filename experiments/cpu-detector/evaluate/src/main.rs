@@ -83,7 +83,7 @@ fn validation_loss_and_metrics(
 // feature cache. This is the same ordered 512-row batching as forward(), but
 // it never re-reads RGB pixels after their features have been extracted.
 fn forward_cached(b: &dyn Backend, model: &Model, cached: &[f32]) -> Result<Vec<f32>, String> {
-    if cached.is_empty() || cached.len() % INPUTS != 0 {
+    if cached.is_empty() || !cached.len().is_multiple_of(INPUTS) {
         return Err("invalid cached TD1 feature rows".into());
     }
     let rows = cached.len() / INPUTS;

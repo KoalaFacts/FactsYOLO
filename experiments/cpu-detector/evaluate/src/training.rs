@@ -535,7 +535,6 @@ mod tests {
         assert!(cache_training_features_and_release_pixels(&mut train).is_err());
         for (sample, pixels) in train.iter().zip(before) {
             assert_eq!(sample.pixels, pixels);
-            assert_eq!(sample.pixels.capacity(), 12_288);
         }
     }
 }

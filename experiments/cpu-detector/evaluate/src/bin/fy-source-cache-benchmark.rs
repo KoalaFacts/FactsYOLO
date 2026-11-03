@@ -165,7 +165,9 @@ fn run() -> Result<(), String> {
         if retained.source_capacity_bytes != source_bytes
             || released.source_capacity_bytes != source_bytes
             || retained.feature_label_sha256 != released.feature_label_sha256
-            || retained.live_after_cache_bytes.checked_sub(released.live_after_cache_bytes)
+            || retained
+                .live_after_cache_bytes
+                .checked_sub(released.live_after_cache_bytes)
                 != Some(source_bytes)
         {
             return Err("source-cache allocation or feature/label parity failed".into());

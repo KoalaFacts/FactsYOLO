@@ -5,7 +5,9 @@
 // The wide experimental evidence JSON objects exceed serde_json::json!'s default
 // macro expansion depth; this changes compilation only, not the report schema.
 #![recursion_limit = "256"]
-use fy_cpu_evaluate::training::{cache_training_features_and_release_pixels, illuminate_training_batch};
+use fy_cpu_evaluate::training::{
+    cache_training_features_and_release_pixels, illuminate_training_batch,
+};
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners, Metrics},

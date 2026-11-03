@@ -33,6 +33,36 @@ training speedup**. The unchanged 2,000-step Burn/Candle training and accuracy
 gates still run separately. Results must be quoted with platform, exact commit
 and raw repetitions; no synthetic-data result establishes natural-image quality.
 
+## Source RGB cache residency measurement (post-PR #62)
+
+The optional Release-mode `fy-source-cache-benchmark --measure` measures
+the historical TD1 seed101/4096 feature-caching path **retaining** its original
+64×64×3 RGB vectors alongside the cached 192-feature inputs against the
+current `cache_training_features_and_release_pixels` path. Three paired
+runs alternate execution order on the same host. All per-sample class/box
+bits and all cached feature bits are hashed in source order, and the verifier
+requires identical fingerprints and the exact 4,096×64×64×3-byte difference
+in **live requested allocator payload** after feature extraction.
+
+Measurements contain the raw preparation elapsed nanoseconds, post-cache live
+requested bytes and highest live requested bytes during preparation for each
+arm. This counter instruments Rust's `System` allocation/deallocation calls,
+not OS-committed memory, peak RSS, resident pages, fragmentation, CPU load,
+power, or allocator overhead. Crucially, **both arms first generate the full
+RGB set and all cached features**: releasing RGB afterwards need not reduce
+the peak memory reached *during preparation*. It can lower live allocations
+during the subsequent training interval, but this measurement does not execute
+the optimizer or prove a whole-training runtime or peak RSS improvement.
+
+The Linux/Windows CPU experiment gate runs this benchmark alongside its
+existing 2,000-step Burn/Candle training and accuracy gates, validates raw
+allocation/identity evidence in Python, and uploads the JSON/logs without
+weights or images. Quote actual platform, source SHA and raw paired samples
+rather than predicting a timing percentage or conflating live allocation
+payload with process RSS. The benchmark leaves model topology, feature
+mathematics, train/test source identities, random sampling, ABI, and model
+artifact format unchanged.
+
 ## Reproduce
 
 Use a Linux x64 host with Python3, C toolchain, rustup and Rust1.99/1.85 installed.

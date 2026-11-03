@@ -15,6 +15,7 @@ from inference_gate import verify_inference_benchmark
 from full_training_gate import (validate_full_training_benchmark,
                                 validate_full_training_diagnostics,
                                 validate_interrupted_full_training_diagnostics)
+from source_cache_gate import validate_cache_report
 from verify_report import enforce_heldout_thresholds, verify_test_predictions
 from verify_native import NATIVE_INDICES
 from cross_generator_validation import check_report as check_cross_generator_report
@@ -456,6 +457,17 @@ def main():
                    for h, r in zip(batch_report["historical"], batch_report["reused"]))):
         raise RuntimeError("batch preparation benchmark parity/provenance/allocation gate failed")
     (evidence / "batch-benchmark.json").write_text(json.dumps(batch_report, indent=2) + "\n")
+    # Measure the exact pre-#62 source RGB retention against the current
+    # post-feature-cache release on the same host. The System allocator's
+    # live payload bytes are not RSS or a whole-training speed measurement.
+    source_cache_binary = ROOT / "target" / "release" / (
+        "fy-source-cache-benchmark.exe" if os.name == "nt"
+        else "fy-source-cache-benchmark")
+    cache_report = json.loads(run("source-cache-benchmark", [
+        source_cache_binary, "--measure"]))
+    validate_cache_report(cache_report, env["FACTSYOLO_BUILD_ID"])
+    (evidence / "source-cache-benchmark.json").write_text(
+        json.dumps(cache_report, indent=2) + "\n")
     # Compare the exact pre-#33 compact inference call with the current path,
     # on the same seeded RGB frames, model, thread and host. Separate from the
     # full Burn/Candle training budget and native C/C# execution.

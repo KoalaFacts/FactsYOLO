@@ -447,4 +447,72 @@ mod tests {
             original_boxes
         );
     }
+
+    #[test]
+    fn cached_training_source_can_release_pixels_without_changing_batches() {
+        let original = fy_tiny_model::dataset(101, 256);
+        let mut compact = original.clone();
+        let mut expected = Vec::with_capacity(original.len() * INPUTS);
+        for sample in &original {
+            expected.extend(fy_tiny_model::features(&sample.pixels).unwrap());
+        }
+        let cached = cache_training_features_and_release_pixels(&mut compact).unwrap();
+        assert_eq!(
+            cached.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
+            expected.iter().map(|value| value.to_bits()).collect::<Vec<_>>()
+        );
+        for (old, new) in original.iter().zip(&compact) {
+            assert_eq!(new.pixels.len(), 0);
+            assert_eq!(new.pixels.capacity(), 0);
+            assert_eq!(new.class, old.class);
+            assert_eq!(new.box_xywh.map(f32::to_bits), old.box_xywh.map(f32::to_bits));
+        }
+
+        let mut historical_rng = Rng::new(707);
+        let mut compact_rng = Rng::new(707);
+        let (mut historical_batch, mut compact_batch) = (Vec::new(), Vec::new());
+        let (mut historical_labels, mut compact_labels) = (Vec::new(), Vec::new());
+        for step in 1..=64 {
+            fill_training_batch(
+                &original,
+                &expected,
+                &mut historical_rng,
+                &mut historical_batch,
+                &mut historical_labels,
+            );
+            fill_training_batch(
+                &compact,
+                &cached,
+                &mut compact_rng,
+                &mut compact_batch,
+                &mut compact_labels,
+            );
+            assert_eq!(
+                historical_batch.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                compact_batch.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                "features changed at step {step}"
+            );
+            for (a, b) in historical_labels.iter().zip(&compact_labels) {
+                assert_eq!(a.class, b.class, "class changed at step {step}");
+                assert_eq!(
+                    a.box_xywh.map(f32::to_bits),
+                    b.box_xywh.map(f32::to_bits),
+                    "box changed at step {step}"
+                );
+            }
+        }
+        assert_eq!(historical_rng.next_u32(), compact_rng.next_u32());
+    }
+
+    #[test]
+    fn invalid_last_training_image_does_not_release_any_source_pixels() {
+        let mut train = fy_tiny_model::dataset(101, 16);
+        train.last_mut().unwrap().pixels.pop();
+        let before = train.iter().map(|sample| sample.pixels.clone()).collect::<Vec<_>>();
+        assert!(cache_training_features_and_release_pixels(&mut train).is_err());
+        for (sample, pixels) in train.iter().zip(before) {
+            assert_eq!(sample.pixels, pixels);
+            assert_eq!(sample.pixels.capacity(), 12_288);
+        }
+    }
 }

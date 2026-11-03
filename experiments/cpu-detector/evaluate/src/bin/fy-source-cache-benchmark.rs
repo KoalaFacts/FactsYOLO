@@ -119,10 +119,12 @@ fn measure(mode: Mode) -> Result<Measurement, String> {
     let elapsed_ns = started.elapsed().as_nanos();
     let after = LIVE.load(Ordering::Relaxed);
     let peak = PEAK.load(Ordering::Relaxed);
-    let allocation_requests = ALLOCATION_REQUESTS.load(Ordering::Relaxed)
+    let allocation_requests = ALLOCATION_REQUESTS
+        .load(Ordering::Relaxed)
         .checked_sub(before_requests)
         .ok_or("source-cache allocation request counter underflow")?;
-    let requested_bytes = REQUESTED_BYTES.load(Ordering::Relaxed)
+    let requested_bytes = REQUESTED_BYTES
+        .load(Ordering::Relaxed)
         .checked_sub(before_bytes)
         .ok_or("source-cache requested byte counter underflow")?;
     let live_after_cache_bytes = after

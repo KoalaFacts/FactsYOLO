@@ -27,9 +27,12 @@ def _box(value, what):
     if not isinstance(value, list) or len(value) != 4:
         raise ValueError(f"{what}: expected four corners")
     x1, y1, x2, y2 = [_finite_number(v, what) for v in value]
-    if not (0 <= x1 <= x2 <= _IMAGE_EDGE and
-            0 <= y1 <= y2 <= _IMAGE_EDGE):
-        raise ValueError(f"{what}: coordinates outside image or inverted")
+    # The TD1 decoder suppresses any clipped zero-area detection; a
+    # held-out prediction claiming such a box is not a possible detector
+    # output. Positive ground-truth boxes must likewise have real area.
+    if not (0 <= x1 < x2 <= _IMAGE_EDGE and
+            0 <= y1 < y2 <= _IMAGE_EDGE):
+        raise ValueError(f"{what}: nonempty in-frame box required")
     return x1, y1, x2, y2
 
 

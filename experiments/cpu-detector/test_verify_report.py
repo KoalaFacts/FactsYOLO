@@ -39,6 +39,32 @@ class VerifyTestPredictionsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_test_predictions(self.report)
 
+    def test_rejects_zero_area_predicted_box_with_consistent_aggregates(self):
+        # A fake report can keep *all* aggregate values consistent by
+        # reporting zero IoU for a class-correct but zero-width detection.
+        # The actual TD1 decoder cannot emit that detection.
+        self.report["predictions"][0]["prediction"]["corners"] = [
+            16.0, 16.0, 16.0, 48.0]
+        self.report["predictions"][0]["iou"] = 0.0
+        self.report["test"]["mean_iou"] = 0.0
+        self.report["test"]["recall_iou50"] = 0.0
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            verify_test_predictions(self.report)
+
+    def test_rejects_zero_area_positive_target(self):
+        # A positive TD1 label has a nonempty rectangle by construction.
+        # A degenerate label may otherwise pass the independent audit.
+        self.report["predictions"][1]["expected_corners"] = [
+            20.0, 20.0, 40.0, 20.0]
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            verify_test_predictions(self.report)
+
+    def test_rejects_zero_height_background_false_detection(self):
+        self.report["predictions"][2]["prediction"]["corners"] = [
+            10.0, 10.0, 30.0, 10.0]
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            verify_test_predictions(self.report)
+
     def test_rejects_malformed_predicted_box(self):
         self.report["predictions"][0]["prediction"]["corners"][0] = 90.0
         with self.assertRaises(ValueError):

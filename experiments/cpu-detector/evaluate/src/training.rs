@@ -481,14 +481,23 @@ mod tests {
         }
         let cached = cache_training_features_and_release_pixels(&mut compact).unwrap();
         assert_eq!(
-            cached.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
-            expected.iter().map(|value| value.to_bits()).collect::<Vec<_>>()
+            cached
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>()
         );
         for (old, new) in original.iter().zip(&compact) {
             assert_eq!(new.pixels.len(), 0);
             assert_eq!(new.pixels.capacity(), 0);
             assert_eq!(new.class, old.class);
-            assert_eq!(new.box_xywh.map(f32::to_bits), old.box_xywh.map(f32::to_bits));
+            assert_eq!(
+                new.box_xywh.map(f32::to_bits),
+                old.box_xywh.map(f32::to_bits)
+            );
         }
 
         let mut historical_rng = Rng::new(707);
@@ -511,8 +520,14 @@ mod tests {
                 &mut compact_labels,
             );
             assert_eq!(
-                historical_batch.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-                compact_batch.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                historical_batch
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
+                compact_batch
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
                 "features changed at step {step}"
             );
             for (a, b) in historical_labels.iter().zip(&compact_labels) {
@@ -531,7 +546,10 @@ mod tests {
     fn invalid_last_training_image_does_not_release_any_source_pixels() {
         let mut train = fy_tiny_model::dataset(101, 16);
         train.last_mut().unwrap().pixels.pop();
-        let before = train.iter().map(|sample| sample.pixels.clone()).collect::<Vec<_>>();
+        let before = train
+            .iter()
+            .map(|sample| sample.pixels.clone())
+            .collect::<Vec<_>>();
         assert!(cache_training_features_and_release_pixels(&mut train).is_err());
         for (sample, pixels) in train.iter().zip(before) {
             assert_eq!(sample.pixels, pixels);

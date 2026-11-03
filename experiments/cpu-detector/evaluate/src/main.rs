@@ -2,7 +2,7 @@
 use fy_cpu_evaluate::{
     backend,
     metrics::{iou, measure, target_corners},
-    training::{adam_step, fill_training_batch},
+    training::{adam_step, cache_training_features_and_release_pixels, fill_training_batch},
     Backend,
 };
 use fy_tiny_model::{
@@ -79,19 +79,37 @@ fn validation_loss_and_metrics(
     Ok((loss, metrics))
 }
 
+// The canonical 2,000-step trainer can forward directly from the immutable
+// feature cache. This is the same ordered 512-row batching as forward(), but
+// it never re-reads RGB pixels after their features have been extracted.
+fn forward_cached(b: &dyn Backend, model: &Model, cached: &[f32]) -> Result<Vec<f32>, String> {
+    if cached.is_empty() || cached.len() % INPUTS != 0 {
+        return Err("invalid cached TD1 feature rows".into());
+    }
+    let rows = cached.len() / INPUTS;
+    let capacity = rows.checked_mul(7).ok_or("cached TD1 output size overflow")?;
+    let mut output = Vec::with_capacity(capacity);
+    for chunk in cached.chunks(512 * INPUTS) {
+        output.extend(b.forward(&model.weights, chunk, chunk.len() / INPUTS)?);
+    }
+    Ok(output)
+}
+
 fn close(a: f32, b: f32) -> bool {
     a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-4 + 1e-4 * b.abs()
 }
 fn train(name: &str, destination: &Path) -> Result<(), String> {
     let b = backend(name)?;
     fs::create_dir(destination).map_err(|e| format!("create new output directory: {e}"))?;
-    let train = dataset(101, 4096);
+    let mut train = dataset(101, 4096);
     let validation = dataset(202, 128);
     let test = dataset(909, 128);
-    let cached = input(&train)?;
+    // Preserve the registered fingerprint before removing the source pixels.
+    let training_fingerprint = fingerprint(&train);
+    let cached = cache_training_features_and_release_pixels(&mut train)?;
     let mut model = Model::initialized(404);
     let initial_weights = model.weights.clone();
-    let initial_loss = loss_gradient(&forward(&*b, &model, &train)?, &train)?.0;
+    let initial_loss = loss_gradient(&forward_cached(&*b, &model, &cached)?, &train)?.0;
     let untrained = measure(&forward(&*b, &model, &test)?, &test)?;
     let mut m = vec![0.0; PARAMETERS];
     let mut v = vec![0.0; PARAMETERS];
@@ -126,7 +144,7 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
         }
     }
     let training_seconds = started.elapsed().as_secs_f64();
-    let train_output = forward(&*b, &model, &train)?;
+    let train_output = forward_cached(&*b, &model, &cached)?;
     let final_loss = loss_gradient(&train_output, &train)?.0;
     let train_metrics = measure(&train_output, &train)?;
     let (validation_loss, validation_metrics) =
@@ -195,7 +213,7 @@ fn train(name: &str, destination: &Path) -> Result<(), String> {
     if training_seconds > 600.0 {
         failures.push("training time budget");
     }
-    let report = json!({"architecture":"TD1","generator":"TD1-synthetic-v1","training_fingerprint":fingerprint(&train),"validation_fingerprint":fingerprint(&validation),"test_fingerprint":fingerprint(&test),"backend":b.name(),"source_commit":option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown"),
+    let report = json!({"architecture":"TD1","generator":"TD1-synthetic-v1","training_fingerprint":training_fingerprint,"validation_fingerprint":fingerprint(&validation),"test_fingerprint":fingerprint(&test),"backend":b.name(),"source_commit":option_env!("FACTSYOLO_BUILD_ID").unwrap_or("unknown"),
         "training_samples":4096,"validation_samples":128,"test_samples":128,"training_seed":101,"validation_seed":202,"test_seed":909,"initialization_seed":404,"sampler_seed":707,
         "steps":2000,"batch":64,"parameters":PARAMETERS,"initial_loss":initial_loss,"final_loss":final_loss,"train":train_metrics,"validation_loss":validation_loss,
         "training_seconds":training_seconds,"untrained_test":untrained,"validation":validation_metrics,"test":test_metrics,

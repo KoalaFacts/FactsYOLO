@@ -142,12 +142,36 @@ def assess_disjoint_mirror_candidate(baseline, mirrored):
     mirror_fp = mirror["background"]["false_positives"]
     original_ok = baseline["baseline"]["validation_passes_original_thresholds"] is True
     mirrored_ok = mirrored["validation_passes_original_thresholds"] is True
-    qualifies = (deltas["right"] >= 8 and deltas["bottom"] >= 8
-                 and deltas["left"] >= -2 and deltas["top"] >= -2
-                 and mirror_fp <= baseline_fp and original_ok and mirrored_ok)
+    # Preserve the frozen, pre-result hit/false-positive rule as a separate
+    # historical outcome. Do not rewrite it after seeing the split's results.
+    qualified_under_frozen_rule = (
+        deltas["right"] >= 8 and deltas["bottom"] >= 8
+        and deltas["left"] >= -2 and deltas["top"] >= -2
+        and mirror_fp <= baseline_fp and original_ok and mirrored_ok
+    )
+    # Post-result safety veto (2026-11-03): IoU50 hits alone can rise while
+    # the model stops detecting most positive objects. A class-correct
+    # detection includes both IoU50 hits and lower-IoU correct-class boxes.
+    # Require that none of the four sides loses more than two such detections.
+    # This can only reject an arm; it cannot turn a frozen-rule failure into
+    # a success or be represented as pre-registered blind evidence.
+    detection_deltas = {
+        side: (
+            base[side]["missing_detections"]
+            + base[side]["wrong_class_detections"]
+            - mirror[side]["missing_detections"]
+            - mirror[side]["wrong_class_detections"]
+        )
+        for side in DISJOINT_NAMES[:4]
+    }
+    safety_veto_passes = all(delta >= -2 for delta in detection_deltas.values())
+    qualifies = qualified_under_frozen_rule and safety_veto_passes
     return {
         "status": "synthetic-research-only",
+        "qualified_under_frozen_rule": qualified_under_frozen_rule,
+        "posthoc_class_detection_safety_veto_passes": safety_veto_passes,
         "qualified_for_further_synthetic_research": qualifies,
+        "correct_class_detection_delta_mirror_minus_baseline": detection_deltas,
         "correct_class_iou50_hit_delta_mirror_minus_baseline": deltas,
         "background_false_positives": {"baseline": baseline_fp, "mirrored": mirror_fp},
         "baseline_validation_passes_original_thresholds": original_ok,

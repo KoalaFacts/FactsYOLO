@@ -1,6 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 use fy_tiny_model::{Rng, Sample, INPUTS};
 
+/// TD1 training batches consume cached 8x8 features and lightweight labels;
+/// the 64x64 source RGB images are no longer needed after feature extraction.
+///
+/// Build *all* features before releasing any source image so an invalid late
+/// image returns an error without partially discarding the training source.
+/// This does not change the model, sampler, targets, input order or ABI.
+pub fn cache_training_features_and_release_pixels(
+    train: &mut [Sample],
+) -> Result<Vec<f32>, String> {
+    let capacity = train
+        .len()
+        .checked_mul(INPUTS)
+        .ok_or("TD1 training feature count overflow")?;
+    let mut cached = Vec::with_capacity(capacity);
+    for sample in train.iter() {
+        cached.extend(fy_tiny_model::features(&sample.pixels)?);
+    }
+    for sample in train.iter_mut() {
+        sample.pixels = Vec::new();
+    }
+    Ok(cached)
+}
+
 // Reuse the 64-sample feature and label buffers across all 2,000 training steps.
 // The sample draw order, payload bytes and labels remain unchanged.
 pub fn fill_training_batch(

@@ -87,6 +87,41 @@ class DisjointSourceReportTests(unittest.TestCase):
         self.assertFalse(assess_disjoint_mirror_candidate(
             original, mirrored)["qualified_for_further_synthetic_research"])
 
+    def test_class_detection_collapse_cannot_qualify_via_iou50_only(self):
+        # RED on main 5c18e97d: the original frozen hit-only rule accepts
+        # both large missing-detection and wrong-class regressions even when
+        # the new arm rescues >=8 right and bottom IoU50 hits.
+        for failure_kind in ("missing_detections", "wrong_class_detections"):
+            with self.subTest(failure_kind=failure_kind):
+                original = report()
+                mirrored = report()
+                base = original["baseline_disjoint_four_side"]
+                mirror = mirrored["mirrored_disjoint_four_side"]
+                for name, hits in (("left", 1), ("top", 1), ("right", 0), ("bottom", 0)):
+                    base[name] = side(hits)
+                for name, hits in (("left", 1), ("top", 1), ("right", 8), ("bottom", 8)):
+                    lost = 21 if name in ("left", "top") else 16
+                    row = side(hits)
+                    row[failure_kind] = lost
+                    row["mean_iou_including_misses"] = (
+                        hits + 0.25 * (24 - hits - lost)
+                    ) / 24
+                    mirror[name] = row
+                self.assertTrue(checked_disjoint_four_side_report(
+                    original, "head-for-test", ("baseline_disjoint_four_side",)))
+                self.assertTrue(checked_disjoint_four_side_report(
+                    mirrored, "head-for-test", ("mirrored_disjoint_four_side",)))
+                assessment = assess_disjoint_mirror_candidate(original, mirrored)
+                # Keep the retrospective frozen rule visible, but the
+                # supplementary post-result safety veto must prevent promotion.
+                self.assertTrue(assessment["qualified_under_frozen_rule"])
+                self.assertFalse(assessment["posthoc_class_detection_safety_veto_passes"])
+                self.assertFalse(assessment["qualified_for_further_synthetic_research"])
+                self.assertEqual(
+                    assessment["correct_class_detection_delta_mirror_minus_baseline"],
+                    {"left": -21, "top": -21, "right": -16, "bottom": -16},
+                )
+
     def test_seed_hash_budget_and_final_holdout_mutations_rejected(self):
         for key, mutation in (
             ("source_commit", "wrong-head"),

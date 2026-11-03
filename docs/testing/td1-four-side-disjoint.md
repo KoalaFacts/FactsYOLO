@@ -78,3 +78,29 @@ generalization to natural images. It cannot justify replacing the default
 sampler, publishing TD1, declaring YOLO production ready or raising a public
 performance/accuracy claim. A real deployment decision needs licensed
 natural-image data, independently reviewed evaluation and separate design.
+
+## Retrospective fail-closed safety veto (2026-11-03)
+
+The original four-side criterion above remains available in the verifier as
+`qualified_under_frozen_rule`; it is **not** retroactively relabelled as an
+unseen or preregistered result. A separate, explicitly post-result safety check
+was added after identifying a decision-logic false positive. IoU50 hit counts
+can increase while correct-class *detections at any IoU* collapse: a detector
+could satisfy the original rule despite no longer recognizing many objects.
+
+For each of the four disjoint-source sides, the additional veto computes
+`correct_class_detections = samples - missing_detections - wrong_class_detections`
+and requires the mirrored arm not to lose more than two such detections
+relative to the unchanged baseline. This does **not** alter any reported raw
+IoU50 hits, historical thresholds, dataset fingerprints, model parameters,
+training sampling, or the untouched seed909 holdout. It can only disqualify
+an arm that the original rule otherwise qualified; it cannot rescue an arm
+that failed the frozen criterion. Both the original frozen-rule outcome and
+the new veto are reported separately. This is a conservative interpretation
+safeguard, **not** new prospective evidence or an accuracy improvement.
+
+The regression test uses arithmetically valid independent 24-object groups in
+which right/bottom each gain eight IoU50 hits but every group loses 16–21
+correct-class detections. The old hit-only check incorrectly qualified that
+candidate; the amended check retains the old result and vetoes it. The same
+test exercises missing detections and wrong-class predictions.

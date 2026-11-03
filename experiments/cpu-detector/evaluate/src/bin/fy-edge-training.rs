@@ -1241,8 +1241,14 @@ mod tests {
                 &mut compact_labels,
             );
             assert_eq!(
-                historical_inputs.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-                compact_inputs.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                historical_inputs
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
+                compact_inputs
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
                 "edge input changed at step {step}"
             );
             for (a, b) in historical_labels.iter().zip(&compact_labels) {

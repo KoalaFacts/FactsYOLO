@@ -88,6 +88,14 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
     if labels.iter().any(invalid_td1_training_label) {
         return Err("invalid TD1 label for reserved mirroring".into());
     }
+    // Other 60 slots also reach the model. Invalid late features must not
+    // allow the reserved earlier slots to be mirrored first.
+    if batch
+        .iter()
+        .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        return Err("invalid TD1 feature for reserved mirroring".into());
+    }
     for slot in SLOTS {
         let label = &labels[slot];
         let [x, y, w, h] = label.box_xywh;
@@ -99,9 +107,6 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
             || x + w / 2.0 > 1.0
             || y - h / 2.0 < 0.0
             || y + h / 2.0 > 1.0
-            || batch[slot * INPUTS..(slot + 1) * INPUTS]
-                .iter()
-                .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
         {
             return Err("invalid reserved TD1 edge sample for mirroring".into());
         }
@@ -469,6 +474,44 @@ mod tests {
                     .collect::<Vec<_>>(),
                 original,
                 "failed illumination modified preceding features"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_nonreserved_feature_cannot_partially_mirror_earlier_slots() {
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        for invalid in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+            let mut labels = vec![valid.clone(); 64];
+            let mut input = (0..64 * INPUTS)
+                .map(|i| (i % 19) as f32 / 18.0)
+                .collect::<Vec<_>>();
+            input[64 * INPUTS - 1] = invalid;
+            let original_input = input.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            let original_labels = labels
+                .iter()
+                .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                .collect::<Vec<_>>();
+            assert!(
+                mirror_reserved_edge_batch(&mut input, &mut labels).is_err(),
+                "invalid last non-reserved feature must fail before mirroring"
+            );
+            assert_eq!(
+                input.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                original_input,
+                "failed mirroring changed earlier features"
+            );
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                original_labels,
+                "failed mirroring changed earlier targets"
             );
         }
     }

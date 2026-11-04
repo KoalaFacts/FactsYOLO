@@ -37,8 +37,8 @@ def pack_linux_probe(assets, output):
             raise RuntimeError(f"{label}: exit {result.returncode}\n{result.stdout}")
         return result.stdout
 
-    if run("sdk-version", ["dotnet", "--version"]).strip() != "10.0.401":
-        raise ValueError(".NET SDK 10.0.401 required")
+    if run("sdk-version", ["dotnet", "--version"]).strip() != "10.0.403":
+        raise ValueError(".NET SDK 10.0.403 required")
     project = ROOT / "sdk/dotnet/FactsYOLO/FactsYOLO.csproj"
     artifacts = output / "artifacts"
     run("build-real-sdk", ["dotnet", "build", project, "-c", "Release", "--artifacts-path", artifacts])

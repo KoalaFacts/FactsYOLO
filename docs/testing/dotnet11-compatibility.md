@@ -2,7 +2,7 @@
 
 This independently selected gate tests net11.0 consumers of the existing
 experimental `FactsYOLO.LocalTest` package. The package still targets net10.0,
-is built with SDK 10.0.401, and must not be published. The shipped SDK, default
+is built with SDK 10.0.403, and must not be published. The shipped SDK, default
 runtime, C ABI, training/inference implementation and original CI are unchanged.
 Passing this gate does not freeze the managed API or promise a stable SDK release.
 

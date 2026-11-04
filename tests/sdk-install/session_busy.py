@@ -16,12 +16,12 @@ FAILURES = {
 }
 
 
-def prepare(destination, variant, framework='net10.0', runtime='10.0.12'):
+def prepare(destination, variant, framework='net10.0', runtime='10.0.14'):
     if variant not in ('baseline', *FAILURES):
         raise ValueError('Unknown SessionBusy variant')
     source = ROOT / 'tests/sdk-install/SessionBusy'
     tree = ET.parse(source / 'SessionBusy.csproj')
-    if tree.findtext('.//TargetFramework') != 'net10.0' or tree.findtext('.//RuntimeFrameworkVersion') != '10.0.12':
+    if tree.findtext('.//TargetFramework') != 'net10.0' or tree.findtext('.//RuntimeFrameworkVersion') != '10.0.14':
         raise ValueError('SessionBusy stable baseline changed')
     expected = {ROOT / 'sdk/dotnet/FactsYOLO' / name for name in SOURCES}
     actual = {(source / item.attrib['Include']).resolve() for item in tree.findall('.//Compile')}
@@ -73,7 +73,7 @@ def prepare(destination, variant, framework='net10.0', runtime='10.0.12'):
                      'variant': variant, 'source_linked_only': True, 'framework': framework, 'runtime': runtime}
 
 
-def verify(mode, rid, evidence, config, run, framework='net10.0', runtime='10.0.12'):
+def verify(mode, rid, evidence, config, run, framework='net10.0', runtime='10.0.14'):
     for variant in ['baseline', *FAILURES]:
         directory = evidence / f'session-busy-{mode}-{variant}'
         project, provenance = prepare(directory / 'source', variant, framework, runtime)

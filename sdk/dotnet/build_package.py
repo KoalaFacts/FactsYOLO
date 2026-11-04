@@ -20,7 +20,7 @@ def verify_package_entries(names, required):
     if not required.issubset(names):
         raise ValueError(f"package entries missing: {required - set(names)}")
     metadata_entries = {"[Content_Types].xml", "_rels/.rels", "FactsYOLO.LocalTest.nuspec"}
-    # SDK 10.0.401 uses the fixed name; older packers used a hex identifier.
+    # SDK 10.0.403 uses the fixed name; older packers used a hex identifier.
     properties = {n for n in names if re.fullmatch(r"package/services/metadata/core-properties/(?:nuget|[a-f0-9]+)\.psmdcp", n)}
     if len(properties) != 1:
         raise ValueError("expected exactly one known package core-properties entry")
@@ -33,8 +33,8 @@ def main(assets, output):
     commit = clean_commit()
     manifests = verify_assets(assets, commit)
     version = f"0.0.0-local.{commit[:12]}"
-    if capture(["dotnet", "--version"], ROOT / "sdk/dotnet").strip() != "10.0.401":
-        raise ValueError(".NET SDK 10.0.401 required")
+    if capture(["dotnet", "--version"], ROOT / "sdk/dotnet").strip() != "10.0.403":
+        raise ValueError(".NET SDK 10.0.403 required")
     output.mkdir(parents=True, exist_ok=False)
     command = ["dotnet", "pack", ROOT / "sdk/dotnet/FactsYOLO/FactsYOLO.csproj", "-c", "Release", "-o", output,
                "-p:IsPackable=true", f"-p:PackageVersion={version}", f"-p:NativeAssetsRoot={assets}", f"-p:RepositoryCommit={commit}"]

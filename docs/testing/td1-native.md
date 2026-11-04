@@ -15,7 +15,7 @@ This is a small synthetic single-object model, not a general YOLO product claim.
 
 ## Reproduce real training and native consumers
 
-Use Linux x64 or Windows x64, the pinned Rust1.99 and .NET10.0.401 SDK, Rust1.85
+Use Linux x64 or Windows x64, the pinned Rust1.99 and .NET10.0.403 SDK, Rust1.85
 and Python3. Linux uses a C compiler/binutils; Windows uses the existing MSVC
 x64 tools and Windows SDK in a Visual Studio developer PowerShell. Do not run
 the Windows build through Git Bash: its GNU `link.exe` can shadow MSVC's linker.

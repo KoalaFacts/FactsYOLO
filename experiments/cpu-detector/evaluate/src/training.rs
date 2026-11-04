@@ -16,7 +16,7 @@ pub fn cache_training_features_and_release_pixels(
         .ok_or("TD1 training feature count overflow")?;
     let mut cached = Vec::with_capacity(capacity);
     for sample in train.iter() {
-        cached.extend(fy_tiny_model::features(&sample.pixels)?);
+        cached.extend_from_slice(&fy_tiny_model::features_array(&sample.pixels)?);
     }
     for sample in train.iter_mut() {
         sample.pixels = Vec::new();

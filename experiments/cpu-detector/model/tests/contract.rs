@@ -18,6 +18,28 @@ fn preprocessing_preserves_spatial_and_channel_order() {
 }
 
 #[test]
+fn fixed_size_preprocessing_matches_registered_training_pixels_bit_for_bit() {
+    // RED: feature_array is not implemented yet. Its fixed-size return value
+    // lets the 4096-row cache avoid a temporary 192-float heap Vec per image.
+    // Compare against the already-accepted public preprocessing path, not
+    // against a separately reconstructed network.
+    for (index, sample) in dataset(101, 129).iter().enumerate() {
+        let historical = features(&sample.pixels).unwrap();
+        let fixed = features_array(&sample.pixels).unwrap();
+        assert_eq!(fixed.len(), INPUTS);
+        assert_eq!(
+            historical.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            fixed.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            "cached feature bits changed for source image {index}"
+        );
+    }
+    for length in [0, 1, 64 * 64 * 3 - 1, 64 * 64 * 3 + 1] {
+        let invalid = vec![0_u8; length];
+        assert!(features_array(&invalid).is_err(), "length {length}");
+    }
+}
+
+#[test]
 fn original_data_is_reproducible_disjoint_and_geometrically_labeled() {
     let a = dataset(101, 4096);
     let again = dataset(101, 4096);

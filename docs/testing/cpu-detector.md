@@ -44,11 +44,16 @@ bits and all cached feature bits are hashed in source order, and the verifier
 requires identical fingerprints and the exact 4,096×64×64×3-byte difference
 in **live requested allocator payload** after feature extraction.
 
-Measurements contain the raw preparation elapsed nanoseconds, post-cache live
-requested bytes and highest live requested bytes during preparation for each
-arm. This counter instruments Rust's `System` allocation/deallocation calls,
-not OS-committed memory, peak RSS, resident pages, fragmentation, CPU load,
-power, or allocator overhead. Crucially, **both arms first generate the full
+Measurements contain raw preparation elapsed nanoseconds, post-cache live
+requested bytes and highest live requested bytes during preparation. The v2
+report also records the successful `alloc`, `alloc_zeroed` and `realloc`
+requests and requested bytes measured by the same single-threaded `System`
+allocator. It contrasts the historical feature-`Vec` path with the current
+fixed-array cache path (PR #66), while preserving the original RGB live-byte
+comparison. All per-row features/labels must hash identically; the new path
+must issue fewer allocation requests and request fewer bytes on each paired
+run. These are allocator requests, not OS-committed memory, peak RSS,
+resident pages, fragmentation, CPU load, power, or allocator overhead. Crucially, **both arms first generate the full
 RGB set and all cached features**: releasing RGB afterwards need not reduce
 the peak memory reached *during preparation*. It can lower live allocations
 during the subsequent training interval, but this measurement does not execute

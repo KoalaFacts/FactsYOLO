@@ -4,7 +4,7 @@ This gate tests a temporary `FactsYOLO.LocalTest` package. It does not publish a
 NuGet package, register a name, promise a stable API, or distribute weights.
 The package's version is `0.0.0-local.<12-character-source-sha>`; both native
 assets and the package metadata must identify the same full source commit.
-The managed assembly/namespace is FactsYOLO, targeting net10.0 with SDK10.0.401.
+The managed assembly/namespace is FactsYOLO, targeting net10.0 with SDK10.0.403.
 Public package naming, versioning and release clearance remain separate decisions.
 
 ## Reproduce
@@ -36,7 +36,7 @@ No native file is manually copied into the consumer's output.
 
 The packaging tests include an actual ordinary `dotnet pack` with the pinned
 SDK, followed by the same archive-entry validator used by the SDK packer. Exactly
-one core-properties entry is allowed: SDK 10.0.401's `nuget.psmdcp` or the legacy
+one core-properties entry is allowed: SDK 10.0.403's `nuget.psmdcp` or the legacy
 hexadecimal filename. Duplicate entries, unsafe paths and unlisted content remain
 rejected. This small managed-only regression creates no native assets and does
 not substitute for the dual-platform package installation gate.

@@ -2,8 +2,9 @@
 //! Paired Release-only live-allocation measurement for the PR #62 TD1 change.
 //! Unlike RSS, allocator-requested live bytes can prove that the original
 //! synthetic RGB Vec payload is released *after* feature construction.
-//! Feature-build peak, complete training, CPU use and wall-clock speedups are
-//! deliberately not inferred from the post-cache reading.
+//! Paired successful allocation requests/bytes also test the stack-backed
+//! feature caching path against the preceding temporary-Vec path. Feature-build
+//! peak, complete training, CPU use and wall-clock speedups are not inferred.
 use fy_cpu_evaluate::training::cache_training_features_and_release_pixels;
 use fy_tiny_model::{dataset, features, Sample, INPUTS};
 use serde::Serialize;
@@ -23,6 +24,8 @@ const REPEATS: usize = 3;
 // payload sizes, not committed allocator pages, RSS or operating-system peaks.
 static LIVE: AtomicU64 = AtomicU64::new(0);
 static PEAK: AtomicU64 = AtomicU64::new(0);
+static ALLOCATION_REQUESTS: AtomicU64 = AtomicU64::new(0);
+static REQUESTED_BYTES: AtomicU64 = AtomicU64::new(0);
 
 struct LiveAllocator;
 
@@ -31,6 +34,8 @@ static ALLOCATOR: LiveAllocator = LiveAllocator;
 
 fn allocated(ptr: *mut u8, bytes: usize) {
     if !ptr.is_null() {
+        ALLOCATION_REQUESTS.fetch_add(1, Ordering::Relaxed);
+        REQUESTED_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
         let live = LIVE.fetch_add(bytes as u64, Ordering::Relaxed) + bytes as u64;
         PEAK.fetch_max(live, Ordering::Relaxed);
     }
@@ -73,6 +78,8 @@ enum Mode {
 #[derive(Serialize)]
 struct Measurement {
     elapsed_ns: u128,
+    allocation_requests: u64,
+    requested_bytes: u64,
     source_capacity_bytes: u64,
     live_after_cache_bytes: u64,
     peak_live_during_preparation_bytes: u64,
@@ -90,6 +97,8 @@ fn historical_feature_cache(train: &[Sample]) -> Result<Vec<f32>, String> {
 
 fn measure(mode: Mode) -> Result<Measurement, String> {
     let before = LIVE.load(Ordering::Relaxed);
+    let before_requests = ALLOCATION_REQUESTS.load(Ordering::Relaxed);
+    let before_bytes = REQUESTED_BYTES.load(Ordering::Relaxed);
     PEAK.store(before, Ordering::Relaxed);
     let started = Instant::now();
     let mut train = dataset(101, SAMPLES);
@@ -110,6 +119,14 @@ fn measure(mode: Mode) -> Result<Measurement, String> {
     let elapsed_ns = started.elapsed().as_nanos();
     let after = LIVE.load(Ordering::Relaxed);
     let peak = PEAK.load(Ordering::Relaxed);
+    let allocation_requests = ALLOCATION_REQUESTS
+        .load(Ordering::Relaxed)
+        .checked_sub(before_requests)
+        .ok_or("source-cache allocation request counter underflow")?;
+    let requested_bytes = REQUESTED_BYTES
+        .load(Ordering::Relaxed)
+        .checked_sub(before_bytes)
+        .ok_or("source-cache requested byte counter underflow")?;
     let live_after_cache_bytes = after
         .checked_sub(before)
         .ok_or("source-cache live allocation counter underflow")?;
@@ -134,6 +151,8 @@ fn measure(mode: Mode) -> Result<Measurement, String> {
     drop(train);
     Ok(Measurement {
         elapsed_ns,
+        allocation_requests,
+        requested_bytes,
         source_capacity_bytes,
         live_after_cache_bytes,
         peak_live_during_preparation_bytes,
@@ -169,6 +188,8 @@ fn run() -> Result<(), String> {
                 .live_after_cache_bytes
                 .checked_sub(released.live_after_cache_bytes)
                 != Some(source_bytes)
+            || retained.allocation_requests <= released.allocation_requests
+            || retained.requested_bytes <= released.requested_bytes
         {
             return Err("source-cache allocation or feature/label parity failed".into());
         }
@@ -181,11 +202,11 @@ fn run() -> Result<(), String> {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "schema": "fy-td1-source-cache-allocation-v1",
+            "schema": "fy-td1-source-cache-allocation-v2",
             "source_commit": source,
             "build": "release",
             "scope": "feature caching and source buffer residency only; excludes training",
-            "allocator_metric": "System allocator live requested payload bytes, not RSS",
+            "allocator_metric": "System allocator live payload plus successful allocation requests/bytes, not RSS",
             "model_training_executed": false,
             "training_seed": 101,
             "training_samples": SAMPLES,

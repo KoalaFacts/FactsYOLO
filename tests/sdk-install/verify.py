@@ -88,7 +88,7 @@ def main(feed, training, evidence):
         return result.stdout
 
     version = run("sdk-version", ["dotnet", "--version"]).strip()
-    if version != "10.0.401":
+    if version != "10.0.403":
         raise ValueError(".NET SDK version differs")
     csproj = project / "Consumer.csproj"
     if "ProjectReference" in csproj.read_text() or "<Compile" in csproj.read_text():

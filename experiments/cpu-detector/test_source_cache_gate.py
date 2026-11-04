@@ -13,6 +13,8 @@ def fixture():
     for index in range(3):
         retained = {
             "elapsed_ns": 1000000,
+            "allocation_requests": 9000,
+            "requested_bytes": 60000000,
             "source_capacity_bytes": CAPACITY,
             "live_after_cache_bytes": 54000000,
             "peak_live_during_preparation_bytes": 55000000,
@@ -22,6 +24,8 @@ def fixture():
             **retained,
             "live_after_cache_bytes": 54000000 - CAPACITY,
             "peak_live_during_preparation_bytes": 55000000,
+            "allocation_requests": 4904,
+            "requested_bytes": 60000000 - 4096 * 192 * 4,
         }
         runs.append({
             "first": "retained" if index % 2 == 0 else "released",
@@ -29,11 +33,11 @@ def fixture():
             "released": released,
         })
     return {
-        "schema": "fy-td1-source-cache-allocation-v1",
+        "schema": "fy-td1-source-cache-allocation-v2",
         "source_commit": SHA,
         "build": "release",
         "scope": "feature caching and source buffer residency only; excludes training",
-        "allocator_metric": "System allocator live requested payload bytes, not RSS",
+        "allocator_metric": "System allocator live payload plus successful allocation requests/bytes, not RSS",
         "model_training_executed": False,
         "training_seed": 101,
         "training_samples": 4096,
@@ -68,11 +72,24 @@ class SourceCacheGateTests(unittest.TestCase):
             ("live_after_cache_bytes", 54000000 - 1),
             ("peak_live_during_preparation_bytes", 0),
             ("elapsed_ns", 0),
+            ("allocation_requests", 4904),
+            ("requested_bytes", 60000000 - 4096 * 192 * 4),
             ("feature_label_sha256", "0" * 64),
         ]:
             with self.subTest(key=key):
                 report = fixture()
                 report["runs"][1]["retained"][key] = value
+                with self.assertRaises(ValueError):
+                    validate_cache_report(report, SHA)
+
+    def test_rejects_missing_or_malformed_request_evidence(self):
+        for key, value in [
+            ("allocation_requests", None), ("requested_bytes", None),
+            ("allocation_requests", -1), ("requested_bytes", True),
+        ]:
+            with self.subTest(key=key, value=value):
+                report = fixture()
+                report["runs"][0]["released"][key] = value
                 with self.assertRaises(ValueError):
                     validate_cache_report(report, SHA)
 

@@ -29,7 +29,7 @@ def prepare_project(source, destination, repository):
     tree = ET.parse(source / project_name)
     framework = tree.find('.//TargetFramework')
     runtime = tree.find('.//RuntimeFrameworkVersion')
-    if framework is None or framework.text != 'net10.0' or runtime is None or runtime.text != '10.0.12':
+    if framework is None or framework.text != 'net10.0' or runtime is None or runtime.text != '10.0.14':
         raise ValueError('stable consumer baseline changed; review preview retargeting')
     source_paths = [path for path in source.rglob('*')
                     if path.relative_to(source).parts[0] not in ('bin', 'obj')]

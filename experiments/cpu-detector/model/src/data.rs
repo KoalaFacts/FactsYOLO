@@ -76,7 +76,9 @@ pub(crate) fn features_from_rgb(
     Ok(output)
 }
 
-pub fn features(pixels: &[u8]) -> Result<Vec<f32>, String> {
+/// Compute TD1's registered 192 F32 block means on the stack. This matches
+/// `features()` bit-for-bit but avoids a temporary Vec for every training row.
+pub fn features_array(pixels: &[u8]) -> Result<[f32; 192], String> {
     if pixels.len() != 64 * 64 * 3 {
         return Err("TD1 requires exactly 64x64 RGB bytes".into());
     }
@@ -84,7 +86,12 @@ pub fn features(pixels: &[u8]) -> Result<Vec<f32>, String> {
         let at = (y * 64 + x) * 3;
         Some([pixels[at], pixels[at + 1], pixels[at + 2]])
     })?;
-    Ok(values.to_vec())
+    Ok(values)
+}
+
+/// Preserve the existing heap-backed preprocessing API for all callers.
+pub fn features(pixels: &[u8]) -> Result<Vec<f32>, String> {
+    Ok(features_array(pixels)?.to_vec())
 }
 
 #[cfg(test)]

@@ -52,8 +52,8 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
             .current_dir(&dotnet_root)
             .arg("--version"),
     )?;
-    if sdk.trim() != "10.0.401" {
-        return Err(format!("expected pinned SDK 10.0.401, got {sdk}"));
+    if sdk.trim() != "10.0.403" {
+        return Err(format!("expected pinned SDK 10.0.403, got {sdk}"));
     }
     super::native::run(true)?;
     let evidence = root.join("target/dotnet-conformance").join(rid);

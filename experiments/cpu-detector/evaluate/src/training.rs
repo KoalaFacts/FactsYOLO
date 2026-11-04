@@ -445,13 +445,19 @@ mod tests {
             let mut labels = vec![valid.clone(); 64];
             labels[63] = bad;
             let mut batch = vec![0.25_f32; 64 * INPUTS];
-            let original = batch.iter().map(|value| value.to_bits()).collect::<Vec<_>>();
+            let original = batch
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>();
             assert!(
                 illuminate_training_batch(&mut batch, &labels, 42).is_err(),
                 "corrupt last target must be rejected before illumination"
             );
             assert_eq!(
-                batch.iter().map(|value| value.to_bits()).collect::<Vec<_>>(),
+                batch
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>(),
                 original,
                 "failed illumination modified preceding features"
             );

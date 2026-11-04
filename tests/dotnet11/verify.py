@@ -137,7 +137,7 @@ def main(feed, training, sdk, evidence):
         if mode == 'jit':
             runtime = json.loads((publish / 'Consumer.runtimeconfig.json').read_text())['runtimeOptions']
             if runtime['tfm'] != SETTINGS['framework'] or runtime['framework']['version'] != SETTINGS['runtime'] or runtime['rollForward'] != 'Disable':
-                raise ValueError('JIT runtime is not pinned to RC2')
+                raise ValueError('JIT runtime is not pinned to RC3')
         elif 'Microsoft.DotNet.ILCompiler/' + SETTINGS['runtime'] not in restored['libraries']:
             raise ValueError('NativeAOT compiler differs')
         selections[mode] = {'managed_and_native': selected, 'libraries': sorted(restored['libraries'])}

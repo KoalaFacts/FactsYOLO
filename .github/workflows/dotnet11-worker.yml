@@ -158,7 +158,7 @@ jobs:
         with:
           name: dotnet11-local-package
           path: target/sdk-feed
-      - name: Install isolated official RC2 SDK with pinned SHA-512
+      - name: Install isolated official RC3 SDK with pinned SHA-512
         shell: pwsh
         run: |
           ${{ matrix.python }} tests/dotnet11/install_sdk.py "${{ runner.temp }}/factsyolo-dotnet11" > target/sdk-preview-install.json
@@ -175,7 +175,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ${{ matrix.python }} experiments/cpu-detector/verify.py target/sdk-training
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Consume net10 package using RC2 JIT and NativeAOT
+      - name: Consume net10 package using RC3 JIT and NativeAOT
         shell: pwsh
         run: |
           ${{ matrix.python }} tests/dotnet11/verify.py target/sdk-feed target/sdk-training "${{ runner.temp }}/factsyolo-dotnet11" target/dotnet11-evidence

@@ -46,6 +46,31 @@ pub fn fill_training_batch(
     }
 }
 
+// This is the same target contract enforced by fy_tiny_model::loss_value.
+// Preflight transformations before touching any feature or label state.
+fn invalid_td1_training_label(label: &Sample) -> bool {
+    if !matches!(label.class, None | Some(0 | 1))
+        || label
+            .box_xywh
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        return true;
+    }
+    if label.class.is_none() {
+        return false;
+    }
+    let [cx, cy, w, h] = label.box_xywh;
+    w <= 0.0
+        || h <= 0.0
+        || cx - w / 2.0 >= cx + w / 2.0
+        || cy - h / 2.0 >= cy + h / 2.0
+        || cx - w / 2.0 < 0.0
+        || cx + w / 2.0 > 1.0
+        || cy - h / 2.0 < 0.0
+        || cy + h / 2.0 > 1.0
+}
+
 /// Mirror only the four ground-truth edge-positive reserved slots of a TD1
 /// training batch. Slot 0 stays unchanged, 16 flips horizontally, 32 vertically,
 /// and 48 flips both axes. This does not draw RNG, change sample identities,
@@ -57,6 +82,11 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
     const SLOTS: [usize; 4] = [0, 16, 32, 48];
     if batch.len() != 64 * INPUTS || labels.len() != 64 {
         return Err("mirroring requires a complete 64-sample TD1 batch".into());
+    }
+    // All 64 labels flow to the loss even though only four slots are mirrored.
+    // A corrupt late, non-reserved label must not leave the earlier slots changed.
+    if labels.iter().any(invalid_td1_training_label) {
+        return Err("invalid TD1 label for reserved mirroring".into());
     }
     for slot in SLOTS {
         let label = &labels[slot];
@@ -131,28 +161,7 @@ pub fn illuminate_training_batch(
         || batch
             .iter()
             .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
-        || labels.iter().any(|label| {
-            if !matches!(label.class, None | Some(0 | 1))
-                || label
-                    .box_xywh
-                    .iter()
-                    .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
-            {
-                return true;
-            }
-            if label.class.is_none() {
-                return false;
-            }
-            let [cx, cy, w, h] = label.box_xywh;
-            w <= 0.0
-                || h <= 0.0
-                || cx - w / 2.0 >= cx + w / 2.0
-                || cy - h / 2.0 >= cy + h / 2.0
-                || cx - w / 2.0 < 0.0
-                || cx + w / 2.0 > 1.0
-                || cy - h / 2.0 < 0.0
-                || cy + h / 2.0 > 1.0
-        })
+        || labels.iter().any(invalid_td1_training_label)
     {
         return Err("invalid TD1 batch for feature illumination".into());
     }
@@ -544,6 +553,55 @@ mod tests {
             labels.iter().map(|s| s.box_xywh).collect::<Vec<_>>(),
             original_boxes
         );
+    }
+
+    #[test]
+    fn invalid_nonreserved_label_cannot_partially_mirror_earlier_slots() {
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        let corrupt = [
+            Sample {
+                class: Some(2),
+                ..valid.clone()
+            },
+            Sample {
+                class: None,
+                box_xywh: [f32::NAN, 0.5, 0.25, 0.25],
+                ..valid.clone()
+            },
+        ];
+        for bad in corrupt {
+            let mut labels = vec![valid.clone(); 64];
+            labels[63] = bad;
+            let mut input = (0..64 * INPUTS)
+                .map(|i| (i % 19) as f32 / 18.0)
+                .collect::<Vec<_>>();
+            let original_input = input.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            let original_labels = labels
+                .iter()
+                .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                .collect::<Vec<_>>();
+            assert!(
+                mirror_reserved_edge_batch(&mut input, &mut labels).is_err(),
+                "corrupt last label must be rejected before mirroring"
+            );
+            assert_eq!(
+                input.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                original_input,
+                "failed mirror changed earlier feature slots"
+            );
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                original_labels,
+                "failed mirror changed earlier box coordinates"
+            );
+        }
     }
 
     #[test]

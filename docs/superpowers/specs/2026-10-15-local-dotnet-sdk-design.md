@@ -28,7 +28,7 @@ or public raw pointers. Existing fixture smoke adapter remains an independent
 ABI regression oracle; shared lifetime code is extracted without changing its
 ownership algorithm.
 
-Use net10.0, SDK 10.0.401 and runtime 10.0.12. Keep the selected native module
+Use net10.0, SDK 10.0.403 and runtime 10.0.14. Keep the selected native module
 loaded for process lifetime. Resolve only the installed application's selected
 RID asset or published asset beside the application, never the current working
 directory, repository target directories or an arbitrary library on PATH.
@@ -84,3 +84,14 @@ and additional native platforms are not introduced by the lib layout.
 - Microsoft: [native package assets](https://learn.microsoft.com/en-us/nuget/create-packages/native-files-in-net-packages),
   [source mapping](https://learn.microsoft.com/en-us/nuget/consume-packages/package-source-mapping),
   [NativeAOT](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/).
+
+
+### Security servicing amendment — 2026-11-04
+
+The original 2026-10-15 baseline used SDK 10.0.401/runtime 10.0.12.
+An independently reproduced local Native AOT restore failed NU1903
+against Microsoft.DotNet.ILCompiler 10.0.12 because of
+[GHSA-p3jp-9v83-76w9](https://github.com/advisories/GHSA-p3jp-9v83-76w9).
+The vendor-patched SDK 10.0.403/runtime 10.0.14 replaces only the
+security-servicing revision; net10.0, ABI, public SDK API, runtime policy,
+and unpublished package scope are unchanged. Do not suppress NuGet audit.

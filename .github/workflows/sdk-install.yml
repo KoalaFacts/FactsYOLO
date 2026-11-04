@@ -82,7 +82,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SDK_SOURCE_COMMIT"
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: '10.0.403'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: sdk-native-*
@@ -141,7 +141,7 @@ jobs:
           }
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: '10.0.403'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: sdk-local-package

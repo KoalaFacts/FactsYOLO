@@ -46,8 +46,8 @@ pub(super) fn preflight() -> Result<(), String> {
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
-        if tool == "dotnet" && String::from_utf8_lossy(&output.stdout).trim() != "10.0.401" {
-            return Err("mandatory tool dotnet must use pinned SDK 10.0.401".to_owned());
+        if tool == "dotnet" && String::from_utf8_lossy(&output.stdout).trim() != "10.0.403" {
+            return Err("mandatory tool dotnet must use pinned SDK 10.0.403".to_owned());
         }
     }
     println!("mandatory local tools available (preflight only; no verification pass claimed)");

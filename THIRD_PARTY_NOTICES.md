@@ -33,7 +33,7 @@ Candle; see its separate dependency review below.
 
 Development-only tools added/used by the M1 acceptance gate:
 
-- .NET SDK 10.0.401 / runtime 10.0.12 from Microsoft; the unpublished consumer
+- .NET SDK 10.0.403 / runtime 10.0.14 from Microsoft; the unpublished consumer
   uses no explicit PackageReference. SDK Native AOT/compiler/runtime packs and
   their transitive components retain Microsoft's bundled notices. See the
   [.NET source/license](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT)

@@ -143,7 +143,7 @@ class PackageEntries(unittest.TestCase):
 <ItemGroup><None Include="README.md;LICENSE;NOTICE" Pack="true" PackagePath="/" /></ItemGroup>
 </Project>''')
             version = subprocess.check_output(["dotnet", "--version"], cwd=root, text=True).strip()
-            self.assertEqual(version, "10.0.401")
+            self.assertEqual(version, "10.0.403")
             command = ["dotnet", "pack", str(project), "-c", "Release", "-o", str(root / "feed"),
                        "--configfile", str(root / "NuGet.Config")]
             result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE,

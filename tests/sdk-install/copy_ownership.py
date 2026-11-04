@@ -12,10 +12,10 @@ SOURCES = {'Result.cs', 'Handles.cs', 'Diagnostics.cs', 'NativeTypes.cs', 'ApiTy
 PREMATURE_RELEASE = 'Result physically released before admitted CopyTo completed'
 
 
-def prepare(destination, shortened, framework='net10.0', runtime='10.0.12'):
+def prepare(destination, shortened, framework='net10.0', runtime='10.0.14'):
     source = ROOT / 'tests/sdk-install/CopyOwnership'
     tree = ET.parse(source / 'CopyOwnership.csproj')
-    if tree.findtext('.//TargetFramework') != 'net10.0' or tree.findtext('.//RuntimeFrameworkVersion') != '10.0.12':
+    if tree.findtext('.//TargetFramework') != 'net10.0' or tree.findtext('.//RuntimeFrameworkVersion') != '10.0.14':
         raise ValueError('CopyOwnership stable baseline changed')
     expected = {ROOT / 'sdk/dotnet/FactsYOLO' / name for name in SOURCES}
     actual = {(source / item.attrib['Include']).resolve() for item in tree.findall('.//Compile')}
@@ -54,7 +54,7 @@ def prepare(destination, shortened, framework='net10.0', runtime='10.0.12'):
                      'test_only_shortened_lease': shortened, 'framework': framework, 'runtime': runtime}
 
 
-def verify(mode, rid, evidence, config, run, framework='net10.0', runtime='10.0.12'):
+def verify(mode, rid, evidence, config, run, framework='net10.0', runtime='10.0.14'):
     for variant, shortened in [('baseline', False), ('short-lease', True)]:
         directory = evidence / f'copy-ownership-{mode}-{variant}'
         project, provenance = prepare(directory / 'source', shortened, framework, runtime)

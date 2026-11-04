@@ -65,7 +65,7 @@ jobs:
       - name: Install pinned .NET SDK for actual native consumers
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: '10.0.403'
       - name: Execute real training and fresh-process inference gates
         # Git Bash prepends its GNU link.exe; preserve the discovered MSVC PATH.
         shell: pwsh

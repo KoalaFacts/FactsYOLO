@@ -26,7 +26,7 @@ hot-unload interface or a full distributable package loader.
 
 ## Reproduce
 
-Required: pinned Rust toolchain, .NET SDK **10.0.401** and runtime **10.0.12**, plus
+Required: pinned Rust toolchain, .NET SDK **10.0.403** and runtime **10.0.14**, plus
 Linux native tools (including nm and the Native AOT compiler/linker prerequisites)
 or the Windows x64 Visual Studio developer environment (including dumpbin).
 `tests/dotnet/global.json` disables SDK roll-forward. The project has no explicit

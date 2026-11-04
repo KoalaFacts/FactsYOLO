@@ -117,8 +117,8 @@ def main():
             run(f'c-{kind}-{i}',[executable,artifact,cases/f'sample-{i}.rgb',cases/f'expected-{i}.txt'])
     managed_root=ROOT/'tests/dotnet'
     sdk=run('dotnet-version',['dotnet','--version'],managed_root,stdout_only=True).strip()
-    if sdk!='10.0.401':
-        raise RuntimeError(f'expected .NET10.0.401, got {sdk}')
+    if sdk!='10.0.403':
+        raise RuntimeError(f'expected .NET10.0.403, got {sdk}')
     project=managed_root/'FactsYOLO.Smoke/FactsYOLO.Smoke.csproj'
     for mode in ['jit','aot']:
         output=destination/f'managed-{mode}'

@@ -131,6 +131,28 @@ pub fn illuminate_training_batch(
         || batch
             .iter()
             .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+        || labels.iter().any(|label| {
+            if !matches!(label.class, None | Some(0 | 1))
+                || label
+                    .box_xywh
+                    .iter()
+                    .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+            {
+                return true;
+            }
+            if label.class.is_none() {
+                return false;
+            }
+            let [cx, cy, w, h] = label.box_xywh;
+            w <= 0.0
+                || h <= 0.0
+                || cx - w / 2.0 >= cx + w / 2.0
+                || cy - h / 2.0 >= cy + h / 2.0
+                || cx - w / 2.0 < 0.0
+                || cx + w / 2.0 > 1.0
+                || cy - h / 2.0 < 0.0
+                || cy + h / 2.0 > 1.0
+        })
     {
         return Err("invalid TD1 batch for feature illumination".into());
     }

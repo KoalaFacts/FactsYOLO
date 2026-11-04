@@ -96,9 +96,14 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
     {
         return Err("invalid TD1 feature for reserved mirroring".into());
     }
-    for slot in SLOTS {
+    for (orientation, slot) in SLOTS.into_iter().enumerate() {
         let label = &labels[slot];
         let [x, y, w, h] = label.box_xywh;
+        // With F32 arithmetic an otherwise accepted right/bottom-edge box
+        // can round *outside* [0, 1] after reflection. Preflight the actual
+        // reflected target before modifying any earlier feature slot.
+        let reflected_x = if orientation & 1 != 0 { 1.0 - x } else { x };
+        let reflected_y = if orientation & 2 != 0 { 1.0 - y } else { y };
         if label.class.is_none()
             || [x, y, w, h].iter().any(|n| !n.is_finite())
             || w <= 0.0
@@ -107,6 +112,12 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
             || x + w / 2.0 > 1.0
             || y - h / 2.0 < 0.0
             || y + h / 2.0 > 1.0
+            || reflected_x - w / 2.0 >= reflected_x + w / 2.0
+            || reflected_y - h / 2.0 >= reflected_y + h / 2.0
+            || reflected_x - w / 2.0 < 0.0
+            || reflected_x + w / 2.0 > 1.0
+            || reflected_y - h / 2.0 < 0.0
+            || reflected_y + h / 2.0 > 1.0
         {
             return Err("invalid reserved TD1 edge sample for mirroring".into());
         }
@@ -474,6 +485,59 @@ mod tests {
                     .collect::<Vec<_>>(),
                 original,
                 "failed illumination modified preceding features"
+            );
+        }
+    }
+
+    #[test]
+    fn reflected_f32_edge_rounding_rejects_before_any_feature_or_label_mutation() {
+        // This original positive target passes the loss geometry guard in F32:
+        // x + w/2 rounds to 1.0. But reflecting its center first yields an
+        // x_min just below zero. A loss-after-transform would reject it only
+        // after earlier reserved slots had already been written.
+        let near_right = f32::from_bits(0x3f7f_1e55);
+        let width = f32::from_bits(0x3be1_ab40);
+        assert!(near_right - width / 2.0 >= 0.0);
+        assert!(near_right + width / 2.0 <= 1.0);
+        assert!(1.0 - near_right - width / 2.0 < 0.0);
+
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        for (slot, edge) in [
+            (16, [near_right, 0.5, width, 0.25]),
+            (32, [0.5, near_right, 0.25, width]),
+            (48, [near_right, near_right, width, width]),
+        ] {
+            let mut labels = vec![valid.clone(); 64];
+            labels[slot].box_xywh = edge;
+            let mut input = (0..64 * INPUTS)
+                .map(|i| (i % 19) as f32 / 18.0)
+                .collect::<Vec<_>>();
+            let old_input = input.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            let old_labels = labels
+                .iter()
+                .map(|sample| (sample.class, sample.box_xywh.map(f32::to_bits)))
+                .collect::<Vec<_>>();
+
+            assert!(
+                mirror_reserved_edge_batch(&mut input, &mut labels).is_err(),
+                "slot {slot} would create an out-of-bounds reflected target"
+            );
+            assert_eq!(
+                input.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                old_input,
+                "rejected reflection must not change any features"
+            );
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|sample| (sample.class, sample.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                old_labels,
+                "rejected reflection must not change any labels"
             );
         }
     }

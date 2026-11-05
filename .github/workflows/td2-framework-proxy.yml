@@ -5,7 +5,8 @@ on:
       - 'experiments/td2-framework-proxy/**'
       - '.github/workflows/td2-framework-proxy.yml'
   push:
-    branches: [main]
+    # claude/** lets a branch measure before its pull request opens.
+    branches: [main, 'claude/**']
     paths:
       - 'experiments/td2-framework-proxy/**'
       - '.github/workflows/td2-framework-proxy.yml'

@@ -2,8 +2,8 @@
 
 This **framework-independent numerical oracle** is the first small, runnable
 reference for the [accepted TD2 Stage B framework decision](../../docs/superpowers/specs/2026-11-05-td2-general-detector-design.md).
-It does not select Burn or Candle and does not replace the required matched
-Rust implementations, multi-step training, license review or CPU measurements.
+It does not select Burn or Candle and does not replace verified Rust
+framework execution, matched multi-step training, license review or CPU measurements.
 
 The Python 3 standard-library-only script uses a frozen LCG seed, an NCHW
 `[1,2,4,4]` input, 3×3 convolution (`2→2` channels, valid padding), 3×3
@@ -22,9 +22,10 @@ python3 experiments/td2-framework/reference_oracle.py --output /tmp/td2-b-oracle
 The output contains the exact inputs, parameters, outputs, scalar loss, all
 finite-difference gradients and a machine-readable `framework_selected=false`
 boundary. No model weights or external datasets are used or published. The
-next Stage B task is to implement **the same fixed proxy** in Burn Flex and
-Candle, compare their forward and autodiff gradients with this reference,
-then run matched steps and measure CPU throughput/peak memory. GPU support,
+following Stage B gate implements **the same fixed proxy** in Burn Flex
+and Candle and checks their forward and autodiff gradients against this reference.
+After Rust execution is verified, the next task is to run matched training
+steps and measure CPU throughput/peak memory. GPU support,
 operator coverage, reproducibility and dependency licensing must still be
 assessed before ADR 0002 can select a framework.
 

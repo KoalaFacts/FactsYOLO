@@ -3,11 +3,13 @@ on:
   pull_request:
     paths:
       - 'experiments/td2-framework/**'
+      - 'experiments/cpu-detector/evaluate/src/bin/td2_proxy.rs'
       - '.github/workflows/td2-framework-oracle.yml'
   push:
     branches: [main]
     paths:
       - 'experiments/td2-framework/**'
+      - 'experiments/cpu-detector/evaluate/src/bin/td2_proxy.rs'
       - '.github/workflows/td2-framework-oracle.yml'
 permissions:
   contents: read
@@ -81,6 +83,7 @@ jobs:
         run: |
           "${{ matrix.python }}" -m unittest discover -s experiments/td2-framework -p "test_*.py" -v
           "${{ matrix.python }}" experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json
+          cargo test --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --bin td2_proxy
           cargo build --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --bin td2_proxy
           for backend in burn candle; do
             cargo run --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --quiet --bin td2_proxy -- "$backend" td2-b-oracle.json > "td2-$backend.json"

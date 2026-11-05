@@ -31,8 +31,8 @@ impl Inputs {
             ("beta", &self.beta, 2),
             ("target", &self.target, 32),
         ] {
-            if data.len() != expected || data.iter().any(|v| !v.is_finite()) {
-                return Err(format!("{name}: invalid length or nonfinite value"));
+            if data.len() != expected || data.iter().any(|v| !v.is_finite() || !(*v as f32).is_finite()) {
+                return Err(format!("{name}: invalid length, nonfinite value or f32 overflow"));
             }
         }
         Ok(())
@@ -205,5 +205,34 @@ fn main() {
     if let Err(e) = run() {
         eprintln!("td2-proxy: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Inputs;
+
+    #[test]
+    fn reject_finite_f64_inputs_that_overflow_f32() {
+        let mut inputs = Inputs {
+            x: vec![0.0; 32],
+            conv: vec![0.0; 36],
+            depthwise: vec![0.0; 18],
+            gamma: vec![0.0; 2],
+            beta: vec![0.0; 2],
+            target: vec![0.0; 32],
+        };
+        assert!(inputs.verify().is_ok());
+
+        // A JSON number may be finite as f64 but become +inf/-inf in the
+        // f32 tensor consumed by both backends. Reject before graph creation.
+        inputs.x[0] = f64::MAX;
+        assert!(inputs.verify().unwrap_err().contains("f32 overflow"));
+        inputs.x[0] = -f64::MAX;
+        assert!(inputs.verify().is_err());
+
+        // The largest representable finite f32 must remain accepted.
+        inputs.x[0] = f64::from(f32::MAX);
+        assert!(inputs.verify().is_ok());
     }
 }

@@ -31,7 +31,8 @@ impl Inputs {
             ("beta", &self.beta, 2),
             ("target", &self.target, 32),
         ] {
-            if data.len() != expected || data.iter().any(|v| !v.is_finite() || !(*v as f32).is_finite()) {
+            let invalid_value = data.iter().any(|v| !v.is_finite() || !(*v as f32).is_finite());
+            if data.len() != expected || invalid_value {
                 return Err(format!("{name}: invalid length, nonfinite value or f32 overflow"));
             }
         }

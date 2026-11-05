@@ -80,8 +80,7 @@ fn candle(f: &Inputs) -> candle_core::Result<Value> {
         .broadcast_mul(&gamma)?
         .broadcast_add(&beta)?;
     let sigmoid_denom = ((&bn * -1.0)?.exp()? + 1.0)?;
-    let sigmoid = Tensor::ones((1, 2, 2, 2), DType::F32, &device)?
-        .div(&sigmoid_denom)?;
+    let sigmoid = Tensor::ones((1, 2, 2, 2), DType::F32, &device)?.div(&sigmoid_denom)?;
     let output = bn.mul(&sigmoid)?.upsample_nearest2d(4, 4)?;
     let residual = output.sub(&target)?;
     let loss = residual.sqr()?.mean_all()?;
@@ -125,10 +124,7 @@ fn burn(f: &Inputs) -> Result<Value, String> {
     let dw = variable("depthwise", [2, 1, 3, 3]);
     let gamma = variable("gamma", [1, 2, 1, 1]);
     let beta = variable("beta", [1, 2, 1, 1]);
-    let target = Tensor::<4>::from_data(
-        TensorData::new(f.f32("target"), [1, 2, 4, 4]),
-        &device,
-    );
+    let target = Tensor::<4>::from_data(TensorData::new(f.f32("target"), [1, 2, 4, 4]), &device);
 
     let y = conv2d(
         x.clone(),
@@ -159,7 +155,7 @@ fn burn(f: &Inputs) -> Result<Value, String> {
         .to_data()
         .try_to_vec::<f32>()
         .map_err(|e| format!("Burn output conversion: {e:?}"))?;
-    let scalar = loss.clone().into_scalar();
+    let scalar: f32 = loss.clone().into_scalar();
     let gradients = loss.backward();
     let grad = |parameter: &Tensor<4>| -> Result<Vec<f32>, String> {
         parameter
@@ -188,17 +184,20 @@ fn run() -> Result<(), String> {
     let [backend, oracle_path] = args.as_slice() else {
         return Err("usage: td2-proxy <burn|candle> <frozen-oracle.json>".into());
     };
-    let payload = std::fs::read_to_string(oracle_path)
-        .map_err(|e| format!("read frozen reference: {e}"))?;
-    let fixture: Oracle = serde_json::from_str(&payload)
-        .map_err(|e| format!("parse frozen reference: {e}"))?;
+    let payload =
+        std::fs::read_to_string(oracle_path).map_err(|e| format!("read frozen reference: {e}"))?;
+    let fixture: Oracle =
+        serde_json::from_str(&payload).map_err(|e| format!("parse frozen reference: {e}"))?;
     fixture.inputs.verify()?;
     let result = match backend.as_str() {
         "burn" => burn(&fixture.inputs)?,
         "candle" => candle(&fixture.inputs).map_err(|e| e.to_string())?,
         _ => return Err("backend must be burn or candle".into()),
     };
-    println!("{}", serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+    );
     Ok(())
 }
 

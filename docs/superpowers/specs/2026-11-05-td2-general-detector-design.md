@@ -355,7 +355,10 @@ commit), blocked (reason; owner decision needed).
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | todo | — |
 | D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
-| E1 | Native `td2` backend, FYTDv002, decoding, NEON/AVX2, aarch64 CI, no-networking gate | Runs on customer devices | todo | — |
+| E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
+| E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |
+| F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
+| G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
 | H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |

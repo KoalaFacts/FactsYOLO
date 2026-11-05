@@ -60,8 +60,9 @@ before implementation.
 
 Preserve the single-core design: bindings adapt the public contract rather than
 independently reimplementing preprocessing, model output interpretation, or
-postprocessing. Review and merge the current stage item before starting the next
-one in the [TD2 roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap).
+postprocessing. Review and merge each TD2 stage before starting the next; stages
+H–J may run in parallel with E–G (see the [TD2 stages](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md#10-stages)
+and [roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap)).
 
 ## Verification at this stage
 

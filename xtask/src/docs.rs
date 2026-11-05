@@ -14,7 +14,7 @@ const SKIPPED_DIRECTORIES: [&str; 4] = ["target", "node_modules", "bin", "obj"];
 const UNINDEXED_DIRECTORY: &str = "runtime-notices";
 /// Top-level repository directories whose paths, when named in inline code,
 /// must exist.
-const PATH_ROOTS: [&str; 9] = [
+const PATH_ROOTS: [&str; 8] = [
     ".github/",
     "crates/",
     "docs/",
@@ -23,7 +23,6 @@ const PATH_ROOTS: [&str; 9] = [
     "sdk/",
     "tests/",
     "xtask/",
-    "target/",
 ];
 
 pub(super) fn run() -> Result<(), String> {
@@ -170,7 +169,8 @@ fn links(text: &str) -> Vec<String> {
             rest = &rest[end..];
         }
         let trimmed = line.trim_start();
-        if trimmed.starts_with('[') {
+        // Footnote definitions (`[^1]: text`) are prose, not links.
+        if trimmed.starts_with('[') && !trimmed.starts_with("[^") {
             if let Some(index) = trimmed.find("]: ") {
                 if let Some(target) = trimmed[index + 3..].split_whitespace().next() {
                     targets.push(target.to_owned());
@@ -294,10 +294,7 @@ fn code_paths(text: &str) -> Vec<String> {
                     .iter()
                     .any(|prefix| candidate.starts_with(prefix))
             {
-                // Build output is produced on demand; only its naming is prose.
-                if !candidate.starts_with("target/") {
-                    paths.push(candidate.to_owned());
-                }
+                paths.push(candidate.to_owned());
             }
             spans.next();
         }
@@ -407,6 +404,42 @@ mod tests {
             [
                 "README.md: link `../../x.md` leaves the repository",
                 "README.md: missing anchor `#step-2`",
+            ]
+        );
+    }
+
+    #[test]
+    fn checks_reference_links_and_rejects_empty_and_non_markdown_anchors() {
+        let tree = Tree::new(
+            "reference",
+            &[
+                (
+                    "README.md",
+                    "# I\n\n[g][r] []() [c](Cargo.toml#top) [^1]\n\n[r]: docs/g.md\n[x]: docs/none.md\n[^1]: A footnote.\n",
+                ),
+                ("docs/g.md", "# G\n"),
+                ("Cargo.toml", ""),
+            ],
+        );
+        assert_eq!(
+            check(&tree.0).unwrap(),
+            [
+                "README.md: anchor on non-Markdown link `Cargo.toml#top`",
+                "README.md: broken link `docs/none.md`",
+                "README.md: empty link target",
+            ]
+        );
+    }
+
+    #[test]
+    fn requires_readme_and_scans_github_directory() {
+        let tree = Tree::new("github", &[(".github/template.md", "[x](missing.md)\n")]);
+        assert_eq!(
+            check(&tree.0).unwrap(),
+            [
+                ".github/template.md: broken link `missing.md`",
+                ".github/template.md: not linked from the README documentation index",
+                "README.md: missing; it is the documentation index",
             ]
         );
     }

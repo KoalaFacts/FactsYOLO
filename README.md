@@ -1,7 +1,7 @@
 # FactsYOLO
 
 An independent, Rust-first computer-vision core with a C ABI and thin language
-bindings (C# first; Go and TypeScript later), for customers to embed in their
+bindings (C# first; Go and TypeScript are not part of the current TD2 tasks), for customers to embed in their
 own CCTV cameras, NVRs and edge devices and operate on premises.
 
 **Status: native infrastructure under implementation.** The repository contains
@@ -62,7 +62,8 @@ cargo run -p xtask --locked --offline -- check-docs
 ```
 
 `check-docs` fails on broken relative links or anchors, Markdown files missing
-from the [documentation index](#documentation), and repository paths named in
+from the [documentation index](#documentation), and paths under the repository's
+top-level source directories (`crates/`, `docs/`, `experiments/`, ...) named in
 inline code that do not exist.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
@@ -130,8 +131,8 @@ workspace. No production compute framework has been selected.
 ## Intended design direction
 
 - One Rust implementation of the shared vision logic.
-- A versioned C ABI for native consumers, with a thin C# SDK first and Go and
-  TypeScript bindings later. Browser/WASM builds are not planned.
+- A versioned C ABI for native consumers, with a thin C# SDK first. Go and
+  TypeScript bindings may follow later; browser/WASM builds are not planned.
 - On-premises deployment: the deployed library has no networking code, writes
   no files and stores nothing; the host owns decoding, storage and business logic.
 - Training tooling separate from inference deployment dependencies.
@@ -181,7 +182,7 @@ TD1 experiment (maintenance-only; historical evidence):
 - [Native integration design](docs/superpowers/specs/2026-10-14-td1-native-design.md) and [evidence](docs/testing/td1-native.md); [v1 compatibility gate](docs/testing/td1-v1-compatibility.md).
 - Diagnostics: [four-side paired](docs/testing/td1-four-side-paired.md), [four-side disjoint](docs/testing/td1-four-side-disjoint.md), [cross-generator](docs/testing/td1-cross-generator.md), [background-blind](docs/testing/td1-background-blind.md), [spatial alias](docs/testing/td1-spatial-alias.md) (why TD1 is frozen).
 
-SDK testing how-tos:
+SDK packaging and testing:
 
 - [Local SDK design](docs/superpowers/specs/2026-10-15-local-dotnet-sdk-design.md), [plan](docs/superpowers/plans/2026-10-15-local-dotnet-sdk.md) and [installation gate](docs/testing/dotnet-sdk.md); [package README](sdk/dotnet/README.md); [Linux binary audit](docs/testing/linux-sdk-redistribution.md); [.NET 11 consumers](docs/testing/dotnet11-compatibility.md).
 

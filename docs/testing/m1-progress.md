@@ -2,6 +2,7 @@
 
 Status: M1 is complete. Tasks 1–7 merged through PR10, `43746283ae66ef768b1f0a34be4180f25bfe4b85`;
 task 8 resource/safety gates merged in PR #11 (`997b573`); see [task 8 evidence](m1-evidence.md).
+M1 itself selected no real detector, backend, model format or SDK release.
 Later model work follows the [TD2 design and roadmap](../superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap).
 
 ## Historical task-4 execution record

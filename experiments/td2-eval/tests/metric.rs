@@ -159,6 +159,37 @@ fn rejects_invalid_inputs() {
         evaluate(&good, &[], 0).unwrap_err(),
         "max_detections must be positive"
     );
+    let inverted_detection = [detection(1, 0, bbox(0.0, 3.0, 1.0, 1.0), 0.5)];
+    assert_eq!(
+        evaluate(&good, &inverted_detection, 100).unwrap_err(),
+        "detection 0: box is inverted"
+    );
+    let nan_truth = [truth(1, 0, bbox(0.0, 0.0, 1.0, f64::NAN))];
+    assert_eq!(
+        evaluate(&nan_truth, &[], 100).unwrap_err(),
+        "ground truth 0: box edge is not finite"
+    );
+    let nan_score = [detection(1, 0, bbox(0.0, 0.0, 1.0, 1.0), f64::NAN)];
+    assert_eq!(
+        evaluate(&good, &nan_score, 100).unwrap_err(),
+        "detection 0: score is not finite"
+    );
+    let overflow = [truth(1, 0, bbox(-1e308, 0.0, 1e308, 10.0))];
+    assert_eq!(
+        evaluate(&overflow, &[], 100).unwrap_err(),
+        "ground truth 0: box area is not finite"
+    );
+}
+
+#[test]
+fn negative_zero_score_ties_with_zero_in_input_order() {
+    let truths = [truth(1, 1, bbox(0.0, 0.0, 10.0, 10.0))];
+    let detections = [
+        detection(1, 1, bbox(50.0, 50.0, 60.0, 60.0), -0.0),
+        detection(1, 1, bbox(0.0, 0.0, 10.0, 10.0), 0.0),
+    ];
+    // The reference keeps input order on equal scores: false positive first.
+    close(evaluate(&truths, &detections, 100).unwrap().map, 0.5);
 }
 
 struct Case {
@@ -228,7 +259,7 @@ fn agree(actual: Option<f64>, expected: f64, what: &str) {
 #[test]
 fn matches_frozen_reference_evaluator_vectors() {
     let cases = cases();
-    assert_eq!(cases.len(), 12);
+    assert_eq!(cases.len(), 13);
     for case in cases {
         let Summary {
             map,

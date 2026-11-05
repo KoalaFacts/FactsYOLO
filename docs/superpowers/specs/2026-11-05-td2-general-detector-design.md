@@ -240,7 +240,7 @@ development only.
 
 The evaluator is `experiments/td2-eval` (std-only Rust, not linked into the
 library). Object size ranges use box area, since TD2 data carries boxes only.
-Its tests freeze 12 random scenes scored by pycocotools 2.0.11, which was run
+Its tests freeze 12 random scenes scored by pycocotools 2.0.11 (plus one 130-detection case exercising the cap), which was run
 once in development to produce them and is not a dependency.
 
 Proposed first-usable accuracy floor at S=320, owner-adjustable **before**

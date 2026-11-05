@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Independent COCO-style bounding-box detection evaluator for TD2 evidence.
 //!
-//! Original implementation of the published COCO detection metric definition
-//! (<https://cocodataset.org/#detection-eval>): average precision over IoU
+//! Written from scratch to reproduce the bbox behaviour of the reference
+//! COCO evaluator (pycocotools), including its tie-breaking and edge-case
+//! constants, and checked against frozen pycocotools 2.0.11 vectors. The
+//! metric is defined at <https://cocodataset.org/#detection-eval>: average precision over IoU
 //! thresholds 0.50:0.05:0.95, 101-point interpolated precision, at most
 //! `max_detections` per image and class, crowd regions ignored, and
 //! small/medium/large area ranges. Development tooling only: never linked into
@@ -34,6 +36,9 @@ impl BoxXyxy {
         }
         if self.right < self.left || self.bottom < self.top {
             return Err("box is inverted".to_owned());
+        }
+        if !self.area().is_finite() {
+            return Err("box area is not finite".to_owned());
         }
         Ok(())
     }
@@ -100,7 +105,7 @@ pub fn iou_thresholds() -> [f64; 10] {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassResult {
     pub class_id: u32,
-    /// Non-crowd ground truths of this class, all areas.
+    /// Non-crowd ground truths of this class within the `All` area range.
     pub ground_truths: usize,
     /// AP averaged over the ten IoU thresholds, all areas.
     pub ap: f64,
@@ -124,9 +129,12 @@ pub struct Summary {
 /// Ground truths and input-ordered detections of one class in one image.
 type Group = (Vec<GroundTruth>, Vec<(usize, Detection)>);
 
-/// Evaluates `detections` against `ground_truths`. Classes are those present
+/// Evaluates `detections` against `ground_truths`. `max_detections` caps
+/// detections per image and class; COCO uses 100, the value the frozen
+/// reference vectors check. Classes are those present
 /// in either list; a class without non-crowd ground truth is excluded from
-/// the means. Rejects nonfinite or inverted boxes, nonfinite scores and
+/// the means. Rejects nonfinite or inverted boxes, boxes whose area overflows,
+/// nonfinite scores and
 /// `max_detections == 0`.
 pub fn evaluate(
     ground_truths: &[GroundTruth],
@@ -165,7 +173,14 @@ pub fn evaluate(
             .entry((detection.class_id, detection.image_id))
             .or_default()
             .1
-            .push((order, *detection));
+            // `+ 0.0` maps -0.0 to 0.0 so equal scores tie as in the reference.
+            .push((
+                order,
+                Detection {
+                    score: detection.score + 0.0,
+                    ..*detection
+                },
+            ));
     }
     let thresholds = iou_thresholds();
     // ap[class][area][threshold]; None when the class has no ground truth there.

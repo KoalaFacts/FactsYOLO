@@ -31,12 +31,12 @@ their hardware.
 
 | Id | What | Status | Evidence |
 | --- | --- | --- | --- |
-| B1 | Predeclared comparison plan: proxy, gates G1–G6, measurements, decision rule | in progress (this PR) | [td2-framework-comparison.md](../testing/td2-framework-comparison.md) |
-| B2 | Proxy workspace core: synthetic generator, seeded init, shared loss and SGD, independent F64 reference forward and finite differences | in progress (next PR) | `fyp-core`: 11 tests, Debug/Release, Rust 1.99 and 1.85; workflow `td2-framework-proxy.yml` on x64 and arm64 |
-| B3 | Burn and Candle adapters; gates G1–G6 as tests | todo | |
-| B4 | Workflow on `ubuntu-24.04` and `ubuntu-24.04-arm`: throughput, peak RSS, build cost; scalar JSON artifacts | todo | |
-| B5 | Per-candidate dependency and licence inventory | todo | |
-| B6 | ADR 0002 selecting one framework by the predeclared rule | todo | |
+| B1 | Predeclared comparison plan: proxy, gates G1–G6, measurements, decision rule | in progress (PR #69) | [td2-framework-comparison.md](../testing/td2-framework-comparison.md), committed before measuring |
+| B2 | Proxy workspace core: synthetic generator, seeded init, shared loss and SGD, independent F64 reference forward and finite differences | in progress (PR #69) | `fyp-core`: 11 tests, Debug/Release, Rust 1.99 and 1.85, x64 and arm64 |
+| B3 | Burn and Candle adapters; gates G1–G6 as tests | in progress (PR #69) | `fyp-compare`: 5 tests; full G1–G6 pass for both on both hosts (run 42017843115) |
+| B4 | Workflow on `ubuntu-24.04` and `ubuntu-24.04-arm`: throughput, peak RSS, build cost; scalar JSON artifacts | in progress (PR #69) | Burn 729.0 / 532.8 img/s vs Candle 179.7 / 201.9 (x64 EPYC 9V74 / arm64 Neoverse-N2, batch 16, 4 threads) |
+| B5 | Per-candidate dependency and licence inventory | in progress (PR #69) | Burn 152 packages, 1 MPL-2.0; Candle 126, bundled Oniguruma C |
+| B6 | ADR 0002 selecting one framework by the predeclared rule | in progress (PR #69) | [ADR 0002](../decisions/0002-training-framework.md): Burn |
 
 ### C — T1 data tooling and licence record
 
@@ -84,3 +84,6 @@ their hardware.
 - 2026-11-05: baseline gate on main `55cd10f` passed locally (Debug/Release,
   contract fixtures, clippy, fmt, `xtask c`; 322 tests). PR #68 updated with
   the owner decisions and marked ready. B1 plan drafted (this PR).
+- 2026-11-05: stage B proxy, gates and measurement (B2–B5) run on free x64 and
+  arm64 runners: both candidates pass G1–G6; Burn selected in ADR 0002 (B6).
+  One PR (#69) carries B1–B6 so the plan commit precedes the results in history.

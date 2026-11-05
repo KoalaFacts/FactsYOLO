@@ -8,9 +8,9 @@ proxy, the measurements, the pass/fail thresholds and the decision rule
 changed after results exist; a wrong threshold is corrected only by a later,
 explained revision that keeps both the original and the new result visible.
 
-Status: plan accepted; the framework-independent core (B2) is implemented in
-`experiments/td2-framework-proxy/core`. No framework adapter, run or result
-exists yet. Results are added
+Status: complete. The plan below was committed (`481ced5`, refined in
+`5001c06` before any throughput or memory measurement) before the measured
+results that follow it; thresholds and the rule were not changed after results. Results are added
 to the "Results" section by the implementation pull requests and summarised in
 ADR 0002. Work items are tracked in the [TD2 roadmap ledger](../plans/td2-roadmap.md).
 
@@ -155,17 +155,109 @@ layers. This tiebreak is stated now, before measuring.
   (checked against the published seed-0 sequence), the synthetic generator, the
   16-tensor parameter table and seeded initialization, the shared loss and its
   gradient, shared SGD, the 125-parameter sample plan, and the independent F64
-  reference forward with central finite differences. Its tests check
+  reference forward with central finite differences. Its 11 tests check
   convolution stride/padding/groups by hand and against per-group convolution,
   batch-norm statistics, nearest upsampling, the loss gradient against finite
   differences of the loss, and that finite differences of the full reference
   network for every `head` bias equal the summed head-output gradient (tying the
-  reference forward to the loss gradient). Run by the `TD2 framework proxy`
-  workflow on `ubuntu-24.04` and `ubuntu-24.04-arm`.
+  reference forward to the loss gradient).
+- **B3 adapters** (`fyp-compare`): Burn and Candle graphs of `fyp1`. Every
+  parameter is a flat 1-D leaf reshaped inside the graph, so gradients return in
+  the shared layout; batch norm is composed from tensor primitives in both
+  (neither reviewed crate has a batch-norm operation). 5 reduced-size tests
+  (batch 2, 40-step training) check forward and gradient agreement with the
+  reference, Burn–Candle agreement, determinism and input validation. The
+  `fyp-compare gates` command runs the full predeclared G1–G6; `fyp-compare
+  bench <framework> <batch>` measures one process.
+- **B4 measurement** in the `TD2 framework proxy` workflow (`measure` job) on
+  both runners; scalar JSON and dependency trees are uploaded as artifacts.
 
 ## Results
 
-None yet; gates G1–G6 run once the adapters (B3) exist.
+Run [42017843115](https://github.com/KoalaFacts/FactsYOLO/actions/runs/42017843115)
+on commit `f93598be34d5e1ebe231040ada5158c3edf474ca`, Rust 1.99.0, release
+build. Initial parameters SHA-256
+`3fa5f6a5fd0ece1a4c4da4dec05f4dc117b873825a6f696b67bacb13b2ede752` on both hosts.
+
+| Host | CPU, cores | Kernel |
+| --- | --- | --- |
+| `ubuntu-24.04` | AMD EPYC 9V74, 4 | 7.0.0-1017-azure |
+| `ubuntu-24.04-arm` | Arm Neoverse-N2, 4 | 7.0.0-1017-azure |
+
+### Gates (one thread)
+
+| Gate | Burn x64 | Burn arm64 | Candle x64 | Candle arm64 | Pass bound |
+| --- | --- | --- | --- | --- | --- |
+| G1 operations | all | all | all | all | all |
+| G2 max relative loss error | 2.43e-8 | 2.43e-8 | 3.98e-8 | 2.66e-8 | ≤ 1e-5 |
+| G3 worst ratio (125 samples) | 2.22e-4 | 1.94e-4 | 1.55e-3 | 1.48e-3 | ≤ 1 |
+| G3 failing samples | 0 | 0 | 0 | 0 | 0 |
+| G5 last-20 / first-20 loss | 0.4244 | 0.4232 | 0.4232 | 0.4232 | ≤ 0.6 |
+| G6 bitwise-identical rerun | yes | yes | yes | yes | yes |
+
+G4 (Burn vs Candle full gradient, step 0, relative L2): 8.11e-7 on x64 and
+8.97e-7 on arm64 (bound 1e-4). **Both candidates pass every gate on both hosts.**
+
+Reported, not gated: loss at steps 1/100/200/300 was 3.1038/0.8140/0.8577/0.8400
+for Burn on x64 and 3.1038/0.8140/0.8577/0.8207 for the other three runs; the
+trajectories separate after step 200 by F32 summation order, as anticipated.
+The local development workspace (x64, 2 CPUs) reproduced the x64 gate values
+exactly.
+
+### Throughput and peak RSS
+
+Images per second, median of 5 windows (min–max spread under 5 % in every
+cell); peak RSS (`VmHWM`) in MiB; `t` is `RAYON_NUM_THREADS`.
+
+| Host | Batch | Burn t=1 | Burn t=4 | Candle t=1 | Candle t=4 | Burn RSS (t=4) | Candle RSS (t=4) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| x64 | 16 | 734.6 | 729.0 | 152.7 | 179.7 | 20.9 | 44.4 |
+| x64 | 64 | 668.1 | 669.1 | 152.9 | 186.8 | 65.3 | 158.1 |
+| arm64 | 16 | 568.9 | 532.8 | 168.6 | 201.9 | 19.7 | 43.6 |
+| arm64 | 64 | 539.7 | 540.7 | 173.9 | 218.5 | 64.0 | 157.5 |
+
+At all cores and batch 16, Burn is 4.06× Candle on x64 and 2.64× on arm64; at
+batch 64 its peak RSS is 41 % of Candle's. Burn Flex did not scale with
+`RAYON_NUM_THREADS` at this proxy size (single-threaded eager execution here);
+Candle gained 18–26 % from four threads. 300 gate-training steps took 6.8 s
+(Burn) vs 27.6 s (Candle) on x64 and 9.5 s vs 25.7 s on arm64.
+
+### Build cost and dependency footprint
+
+A clean release build of `fyp-compare` (both candidates together) took 154 s on
+x64 and 143 s on arm64. Selected normal+build graphs (`cargo tree -p <crate>`
+with the enabled features, unique packages):
+
+| Candidate | Packages | Copyleft | Bundled native code |
+| --- | --- | --- | --- |
+| Burn 0.22.0 | 152 x64 / 151 arm64 (`cpufeatures` 0.3.1 x64 only) | `colored` 3.1.1, MPL-2.0 | none found |
+| Candle 0.11.0 | 126 | none | `onig_sys` 69.9.3 (Oniguruma C, BSD-2-Clause notice) via `tokenizers`, built with `cc` |
+
+All other declared licences are MIT, Apache-2.0, BSD-2-Clause, Zlib, Unlicense,
+BSL-1.0 or Unicode-3.0 options; obligations are as recorded in the
+[TD1 dependency review](../../experiments/cpu-detector/DEPENDENCIES.md). Neither
+graph is linked by the deployed library.
+
+### Operators and GPU path
+
+Both run every `fyp1` operation forward and backward through public APIs.
+Burn's convolution takes `groups` as an operation parameter; Candle 0.11.0
+splits grouped convolution into per-group convolutions and concatenates them.
+Neither reviewed crate provides batch norm, focal or GIoU loss; TD2 composes them
+from primitives or computes them in shared code either way. GPU paths, from the
+published crates and not executed: Burn has CubeCL-based WGPU, CUDA and ROCm
+backends (`burn-wgpu`, `burn-cuda`, `burn-rocm` 0.22.0); Candle has `cuda` and
+`metal` features of `candle-core` 0.11.0.
+
+### Decision rule outcome
+
+Both candidates are selectable. Criterion 1, correctness margin, already
+differs: Burn's worst G3 ratio is about 7× smaller than Candle's on both hosts
+(both far inside the bound). The rule gives no materiality threshold for this
+criterion, so the outcome is checked against every later criterion: 2 is split
+(Burn has one MPL-2.0 crate and 26 more packages; Candle bundles C code), and 3,
+4 and 5 all favour Burn by far more than 20 %. Every reading of the rule selects
+**Burn**. See [ADR 0002](../decisions/0002-training-framework.md).
 
 ## Limits
 

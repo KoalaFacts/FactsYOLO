@@ -118,8 +118,10 @@ FactsYOLO will implement its own detection models and training/inference logic;
 it is not intended to be merely a wrapper around another YOLO product.
 It will not depend on Ultralytics software or distribute its model weights.
 General-purpose tensor and hardware-compute libraries can be evaluated separately.
-Burn Flex and Candle are experimental training candidates in an independent
-workspace. No production compute framework has been selected.
+[ADR 0002](docs/decisions/0002-training-framework.md) selects Burn as the
+training framework for the TD2 task family, from a predeclared
+[Burn vs Candle comparison](docs/testing/td2-framework-comparison.md). It is a
+training-side dependency only; the deployed library links no training framework.
 
 ## Intended design direction
 

@@ -46,6 +46,31 @@ pub fn fill_training_batch(
     }
 }
 
+// This is the same target contract enforced by fy_tiny_model::loss_value.
+// Preflight transformations before touching any feature or label state.
+fn invalid_td1_training_label(label: &Sample) -> bool {
+    if !matches!(label.class, None | Some(0 | 1))
+        || label
+            .box_xywh
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        return true;
+    }
+    if label.class.is_none() {
+        return false;
+    }
+    let [cx, cy, w, h] = label.box_xywh;
+    w <= 0.0
+        || h <= 0.0
+        || cx - w / 2.0 >= cx + w / 2.0
+        || cy - h / 2.0 >= cy + h / 2.0
+        || cx - w / 2.0 < 0.0
+        || cx + w / 2.0 > 1.0
+        || cy - h / 2.0 < 0.0
+        || cy + h / 2.0 > 1.0
+}
+
 /// Mirror only the four ground-truth edge-positive reserved slots of a TD1
 /// training batch. Slot 0 stays unchanged, 16 flips horizontally, 32 vertically,
 /// and 48 flips both axes. This does not draw RNG, change sample identities,
@@ -58,9 +83,27 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
     if batch.len() != 64 * INPUTS || labels.len() != 64 {
         return Err("mirroring requires a complete 64-sample TD1 batch".into());
     }
-    for slot in SLOTS {
+    // All 64 labels flow to the loss even though only four slots are mirrored.
+    // A corrupt late, non-reserved label must not leave the earlier slots changed.
+    if labels.iter().any(invalid_td1_training_label) {
+        return Err("invalid TD1 label for reserved mirroring".into());
+    }
+    // Other 60 slots also reach the model. Invalid late features must not
+    // allow the reserved earlier slots to be mirrored first.
+    if batch
+        .iter()
+        .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        return Err("invalid TD1 feature for reserved mirroring".into());
+    }
+    for (orientation, slot) in SLOTS.into_iter().enumerate() {
         let label = &labels[slot];
         let [x, y, w, h] = label.box_xywh;
+        // With F32 arithmetic an otherwise accepted right/bottom-edge box
+        // can round *outside* [0, 1] after reflection. Preflight the actual
+        // reflected target before modifying any earlier feature slot.
+        let reflected_x = if orientation & 1 != 0 { 1.0 - x } else { x };
+        let reflected_y = if orientation & 2 != 0 { 1.0 - y } else { y };
         if label.class.is_none()
             || [x, y, w, h].iter().any(|n| !n.is_finite())
             || w <= 0.0
@@ -69,9 +112,12 @@ pub fn mirror_reserved_edge_batch(batch: &mut [f32], labels: &mut [Sample]) -> R
             || x + w / 2.0 > 1.0
             || y - h / 2.0 < 0.0
             || y + h / 2.0 > 1.0
-            || batch[slot * INPUTS..(slot + 1) * INPUTS]
-                .iter()
-                .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+            || reflected_x - w / 2.0 >= reflected_x + w / 2.0
+            || reflected_y - h / 2.0 >= reflected_y + h / 2.0
+            || reflected_x - w / 2.0 < 0.0
+            || reflected_x + w / 2.0 > 1.0
+            || reflected_y - h / 2.0 < 0.0
+            || reflected_y + h / 2.0 > 1.0
         {
             return Err("invalid reserved TD1 edge sample for mirroring".into());
         }
@@ -131,6 +177,7 @@ pub fn illuminate_training_batch(
         || batch
             .iter()
             .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+        || labels.iter().any(invalid_td1_training_label)
     {
         return Err("invalid TD1 batch for feature illumination".into());
     }
@@ -390,6 +437,150 @@ mod tests {
     }
 
     #[test]
+    fn illumination_rejects_invalid_last_label_without_mutating_features() {
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        let corrupt = [
+            Sample {
+                class: Some(2),
+                ..valid.clone()
+            },
+            Sample {
+                box_xywh: [f32::NAN, 0.5, 0.25, 0.25],
+                ..valid.clone()
+            },
+            Sample {
+                box_xywh: [0.01, 0.5, 0.25, 0.25],
+                ..valid.clone()
+            },
+            Sample {
+                box_xywh: [0.5, 0.5, 0.0, 0.25],
+                ..valid.clone()
+            },
+            Sample {
+                class: None,
+                box_xywh: [f32::INFINITY, 0.5, 0.25, 0.25],
+                ..valid.clone()
+            },
+        ];
+        for bad in corrupt {
+            let mut labels = vec![valid.clone(); 64];
+            labels[63] = bad;
+            let mut batch = vec![0.25_f32; 64 * INPUTS];
+            let original = batch
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>();
+            assert!(
+                illuminate_training_batch(&mut batch, &labels, 42).is_err(),
+                "corrupt last target must be rejected before illumination"
+            );
+            assert_eq!(
+                batch
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>(),
+                original,
+                "failed illumination modified preceding features"
+            );
+        }
+    }
+
+    #[test]
+    fn reflected_f32_edge_rounding_rejects_before_any_feature_or_label_mutation() {
+        // This original positive target passes the loss geometry guard in F32:
+        // x + w/2 rounds to 1.0. But reflecting its center first yields an
+        // x_min just below zero. A loss-after-transform would reject it only
+        // after earlier reserved slots had already been written.
+        let near_right = f32::from_bits(0x3f7f_1e55);
+        let width = f32::from_bits(0x3be1_ab40);
+        assert!(near_right - width / 2.0 >= 0.0);
+        assert!(near_right + width / 2.0 <= 1.0);
+        assert!(1.0 - near_right - width / 2.0 < 0.0);
+
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        for (slot, edge) in [
+            (16, [near_right, 0.5, width, 0.25]),
+            (32, [0.5, near_right, 0.25, width]),
+            (48, [near_right, near_right, width, width]),
+        ] {
+            let mut labels = vec![valid.clone(); 64];
+            labels[slot].box_xywh = edge;
+            let mut input = (0..64 * INPUTS)
+                .map(|i| (i % 19) as f32 / 18.0)
+                .collect::<Vec<_>>();
+            let old_input = input.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            let old_labels = labels
+                .iter()
+                .map(|sample| (sample.class, sample.box_xywh.map(f32::to_bits)))
+                .collect::<Vec<_>>();
+
+            assert!(
+                mirror_reserved_edge_batch(&mut input, &mut labels).is_err(),
+                "slot {slot} would create an out-of-bounds reflected target"
+            );
+            assert_eq!(
+                input.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                old_input,
+                "rejected reflection must not change any features"
+            );
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|sample| (sample.class, sample.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                old_labels,
+                "rejected reflection must not change any labels"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_nonreserved_feature_cannot_partially_mirror_earlier_slots() {
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        for invalid in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+            let mut labels = vec![valid.clone(); 64];
+            let mut input = (0..64 * INPUTS)
+                .map(|i| (i % 19) as f32 / 18.0)
+                .collect::<Vec<_>>();
+            input[64 * INPUTS - 1] = invalid;
+            let original_input = input.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            let original_labels = labels
+                .iter()
+                .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                .collect::<Vec<_>>();
+            assert!(
+                mirror_reserved_edge_batch(&mut input, &mut labels).is_err(),
+                "invalid last non-reserved feature must fail before mirroring"
+            );
+            assert_eq!(
+                input.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                original_input,
+                "failed mirroring changed earlier features"
+            );
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                original_labels,
+                "failed mirroring changed earlier targets"
+            );
+        }
+    }
+
+    #[test]
     fn mirrored_edge_slots_match_full_resolution_pixel_reflections() {
         let sample = fy_tiny_model::dataset(101, 2).pop().unwrap();
         assert!(sample.class.is_some());
@@ -469,6 +660,55 @@ mod tests {
             labels.iter().map(|s| s.box_xywh).collect::<Vec<_>>(),
             original_boxes
         );
+    }
+
+    #[test]
+    fn invalid_nonreserved_label_cannot_partially_mirror_earlier_slots() {
+        let valid = Sample {
+            pixels: vec![],
+            class: Some(0),
+            box_xywh: [0.5, 0.5, 0.25, 0.25],
+        };
+        let corrupt = [
+            Sample {
+                class: Some(2),
+                ..valid.clone()
+            },
+            Sample {
+                class: None,
+                box_xywh: [f32::NAN, 0.5, 0.25, 0.25],
+                ..valid.clone()
+            },
+        ];
+        for bad in corrupt {
+            let mut labels = vec![valid.clone(); 64];
+            labels[63] = bad;
+            let mut input = (0..64 * INPUTS)
+                .map(|i| (i % 19) as f32 / 18.0)
+                .collect::<Vec<_>>();
+            let original_input = input.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+            let original_labels = labels
+                .iter()
+                .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                .collect::<Vec<_>>();
+            assert!(
+                mirror_reserved_edge_batch(&mut input, &mut labels).is_err(),
+                "corrupt last label must be rejected before mirroring"
+            );
+            assert_eq!(
+                input.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                original_input,
+                "failed mirror changed earlier feature slots"
+            );
+            assert_eq!(
+                labels
+                    .iter()
+                    .map(|s| (s.class, s.box_xywh.map(f32::to_bits)))
+                    .collect::<Vec<_>>(),
+                original_labels,
+                "failed mirror changed earlier box coordinates"
+            );
+        }
     }
 
     #[test]

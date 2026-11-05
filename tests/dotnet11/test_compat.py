@@ -18,6 +18,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PreviewCompatibility(unittest.TestCase):
+    def test_security_serviced_rc3_sdk_is_pinned_for_both_hosts(self):
+        from compat import SETTINGS
+        self.assertEqual(SETTINGS['sdk'], '11.0.100-rc.3.26522.148')
+        self.assertEqual(SETTINGS['runtime'], '11.0.0-rc.3.26522.148')
+        self.assertEqual(SETTINGS['release_date'], '2026-10-25')
+        for rid, extension in [('linux-x64', 'tar.gz'), ('win-x64', 'zip')]:
+            with self.subTest(rid=rid):
+                asset = SETTINGS['assets'][rid]
+                self.assertEqual(asset['url'],
+                                 f"https://builds.dotnet.microsoft.com/dotnet/Sdk/{SETTINGS['sdk']}/dotnet-sdk-{SETTINGS['sdk']}-{rid}.{extension}")
+                self.assertRegex(asset['sha512'], r'^[0-9a-f]{128}$')
+
     def test_linked_implicit_source_directory_is_not_silently_omitted(self):
         for kind in ['Consumer', 'Ownership']:
             for target_exists in [True, False]:
@@ -95,7 +107,7 @@ class PreviewCompatibility(unittest.TestCase):
             self.assertTrue((dest / 'Consumer.csproj').is_file())
             tree = ET.parse(dest / 'Consumer.csproj')
             self.assertEqual(tree.findtext('.//TargetFramework'), 'net11.0')
-            self.assertEqual(tree.findtext('.//RuntimeFrameworkVersion'), '11.0.0-rc.2.26504.105')
+            self.assertEqual(tree.findtext('.//RuntimeFrameworkVersion'), '11.0.0-rc.3.26522.148')
             self.assertEqual(tree.findtext('.//RollForward'), 'Disable')
             self.assertEqual(tree.findtext('.//TreatWarningsAsErrors'), 'true')
             self.assertEqual((source / 'Program.cs').read_bytes(), (dest / 'Program.cs').read_bytes())

@@ -1,4 +1,4 @@
-# Optional .NET 11 RC2 consumer compatibility
+# Optional .NET 11 RC3 consumer compatibility
 
 This independently selected gate tests net11.0 consumers of the existing
 experimental `FactsYOLO.LocalTest` package. The package still targets net10.0,
@@ -21,17 +21,20 @@ The normal net10.0 workflow remains independent.
 
 ## Toolchain and package inputs
 
-`tests/dotnet11/sdk.json` pins SDK 11.0.100-rc.2.26504.105 and runtime
-11.0.0-rc.2.26504.105, released 2026-10-13. Both Linux x64 tar and Windows x64 ZIP
+`tests/dotnet11/sdk.json` pins SDK 11.0.100-rc.3.26522.148 and runtime
+11.0.0-rc.3.26522.148, released 2026-10-25. Both Linux x64 tar and Windows x64 ZIP
 URLs and SHA-512 values come from Microsoft's [official release metadata](https://builds.dotnet.microsoft.com/dotnet/release-metadata/11.0/releases.json)
 and [download page](https://dotnet.microsoft.com/en-us/download/dotnet/11.0).
+RC3 is the October 25 out-of-band security update that corrects the RC2
+NativeAOT compiler advisory GHSA-p3jp-9v83-76w9 (CVE-2026-111497). We retain
+warnings-as-errors rather than suppressing the advisory or skipping NativeAOT.
 The installer checks the actual archive digest before extraction, rejects unsafe
 paths and refuses to overwrite an existing SDK directory. The installation is
 isolated; it does not change the machine's default dotnet or repository global.json.
 The downloaded Microsoft SDK is a test tool, not part of the FactsYOLO package.
 
 Each workflow builds both real native RID assets at its exact source commit,
-then uses the existing net10.0 production packer once. Both RC2 consumer hosts
+then uses the existing net10.0 production packer once. Both RC3 consumer hosts
 receive that identical archive. This needs no cross-workflow access, new secrets,
 package registry write access or model/pixel transfer. Existing source/hash,
 export, dependency and license-inventory checks remain required.
@@ -62,12 +65,12 @@ C# sources (including nested files) and source-tree symbolic links are rejected
 before copying, so future baseline consumer changes cannot silently lose code;
 generated root bin/obj outputs are
 excluded. The same inventory guard applies to the ownership probe. Only the detached
-project's target framework/runtime and its global.json select RC2. Restore uses
+project's target framework/runtime and its global.json select RC3. Restore uses
 PackageReference, a fresh global/HTTP cache, a source-mapped local test feed and
 official nuget.org for .NET tool packs. It must select `lib/net10.0/FactsYOLO.dll`
 and the actual host's native asset; package and native hashes are checked again.
-JIT runtimeconfig forbids roll-forward and pins RC2; NativeAOT must restore the
-same RC2 ILCompiler. Both executables actually run from an unrelated directory.
+JIT runtimeconfig forbids roll-forward and pins RC3; NativeAOT must restore the
+same RC3 ILCompiler. Both executables actually run from an unrelated directory.
 
 Each mode consumes real Burn Flex and Candle training artifacts through the
 existing Rust TD1 CPU/F32 backend, compares six held-out samples per artifact with
@@ -76,11 +79,11 @@ disposal and independent model/session/result lifetimes. Burn/Candle remain
 training/test tools, not SDK runtime dependencies. These synthetic-rectangle
 checks do not establish natural-image quality or production backend selection.
 
-A separate RC2 executable compiles the exact existing Handles/Native/NativeTypes
+A separate RC3 executable compiles the exact existing Handles/Native/NativeTypes
 and synchronized ownership test sources. Its admitted lease must survive Dispose,
 allow a real native session, and release the model exactly once after the lease.
 It does not substitute source compilation for the package-only public consumer.
-The existing full loader rejection suite runs under both RC2 modes as well.
+The existing full loader rejection suite runs under both RC3 modes as well.
 
 On Linux, an isolated owner-only temporary XDG_RUNTIME_DIR avoids the preview
 runtime's fallback to a potentially read-only home directory. HOME and permissions

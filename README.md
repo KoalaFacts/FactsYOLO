@@ -31,7 +31,7 @@ packages the existing ABI for isolated net10.0 consumers. Its temporary test
 package is not published; Linux/Windows assets must form one identically hashed
 package before cross-platform installation acceptance can be claimed.
 
-An independent, optional [.NET 11 RC2 consumer gate](docs/testing/dotnet11-compatibility.md)
+An independent, optional [.NET 11 RC3 consumer gate](docs/testing/dotnet11-compatibility.md)
 tests the existing net10.0 experiment package without changing its target or
 establishing a stable SDK support promise.
 

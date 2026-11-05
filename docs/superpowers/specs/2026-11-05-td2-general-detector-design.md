@@ -1,6 +1,6 @@
 # TD2 and the CCTV vision task roadmap (design draft)
 
-Date: 2026-11-05. Status: **draft for owner review**. Direction set by the owner
+Date: 2026-11-05. Status: **draft for owner review**; task order approved, no budget (section 12). Direction set by the owner
 in the planning conversation:
 
 - FactsYOLO is embedded in CCTV cameras, NVRs and other edge devices.
@@ -278,21 +278,43 @@ H–J may start their design and data work in parallel with E–G.
 
 ## 11. Compute and cost
 
-Training these models is likely impractical on CPU alone. Stage B therefore
-records each framework's GPU path. Any paid compute (cloud GPUs, hosted runners
-beyond the existing CI), reference hardware, or licensed datasets need the
-owner's explicit approval with an estimated cost before use.
+**Current budget: zero.** Owner decision on 2026-11-05: there is no budget for
+paid compute, hardware or datasets for now; this is revisited later. Until then
+every stage uses only resources that cost nothing:
 
-## 12. Decisions requested from the owner
+- GitHub-hosted runners, which are free for this public repository, including
+  Linux arm64 runners. These serve as the interim aarch64 execution and
+  measurement host; their CPU is named in each record. The Raspberry Pi 5-class
+  latency gate in section 9 stays defined but is deferred until a board exists.
+- The owner's own machines, where available.
 
-1. Approve TD1 maintenance-only status (section 1).
-2. Confirm the deployment model and reference hardware (section 2).
-3. Confirm the task family and order (section 3) and the safeguards (section 4).
-4. Approve the T1 dataset roles (section 8) so stage C can research and record
-   terms.
-5. Accept or adjust the accuracy floors and per-frame budgets (section 9).
-6. Approve a budget for GPU compute, a reference Arm board, and, for T4, a
-   licensed or consented face dataset.
+Consequences:
+
+- Stage B compares frameworks on CPU, at proxy scale, and records each
+  framework's GPU path for later without using one.
+- Stage D starts with a reduced-scale T1 run that fits the free runners
+  (smaller class subset, image count and steps). Results are reported against
+  section 9 honestly; a full-scale run waits for compute.
+- T4 face-recognition training data cannot be licensed or collected at zero
+  cost, so T4 is limited to design work until a budget exists.
+
+Any paid compute, hardware or licensed data needs the owner's explicit approval
+with an estimated cost before use.
+
+## 12. Owner decisions
+
+Recorded 2026-11-05:
+
+- Task family and order T1 → T2 → T3 → T4 (section 3): approved.
+- Budget: none for now; revisit later (section 11).
+
+Still open:
+
+1. TD1 maintenance-only status (section 1).
+2. Deployment model and reference hardware (section 2).
+3. Safeguards (section 4).
+4. T1 dataset roles (section 8), so stage C can research and record terms.
+5. Accuracy floors and per-frame budgets (section 9).
 
 AI-assisted draft; no human certification or DCO sign-off is asserted on another
 person's behalf. Section 4 is a product-design summary, not legal advice.

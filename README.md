@@ -35,6 +35,12 @@ An independent, optional [.NET 11 RC2 consumer gate](docs/testing/dotnet11-compa
 tests the existing net10.0 experiment package without changing its target or
 establishing a stable SDK support promise.
 
+The [TD2 and CCTV vision task roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md)
+is the accepted design for the next model work: general detection (objects,
+animals, people, vehicles, faces, licence plates), then licence-plate, scene
+and face recognition, for on-premises CCTV cameras, NVRs and edge devices. It
+is a plan, not implemented functionality; TD1 is maintenance-only.
+
 ## Build and verify
 
 Install the pinned Rust toolchain through rustup, fetch the locked optional

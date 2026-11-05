@@ -1,7 +1,7 @@
 # TD2 and the CCTV vision task roadmap (design draft)
 
-Date: 2026-11-05. Status: **draft for owner review**; task order approved, no budget (section 12). Direction set by the owner
-in the planning conversation:
+Date: 2026-11-05. Status: **accepted** (stage A complete; owner decisions in
+section 12). Direction set by the owner in the planning conversation:
 
 - FactsYOLO is embedded in CCTV cameras, NVRs and other edge devices.
 - Customers install and operate it themselves, on premises.
@@ -286,7 +286,12 @@ every stage uses only resources that cost nothing:
   Linux arm64 runners. These serve as the interim aarch64 execution and
   measurement host; their CPU is named in each record. The Raspberry Pi 5-class
   latency gate in section 9 stays defined but is deferred until a board exists.
-- The owner's own machines, where available.
+- The development cloud workspace used by automated development sessions
+  (2 CPUs, no GPU), for short local gates and analysis only.
+
+When a stage genuinely needs a GPU, the notebook or scripts are prepared in the
+repository and the owner is asked to run them on a free service under their own
+account; no account is created on the project's behalf.
 
 Consequences:
 
@@ -306,15 +311,31 @@ with an estimated cost before use.
 Recorded 2026-11-05:
 
 - Task family and order T1 → T2 → T3 → T4 (section 3): approved.
-- Budget: none for now; revisit later (section 11).
+- Budget: none for now; revisit later (section 11). Only GitHub-hosted runners
+  (including `ubuntu-24.04-arm` as the interim aarch64 host) and the development
+  workspace are used.
+- Deployment: on premises, installed and operated by the customer. No data
+  leaves the customer's control; the deployed library has no networking code,
+  writes no files and stores nothing (section 2).
+- Face recognition (T4) and licence-plate recognition (T2) are required; scene,
+  animal and object recognition are very important.
+- Training framework: decided by stage B evidence and recorded in ADR 0002.
+- TD1 maintenance-only status (section 1), the deployment model and reference
+  hardware (section 2), the safeguards (section 4), the T1 dataset roles
+  (section 8) and the accuracy floors and per-frame budgets (section 9) are
+  adopted as written. If later evidence shows one of them is wrong, a pull
+  request changes this document and states why.
 
-Still open:
+Still the owner's, per stage:
 
-1. TD1 maintenance-only status (section 1).
-2. Deployment model and reference hardware (section 2).
-3. Safeguards (section 4).
-4. T1 dataset roles (section 8), so stage C can research and record terms.
-5. Accuracy floors and per-frame budgets (section 9).
+- Approving the recorded licence terms of each external dataset before it is
+  downloaded for training (stage C onward).
+- Any spending or account, publishing weights or SDK packages, tags and
+  releases, and licence or trademark changes.
+
+Work items, status and evidence for every stage are tracked in a roadmap
+ledger, `docs/plans/td2-roadmap.md`, added by the first pull request after this
+design is merged.
 
 AI-assisted draft; no human certification or DCO sign-off is asserted on another
 person's behalf. Section 4 is a product-design summary, not legal advice.

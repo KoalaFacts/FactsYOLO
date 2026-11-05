@@ -5,8 +5,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
-/// Directories never scanned: build output, VCS data and package caches.
-const SKIPPED_DIRECTORIES: [&str; 5] = [".git", "target", "node_modules", "bin", "obj"];
+/// Directories never scanned: build output and package caches. Hidden
+/// directories (VCS data, local worktrees, tool state) are skipped too, except
+/// `.github`.
+const SKIPPED_DIRECTORIES: [&str; 4] = ["target", "node_modules", "bin", "obj"];
 /// Third-party licence texts are notices, not project documentation, so they
 /// are link-checked but need no index entry.
 const UNINDEXED_DIRECTORY: &str = "runtime-notices";
@@ -45,7 +47,7 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
     let mut texts = BTreeMap::new();
     for file in &files {
         let text = std::fs::read_to_string(root.join(file))
-            .map_err(|error| format!("{}: {error}", file.display()))?;
+            .map_err(|error| format!("{}: {error}", shown(file)))?;
         texts.insert(file.clone(), text);
     }
     let mut problems = BTreeSet::new();
@@ -60,7 +62,7 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
                 }
                 Ok(_) => {}
                 Err(problem) => {
-                    problems.insert(format!("{}: {problem}", file.display()));
+                    problems.insert(format!("{}: {problem}", shown(file)));
                 }
             }
         }
@@ -68,7 +70,7 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
             if !path_exists(root, path.trim_end_matches('/'))? {
                 problems.insert(format!(
                     "{}: named path `{path}` does not exist",
-                    file.display()
+                    shown(file)
                 ));
             }
         }
@@ -83,11 +85,20 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
         if *file != readme && !notice && !indexed.contains(file) {
             problems.insert(format!(
                 "{}: not linked from the README documentation index",
-                file.display()
+                shown(file)
             ));
         }
     }
     Ok(problems.into_iter().collect())
+}
+
+/// Repository-relative path with `/` separators on every host.
+fn shown(path: &Path) -> String {
+    let parts: Vec<_> = path
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    parts.join("/")
 }
 
 /// A named path exists from the repository root, or relative to a crate
@@ -118,7 +129,8 @@ fn collect(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) -> Result<()
         let kind = entry.file_type().map_err(|error| error.to_string())?;
         let name = entry.file_name();
         if kind.is_dir() {
-            if !SKIPPED_DIRECTORIES.iter().any(|skip| name == *skip) {
+            let hidden = name.to_string_lossy().starts_with('.') && name != ".github";
+            if !hidden && !SKIPPED_DIRECTORIES.iter().any(|skip| name == *skip) {
                 collect(root, &path, files)?;
             }
         } else if path.extension().is_some_and(|extension| extension == "md") {
@@ -333,6 +345,8 @@ mod tests {
                     "# Guide\n\n## How it works\n\nSee `docs/guide.md` and [top](#guide).\n",
                 ),
                 ("sdk/runtime-notices/LICENSE.md", "licence text\n"),
+                (".worktrees/copy/README.md", "[broken](missing.md)\n"),
+                ("target/doc/x.md", "[broken](missing.md)\n"),
             ],
         );
         assert_eq!(check(&tree.0).unwrap(), Vec::<String>::new());

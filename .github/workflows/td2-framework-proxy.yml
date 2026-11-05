@@ -1,8 +1,15 @@
 name: TD2 framework proxy
 on:
   pull_request:
+    paths:
+      - 'experiments/td2-framework-proxy/**'
+      - '.github/workflows/td2-framework-proxy.yml'
   push:
     branches: [main]
+    paths:
+      - 'experiments/td2-framework-proxy/**'
+      - '.github/workflows/td2-framework-proxy.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 env:
@@ -42,9 +49,84 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Core tests, Debug and Release
+      - name: Core tests, Debug; core and adapter tests, Release
         run: |
-          cargo test --workspace --locked
+          cargo test -p fyp-core --locked
           cargo test --workspace --locked --release
       - name: Portable core on the Rust 1.85 floor
         run: cargo +1.85.0 test -p fyp-core --locked --target-dir target/rust-1.85
+
+  measure:
+    needs: core
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: experiments/td2-framework-proxy
+    steps:
+      - name: Fetch exact public commit without credentials
+        working-directory: .
+        run: |
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install exact toolchain
+        run: |
+          command -v rustup || { curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none; echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"; }
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install 1.99.0 --profile minimal
+      - name: Clean release build, timed
+        run: |
+          start=$(date +%s)
+          cargo build -p fyp-compare --locked --release
+          echo "BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+      - name: Predeclared gates G1-G6, one thread
+        run: |
+          mkdir -p "$RUNNER_TEMP/td2-proxy"
+          RAYON_NUM_THREADS=1 ./target/release/fyp-compare gates > "$RUNNER_TEMP/td2-proxy/gates.json"
+          cat "$RUNNER_TEMP/td2-proxy/gates.json"
+      - name: Throughput and peak RSS, one process per measurement
+        run: |
+          out="$RUNNER_TEMP/td2-proxy"
+          cores=$(nproc)
+          for fw in burn candle; do
+            for n in 16 64; do
+              for t in 1 "$cores"; do
+                RAYON_NUM_THREADS=$t ./target/release/fyp-compare bench "$fw" "$n" > "$out/bench-$fw-b$n-t$t.json"
+                cat "$out/bench-$fw-b$n-t$t.json"
+              done
+            done
+          done
+      - name: Record runner and dependency graph
+        run: |
+          out="$RUNNER_TEMP/td2-proxy"
+          {
+            echo "{"
+            echo "  \"runner_os\": \"$ImageOS\","
+            echo "  \"arch\": \"$(uname -m)\","
+            echo "  \"cpu\": \"$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)\","
+            echo "  \"cores\": $(nproc),"
+            echo "  \"kernel\": \"$(uname -r)\","
+            echo "  \"rustc\": \"$(rustc --version)\","
+            echo "  \"build_seconds\": $BUILD_SECONDS,"
+            echo "  \"commit\": \"$GITHUB_SHA\""
+            echo "}"
+          } > "$out/runner.json"
+          cat "$out/runner.json"
+          for pkg in burn candle-core; do
+            cargo tree -p "$pkg" --locked -e normal,build --prefix none --no-dedupe --format '{p} {l}' | sort -u > "$out/tree-$pkg.txt"
+            wc -l "$out/tree-$pkg.txt"
+          done
+      - name: Upload scalar results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: td2-proxy-${{ matrix.os }}
+          path: ${{ runner.temp }}/td2-proxy/
+          retention-days: 30

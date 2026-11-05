@@ -517,6 +517,15 @@ fn homography(from: &[[f64; 2]; 4], to: &[[f64; 2]; 4]) -> [f64; 9] {
     h
 }
 
+/// True when every turn of the clockwise (y down) corner sequence is a
+/// strict right turn.
+fn strictly_convex(quad: &[[f64; 2]; 4]) -> bool {
+    (0..4).all(|i| {
+        let [a, b, c] = [quad[i], quad[(i + 1) % 4], quad[(i + 2) % 4]];
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) > 0.0
+    })
+}
+
 fn apply(h: &[f64; 9], x: f64, y: f64) -> [f64; 2] {
     let w = h[6] * x + h[7] * y + h[8];
     [
@@ -620,11 +629,20 @@ pub fn render(scene: &Scene, text: &str, seed: u64) -> Result<Sample, RenderErro
     let x0 = rng.range(jitter, width as f64 - pw - jitter);
     let y0 = rng.range(jitter, height as f64 - ph - jitter);
     let base = [[x0, y0], [x0 + pw, y0], [x0 + pw, y0 + ph], [x0, y0 + ph]];
+    // A homography maps the plate rectangle continuously only onto a convex
+    // quad, so concave jitter is drawn again (the flat plate after 32 tries).
     let mut plate_quad = base;
     if jitter > 0.0 {
-        for corner in &mut plate_quad {
-            corner[0] += rng.range(-jitter, jitter);
-            corner[1] += rng.range(-jitter, jitter);
+        for _ in 0..32 {
+            let mut candidate = base;
+            for corner in &mut candidate {
+                corner[0] += rng.range(-jitter, jitter);
+                corner[1] += rng.range(-jitter, jitter);
+            }
+            if strictly_convex(&candidate) {
+                plate_quad = candidate;
+                break;
+            }
         }
     }
     let plate_rect = [

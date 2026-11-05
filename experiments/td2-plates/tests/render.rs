@@ -393,3 +393,38 @@ fn invalid_formats_are_rejected() {
     assert!(Format::new("###", "ABC").is_ok());
     assert!(Format::new("ABC-12", "Z").is_ok());
 }
+
+fn strictly_convex(quad: &[[f64; 2]; 4]) -> bool {
+    (0..4).all(|i| {
+        let [a, b, c] = [quad[i], quad[(i + 1) % 4], quad[(i + 2) % 4]];
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) > 0.0
+    })
+}
+
+#[test]
+fn jittered_plates_stay_convex() {
+    let scene = Scene {
+        width: 64,
+        height: 64,
+        max_perspective: 0.3,
+        max_blur: 0,
+        noise_amplitude: 0,
+        min_contrast: 0.4,
+    };
+    // Seed 558 produced a concave quad before corner jitter was rejected.
+    for seed in (0..2000).chain([558]) {
+        let sample = render(&scene, "A", seed).expect("renders");
+        assert!(
+            strictly_convex(&sample.plate_quad),
+            "seed {seed}: {:?}",
+            sample.plate_quad
+        );
+        for label in &sample.chars {
+            assert!(
+                strictly_convex(&label.quad),
+                "seed {seed}: cell {:?}",
+                label.quad
+            );
+        }
+    }
+}

@@ -4,12 +4,18 @@ on:
     paths:
       - 'experiments/td2-framework/**'
       - 'experiments/cpu-detector/evaluate/src/bin/td2_proxy.rs'
+      - 'experiments/cpu-detector/Cargo.toml'
+      - 'experiments/cpu-detector/Cargo.lock'
+      - 'experiments/cpu-detector/evaluate/Cargo.toml'
       - '.github/workflows/td2-framework-oracle.yml'
   push:
     branches: [main]
     paths:
       - 'experiments/td2-framework/**'
       - 'experiments/cpu-detector/evaluate/src/bin/td2_proxy.rs'
+      - 'experiments/cpu-detector/Cargo.toml'
+      - 'experiments/cpu-detector/Cargo.lock'
+      - 'experiments/cpu-detector/evaluate/Cargo.toml'
       - '.github/workflows/td2-framework-oracle.yml'
 permissions:
   contents: read

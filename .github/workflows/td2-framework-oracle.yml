@@ -1,0 +1,48 @@
+name: TD2 framework reference oracle
+on:
+  pull_request:
+    paths:
+      - 'experiments/td2-framework/**'
+      - '.github/workflows/td2-framework-oracle.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/td2-framework/**'
+      - '.github/workflows/td2-framework-oracle.yml'
+permissions:
+  contents: read
+jobs:
+  independent-reference:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: python3
+          - os: windows-2022
+            python: python
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify independent forward and finite-difference gradients
+        shell: bash
+        run: |
+          "${{ matrix.python }}" -m unittest discover -s experiments/td2-framework -p 'test_reference_oracle.py' -v
+          "${{ matrix.python }}" experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json
+          "${{ matrix.python }}" -c 'import json; d=json.load(open("td2-b-oracle.json",encoding="utf-8")); assert not d["framework_selected"] and not d["training_executed"]; assert len(d["outputs"])==32'
+      - name: Preserve numerical reference values
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: td2-oracle-${{ matrix.os }}
+          path: td2-b-oracle.json
+          if-no-files-found: error

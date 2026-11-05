@@ -108,11 +108,13 @@ Measured on GitHub-hosted `ubuntu-24.04` (x64) and `ubuntu-24.04-arm` (aarch64)
 runners, release build, CPU model, core count, OS and toolchain recorded from the
 runner:
 
-- **Training throughput:** images per second for a full step (forward, loss,
-  backward, optimizer); 10 warm-up steps then 5 timed windows of 20 steps; median
-  and min/max reported; with 1 thread and with all runner cores.
-- **Peak memory:** peak RSS (`getrusage` `ru_maxrss`) of a separate process per
-  candidate running 100 steps at batch 16 and batch 64.
+- **Training throughput:** images per second for a full step (one taped forward,
+  shared loss, backward, shared optimizer); 10 warm-up steps then 5 timed windows
+  of 20 steps; median and min/max reported; batch 16 and 64; with 1 thread and
+  with all runner cores (`RAYON_NUM_THREADS`).
+- **Peak memory:** peak RSS (Linux `VmHWM`) of a separate process per candidate
+  and batch size, read after its throughput run (10 warm-up and 100 timed
+  steps), at batch 16 and batch 64.
 - **Build cost:** clean release build time and selected crate count on the
   measuring runner.
 - **Dependency and licence review:** the selected Cargo graph of each candidate

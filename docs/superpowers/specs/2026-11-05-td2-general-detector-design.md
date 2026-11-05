@@ -221,13 +221,15 @@ category mapping and attribution procedure in `MODEL_LICENSES.md`, and the
 owner approves it. Weight-release licensing is a separate decision at release
 time; this design does not promise Apache-2.0 weights.
 
-Synthetic T2 plates come from `experiments/td2-plates`: an original stroke font
-(36 alphanumerics and a dash, defined as polylines in source, no font file),
-caller-supplied text patterns, perspective, blur, noise and cluttered
-backgrounds, with per-character and plate labels. It renders deterministically
-from a seed and takes no external input. Its patterns are not claimed to match
-any jurisdiction; AU/NZ layouts and any real plate font still need the licence
-check in the T2 row above.
+Synthetic T2 plates come from `experiments/td2-plates`. It draws
+caller-supplied text with an original stroke font (36 alphanumerics and a
+dash, defined as polylines in source, no font file) into cluttered scenes with
+perspective, blur and noise, labels the plate and each character, and
+rectifies each plate to an upright crop with level character cells for the
+recognizer. It renders deterministically from a seed and takes no external
+input. Its text patterns are not claimed to match any jurisdiction; AU/NZ
+layouts and any real plate font still need the licence check in the T2 row
+above.
 
 ## 9. T1 evaluation (pre-registered)
 

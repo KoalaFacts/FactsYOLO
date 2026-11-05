@@ -22,6 +22,8 @@
 
 use std::fmt;
 
+pub mod crop;
+
 /// Characters the stroke font can draw, in label order.
 pub const GLYPHS: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-";
 
@@ -252,6 +254,8 @@ pub enum RenderError {
     InvalidScene(&'static str),
     /// A format pattern or letter pool is invalid.
     InvalidFormat(&'static str),
+    /// A crop size or its source sample is invalid.
+    InvalidCrop(&'static str),
 }
 
 impl fmt::Display for RenderError {
@@ -267,6 +271,7 @@ impl fmt::Display for RenderError {
             }
             Self::InvalidScene(why) => write!(f, "invalid scene: {why}"),
             Self::InvalidFormat(why) => write!(f, "invalid format: {why}"),
+            Self::InvalidCrop(why) => write!(f, "invalid crop: {why}"),
         }
     }
 }

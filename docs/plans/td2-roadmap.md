@@ -32,7 +32,7 @@ their hardware.
 | Id | What | Status | Evidence |
 | --- | --- | --- | --- |
 | B1 | Predeclared comparison plan: proxy, gates G1–G6, measurements, decision rule | in progress (this PR) | [td2-framework-comparison.md](../testing/td2-framework-comparison.md) |
-| B2 | Proxy workspace core: synthetic generator, seeded init, shared loss and SGD, independent F64 reference forward and finite differences | todo | |
+| B2 | Proxy workspace core: synthetic generator, seeded init, shared loss and SGD, independent F64 reference forward and finite differences | in progress (next PR) | `fyp-core`: 11 tests, Debug/Release, Rust 1.99 and 1.85; workflow `td2-framework-proxy.yml` on x64 and arm64 |
 | B3 | Burn and Candle adapters; gates G1–G6 as tests | todo | |
 | B4 | Workflow on `ubuntu-24.04` and `ubuntu-24.04-arm`: throughput, peak RSS, build cost; scalar JSON artifacts | todo | |
 | B5 | Per-candidate dependency and licence inventory | todo | |

@@ -1,0 +1,10 @@
+[package]
+name = "fyp-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version = "1.85"
+description = "Framework-independent core of the stage B proxy: data, init, loss, optimizer and F64 reference"
+
+[dependencies]

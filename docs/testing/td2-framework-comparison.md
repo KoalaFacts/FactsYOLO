@@ -8,7 +8,9 @@ proxy, the measurements, the pass/fail thresholds and the decision rule
 changed after results exist; a wrong threshold is corrected only by a later,
 explained revision that keeps both the original and the new result visible.
 
-Status: plan only. No proxy code, run or result exists yet. Results are added
+Status: plan accepted; the framework-independent core (B2) is implemented in
+`experiments/td2-framework-proxy/core`. No framework adapter, run or result
+exists yet. Results are added
 to the "Results" section by the implementation pull requests and summarised in
 ADR 0002. Work items are tracked in the [TD2 roadmap ledger](../plans/td2-roadmap.md).
 
@@ -53,14 +55,16 @@ A new, independent experiment workspace `experiments/td2-framework-proxy`
 
   Convolutions have no bias before BN; `lateral` and `head` have a bias. BN uses
   training-mode batch statistics, ε = 1e-5, learnable γ/β.
-- **Loss, outside the framework.** Shared plain-Rust code computes the loss and
-  its gradient with respect to the head output: binary cross-entropy with logits
-  for objectness at every cell (target 1 for the cell containing the box centre),
-  plus L1 on softplus-encoded left/top/right/bottom distances in stride units at
-  that positive cell, weight 1.0 each, mean over the batch. Each framework
-  back-propagates that upstream gradient, the pattern the TD1 adapters already use.
+- **Loss, outside the framework.** Shared plain-Rust F64 code computes the loss
+  and its gradient with respect to the head output Y (N×5×16×16, stride 4):
+  `L = (1/N) Σ_n [ (1/256) Σ_cells BCE(Y0, t0) + (1/4) Σ_k |softplus(Yk) − dk| ]`,
+  binary cross-entropy with logits for objectness at every cell (t0 = 1 only at
+  the cell containing the box centre) and L1 on softplus-encoded
+  left/top/right/bottom distances dk from that cell's centre to the box edges in
+  stride units. Each framework back-propagates that upstream gradient, the
+  pattern the TD1 adapters already use.
 - **Initialization.** One seeded generator produces every parameter as F32
-  (Kaiming-uniform for convolutions, γ=1, β=0, bias 0). Both candidates load the
+  (Kaiming-uniform with bound √(6/fan_in) for every kernel, BN γ=1, β=0, biases 0; 22,021 parameters). Both candidates load the
   same bytes; parameter count and SHA-256 are recorded.
 - **Optimizer, outside the framework.** Shared plain-Rust SGD with momentum 0.9,
   learning rate 0.05, no weight decay, applied to the gradients each framework
@@ -143,9 +147,23 @@ implements grouped convolution by splitting into per-group convolutions and
 concatenating (`candle-core` `conv.rs`), which costs more as TD2 adds depthwise
 layers. This tiebreak is stated now, before measuring.
 
+## Implementation status
+
+- **B2 core** (`fyp-core`, no dependencies, Rust 1.85 floor): SplitMix64
+  (checked against the published seed-0 sequence), the synthetic generator, the
+  16-tensor parameter table and seeded initialization, the shared loss and its
+  gradient, shared SGD, the 125-parameter sample plan, and the independent F64
+  reference forward with central finite differences. Its tests check
+  convolution stride/padding/groups by hand and against per-group convolution,
+  batch-norm statistics, nearest upsampling, the loss gradient against finite
+  differences of the loss, and that finite differences of the full reference
+  network for every `head` bias equal the summed head-output gradient (tying the
+  reference forward to the loss gradient). Run by the `TD2 framework proxy`
+  workflow on `ubuntu-24.04` and `ubuntu-24.04-arm`.
+
 ## Results
 
-None yet.
+None yet; gates G1–G6 run once the adapters (B3) exist.
 
 ## Limits
 

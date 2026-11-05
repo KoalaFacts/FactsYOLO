@@ -1,0 +1,50 @@
+name: TD2 framework proxy
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+env:
+  RUSTUP_TOOLCHAIN: '1.99.0'
+  CARGO_TERM_COLOR: never
+  RAYON_NUM_THREADS: '1'
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: experiments/td2-framework-proxy
+    steps:
+      - name: Fetch exact public commit without credentials
+        working-directory: .
+        run: |
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install exact evaluation and portable toolchains
+        run: |
+          command -v rustup || { curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none; echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"; }
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.85.0 --profile minimal
+          uname -m
+          rustc --version
+      - name: Format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Core tests, Debug and Release
+        run: |
+          cargo test --workspace --locked
+          cargo test --workspace --locked --release
+      - name: Portable core on the Rust 1.85 floor
+        run: cargo +1.85.0 test -p fyp-core --locked --target-dir target/rust-1.85

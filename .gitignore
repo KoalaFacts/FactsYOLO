@@ -10,3 +10,4 @@
 __pycache__/
 
 /experiments/cpu-detector/target/
+/experiments/td2-framework-proxy/target/

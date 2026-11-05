@@ -149,6 +149,7 @@ pub(super) fn verify(worker: bool) -> Result<(), String> {
         )?;
         let executable = std::env::current_exe().map_err(|error| error.to_string())?;
         for (name, args) in [
+            ("docs", vec!["check-docs"]),
             ("c", vec!["c"]),
             ("resources", vec!["resources"]),
             ("jit", vec!["dotnet", "--mode", "jit"]),

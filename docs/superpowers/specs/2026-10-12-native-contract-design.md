@@ -2,7 +2,8 @@
 
 Date: 2026-10-12
 
-Status: **Proposed for owner review; not an approved implementation plan.**
+Status: **Implemented** by M1 tasks 1–8 (PRs #4–#11); kept as the ABI design
+reference. The proposal text below is unchanged history.
 
 Baseline: PR #1 merged as `09d5409a2d677094374e3f91aada20dd4dc7b1e1`.
 This document introduces no executable code, released ABI, backend dependency,

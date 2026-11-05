@@ -60,13 +60,13 @@ before implementation.
 
 Preserve the single-core design: bindings adapt the public contract rather than
 independently reimplementing preprocessing, model output interpretation, or
-postprocessing. Review and merge the current implementation task before starting
-the next task in the accepted M1 plan.
+postprocessing. Review and merge the current stage item before starting the next
+one in the [TD2 roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap).
 
 ## Verification at this stage
 
-Run the workspace Debug and Release tests, native build, clippy, and formatting
-commands in [README](README.md), plus the applicable C smoke commands in the
+Run the workspace Debug and Release tests, native build, clippy, formatting and
+`check-docs` commands in [README](README.md), plus the applicable C smoke commands in the
 [workflow](.github/workflows/native-contract.yml). Include actual command output
 and distinguish local execution from remote CI. CI is not DCO enforcement.
 
@@ -74,10 +74,10 @@ Write failing regression tests before behavior changes, then verify the whole
 suite. Do not report a detector or SDK as implemented because the native query
 and ABI records exist. Public support/performance claims require reproducible
 results on the named build, model, hardware, and runtime configuration. The
-current [evidence record](docs/testing/native-contract.md) covers only task 1.
+README [documentation index](README.md#documentation) lists the evidence records.
 
-Also check local Markdown links, consistency of scope, license notices, and
-provenance statements when changing documentation.
+When changing documentation, also check consistency of scope, license notices,
+and provenance statements; `check-docs` covers links and the index.
 
 ## Model or data contributions
 

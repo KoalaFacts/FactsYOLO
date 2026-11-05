@@ -1,8 +1,8 @@
 # M1 execution ledger
 
-Current checkpoint: tasks 1–7 merged through PR10, `43746283ae66ef768b1f0a34be4180f25bfe4b85`.
-Task 8 resource/safety gates are under implementation/review; see [current evidence](m1-evidence.md).
-No real detector/backend/model format or SDK release has been selected.
+Status: M1 is complete. Tasks 1–7 merged through PR10, `43746283ae66ef768b1f0a34be4180f25bfe4b85`;
+task 8 resource/safety gates merged in PR #11 (`997b573`); see [task 8 evidence](m1-evidence.md).
+Later model work follows the [TD2 design and roadmap](../superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap).
 
 ## Historical task-4 execution record
 

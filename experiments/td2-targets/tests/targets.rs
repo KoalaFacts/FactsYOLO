@@ -287,4 +287,10 @@ fn location_on_a_box_edge_is_not_inside() {
     assert!(cell(&levels, 0, 100.0, 108.0).is_none());
     assert!(cell(&levels, 0, 108.0, 100.0).is_none());
     assert_eq!(positives(&levels, 0), 4);
+    // Right and bottom edges through centres at 100, left and top through 84:
+    // only (92, 92) is strictly inside.
+    let levels = assign(320, 1, &[gt(84.0, 84.0, 100.0, 100.0, 0)]).unwrap();
+    assert!(cell(&levels, 0, 100.0, 92.0).is_none());
+    assert!(cell(&levels, 0, 92.0, 100.0).is_none());
+    assert_eq!(positives(&levels, 0), 1);
 }

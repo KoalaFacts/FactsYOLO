@@ -5,6 +5,7 @@ nonfinite, reordered, truncated or fabricated outputs and parameter gradients.
 It does not measure training throughput, memory, or GPU capability.
 """
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -13,6 +14,9 @@ FIELDS = ("x", "conv", "depthwise", "gamma", "beta")
 BACKENDS = {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}
 OUTPUT_ATOL = 2e-4
 GRADIENT_ATOL = 4e-4
+# SHA-256 of reference_oracle.py --output JSON: sorted keys, indent=2, newline.
+# The seed/chain strings alone cannot guard against changed fixture parameters.
+FROZEN_ORACLE_SHA256 = "0fb5ef34f70be76cd498090b40a91b69b566c1b50bb08156512a7df14d4adbea"
 
 
 def _numbers(values, size, label):
@@ -31,6 +35,13 @@ def compare(reference, actual, backend):
         raise ValueError("oracle operator contract changed")
     if reference.get("seed") != 20261106:
         raise ValueError("oracle fixture changed")
+    try:
+        canonical = (json.dumps(reference, sort_keys=True, indent=2,
+                                allow_nan=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("malformed frozen oracle payload") from exc
+    if hashlib.sha256(canonical).hexdigest() != FROZEN_ORACLE_SHA256:
+        raise ValueError("frozen oracle payload changed")
     expected = _numbers(reference["outputs"], 32, "reference output")
     observed = _numbers(actual.get("outputs"), 32, "backend output")
     max_output_error = max(abs(a-b) for a, b in zip(expected, observed))

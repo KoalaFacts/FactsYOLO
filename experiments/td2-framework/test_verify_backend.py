@@ -77,6 +77,18 @@ class FrameworkVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "backend output"):
             gate.compare(self.reference, bad, "candle")
 
+    def test_frozen_oracle_payload_rejects_changed_input_and_gradient(self):
+        # The same seed and operator-chain labels do not pin the actual bytes.
+        # Both changes previously passed comparison against the old report.
+        bad = copy.deepcopy(self.reference)
+        bad["inputs"]["x"][0] += 0.5
+        with self.assertRaisesRegex(ValueError, "frozen oracle payload"):
+            gate.compare(bad, self.report, "candle")
+        bad = copy.deepcopy(self.reference)
+        bad["gradient_oracle"]["gamma"][0] += 1e-5
+        with self.assertRaisesRegex(ValueError, "frozen oracle payload"):
+            gate.compare(bad, self.report, "candle")
+
 
 if __name__ == "__main__":
     unittest.main()

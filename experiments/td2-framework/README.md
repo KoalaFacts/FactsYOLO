@@ -5,7 +5,7 @@ reference for the [accepted TD2 Stage B framework decision](../../docs/superpowe
 It does not select Burn or Candle and does not replace verified Rust
 framework execution, matched multi-step training, license review or CPU measurements.
 
-The Python 3 standard-library-only script uses a frozen LCG seed, an NCHW
+The CPython 3.12–3.14 standard-library-only script uses a frozen LCG seed, an NCHW
 `[1,2,4,4]` input, 3×3 convolution (`2→2` channels, valid padding), 3×3
 depthwise convolution (same padding), **training** batch normalization (spatial
 population variance; `epsilon=1e-5`), SiLU, nearest-neighbour 2× upsampling,
@@ -21,7 +21,11 @@ python3 experiments/td2-framework/reference_oracle.py --output /tmp/td2-b-oracle
 
 The output contains the exact inputs, parameters, outputs, scalar loss, all
 finite-difference gradients and a machine-readable `framework_selected=false`
-boundary. No model weights or external datasets are used or published. The
+boundary. **Generating the byte-pinned reference requires CPython 3.12–3.14**:
+3.10/3.11 produce different low-order f64 finite-difference bytes, so the
+script now rejects those unsupported generators explicitly. Do not relax the
+full-payload SHA-256 check or silently regenerate a new digest. The GitHub
+Linux/Windows jobs validate the supported runtime via the oracle tests. No model weights or external datasets are used or published. The
 following Stage B gate implements **the same fixed proxy** in Burn Flex
 and Candle and checks their forward and autodiff gradients against this reference.
 After Rust execution is verified, the next task is to run matched training

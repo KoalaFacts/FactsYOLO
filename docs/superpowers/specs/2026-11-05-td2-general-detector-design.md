@@ -367,6 +367,7 @@ commit), blocked (reason; owner decision needed).
 | H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
+| X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | in progress (branch `claude/ci-pr-concurrency`) | `xtask` workflow tests 7/7 |
 
 AI-assisted draft; no human certification or DCO sign-off is asserted on another
 person's behalf. Section 4 is a product-design summary, not legal advice.

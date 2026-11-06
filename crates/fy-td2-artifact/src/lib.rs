@@ -250,17 +250,23 @@ pub fn parse(bytes: &[u8], limits: Limits) -> Result<Artifact, Error> {
 /// Layer `parameter_offset`/`parameter_count` are written as given, so a
 /// caller can also construct deliberately invalid artifacts for tests; the
 /// header's `layer_count`, `parameter_count` and `total_bytes` are derived.
+/// Fails only when the counts do not fit the format's integer widths.
 pub fn encode(
     task_kind: u32,
     input_size: u32,
     class_count: u32,
     layers: &[LayerRecord],
     parameters: &[f32],
-) -> Vec<u8> {
-    let layer_count = layers.len() as u32;
-    let region = parameter_region_offset(layer_count);
-    let total = region + parameters.len() * 4 + DIGEST_BYTES;
-    let mut out = Vec::with_capacity(total);
+) -> Result<Vec<u8>, Error> {
+    let layer_count = u32::try_from(layers.len()).map_err(|_| Error::BadLayerCount)?;
+    let total = parameters
+        .len()
+        .checked_mul(4)
+        .and_then(|p| p.checked_add(parameter_region_offset(layer_count) + DIGEST_BYTES))
+        .ok_or(Error::LengthMismatch)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(total)
+        .map_err(|_| Error::OutOfMemory)?;
     out.extend_from_slice(&MAGIC);
     out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     out.extend_from_slice(&task_kind.to_le_bytes());
@@ -285,5 +291,5 @@ pub fn encode(
     }
     let digest: [u8; 32] = Sha256::digest(&out).into();
     out.extend_from_slice(&digest);
-    out
+    Ok(out)
 }

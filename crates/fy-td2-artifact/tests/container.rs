@@ -32,6 +32,7 @@ fn sample() -> Vec<u8> {
         &sample_layers(),
         &sample_parameters(),
     )
+    .unwrap()
 }
 
 /// Re-seal a mutated artifact so only the intended defect remains.
@@ -116,7 +117,7 @@ fn parameter_region_is_always_simd_aligned() {
     for n in [1, 2, 3, 7, 64, MAX_LAYERS] {
         assert_eq!(parameter_region_offset(n) % PARAMETER_ALIGNMENT, 0, "{n}");
     }
-    let bytes = encode(TASK_T1_DETECTION, 64, 1, &[layer(1, 0, 2)], &[1.0, 2.0]);
+    let bytes = encode(TASK_T1_DETECTION, 64, 1, &[layer(1, 0, 2)], &[1.0, 2.0]).unwrap();
     assert_eq!(&bytes[128..132], &1.0f32.to_le_bytes());
 }
 
@@ -221,7 +222,7 @@ fn declared_counts_must_match_the_layout() {
 #[test]
 fn layer_records_must_be_nonzero_kind_and_contiguous() {
     let params = sample_parameters();
-    let enc = |layers: &[LayerRecord]| encode(TASK_T1_DETECTION, 320, 82, layers, &params);
+    let enc = |layers: &[LayerRecord]| encode(TASK_T1_DETECTION, 320, 82, layers, &params).unwrap();
     assert_eq!(
         parse(
             &enc(&[layer(1, 0, 5), layer(0, 5, 0), layer(3, 5, 3)]),
@@ -237,6 +238,10 @@ fn layer_records_must_be_nonzero_kind_and_contiguous() {
         [layer(1, 0, 5), layer(2, 5, 0), layer(3, 5, 2)],
         [layer(1, 0, 5), layer(2, 5, 0), layer(3, 5, 4)],
         [layer(1, 0, u64::MAX), layer(2, u64::MAX, 2), layer(3, 1, 7)],
+        // Same counts and total as the valid table, offsets permuted or repeated:
+        // only the per-record offset check can reject these.
+        [layer(1, 3, 5), layer(2, 0, 0), layer(3, 0, 3)],
+        [layer(1, 0, 5), layer(2, 0, 0), layer(3, 5, 3)],
     ] {
         assert_eq!(
             parse(&enc(&layers), LIMITS),
@@ -251,13 +256,13 @@ fn nonfinite_parameters_are_rejected() {
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         let mut params = sample_parameters();
         params[6] = bad;
-        let bytes = encode(TASK_T1_DETECTION, 320, 82, &sample_layers(), &params);
+        let bytes = encode(TASK_T1_DETECTION, 320, 82, &sample_layers(), &params).unwrap();
         assert_eq!(parse(&bytes, LIMITS), Err(Error::NonFiniteParameter));
     }
     // Subnormals and signed zero are finite and kept bit-exactly.
     let mut params = sample_parameters();
     params[0] = f32::from_bits(1);
-    let bytes = encode(TASK_T1_DETECTION, 320, 82, &sample_layers(), &params);
+    let bytes = encode(TASK_T1_DETECTION, 320, 82, &sample_layers(), &params).unwrap();
     assert_eq!(parse(&bytes, LIMITS).unwrap().parameters[0].to_bits(), 1);
 }
 

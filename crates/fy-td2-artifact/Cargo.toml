@@ -12,6 +12,3 @@ sha2 = { version = "=0.10.9", default-features = false }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-sha2 = { version = "=0.10.9", default-features = false }

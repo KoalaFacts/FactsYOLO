@@ -187,7 +187,9 @@ location centres at `(i + 0.5) × stride`, `f32` score and IoU comparisons,
 NMS on clipped boxes with suppression only when IoU is above the threshold,
 and the core's existing ABI comparator for the final sort) is
 [`experiments/td2-decode`](../../../experiments/td2-decode/src/lib.rs); the
-stage E backend must match it.
+stage E backend must match it. A randomized cross-check against a naive restatement of
+this contract (3,000 fixed-seed scenes with score ties and small top-k and caps)
+guards the reference itself.
 
 ## 7. Artifact FYTDv002
 

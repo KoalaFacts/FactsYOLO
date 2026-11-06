@@ -14,9 +14,14 @@ const CANCEL: [&str; 2] = ["true", "${{ github.event_name == 'pull_request' }}"]
 /// Returns why `text` (a workflow file) breaks the rule, or `None`.
 pub(super) fn violation(text: &str) -> Option<&'static str> {
     let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
-    let triggered_by_pull_request = lines
-        .iter()
-        .any(|line| *line == "  pull_request:" || *line == "on: pull_request");
+    // Fails closed: any `pull_request` / `pull_request_target` key or inline
+    // trigger list counts, whatever its indentation or trailing comment.
+    let triggered_by_pull_request = lines.iter().any(|line| {
+        let line = line.split(" #").next().unwrap_or_default().trim();
+        line.starts_with("pull_request:")
+            || line.starts_with("pull_request_target:")
+            || (line.starts_with("on:") && line.contains("pull_request"))
+    });
     if !triggered_by_pull_request {
         return None;
     }
@@ -80,6 +85,20 @@ mod tests {
         assert!(violation(&job_level).is_some());
         let shared = "on:\n  pull_request:\nconcurrency:\n  group: ${{ github.workflow }}\n  cancel-in-progress: true\n";
         assert!(violation(shared).is_some());
+    }
+
+    #[test]
+    fn every_pull_request_trigger_form_requires_the_block() {
+        for on in [
+            "on:\n  pull_request:\n",
+            "on:\n    pull_request:\n",
+            "on:\n  pull_request: # gated\n",
+            "on:\n  pull_request_target:\n",
+            "on: pull_request\n",
+            "on: [pull_request, push]\n",
+        ] {
+            assert!(violation(&format!("{on}jobs: {{}}\n")).is_some(), "{on}");
+        }
     }
 
     #[test]

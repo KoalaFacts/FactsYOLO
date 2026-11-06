@@ -19,6 +19,10 @@ on:
       - 'tests/compat/**'
       - 'tests/dotnet11/**'
       - 'tests/sdk-install/**'
+concurrency:
+  # A newer push to the same pull request supersedes the older run; main runs are never cancelled.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:

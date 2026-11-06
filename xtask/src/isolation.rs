@@ -14,15 +14,19 @@ const DEPLOYED_FEATURES: [&str; 2] = ["", "td1"];
 /// Source tokens (after `compact`) for networking types, raw system
 /// calls and foreign imports. Exported `extern "C" fn` items are allowed;
 /// `extern` blocks that import foreign functions are not.
-const FORBIDDEN_TOKENS: [&str; 8] = [
+/// `#[path]` and `include!` are banned because they pull in code from outside
+/// the scanned `src/` tree.
+const FORBIDDEN_TOKENS: [&str; 10] = [
     "TcpStream",
     "TcpListener",
     "UdpSocket",
     "libc::",
     "syscall",
     "asm!",
-    "use std as",
-    "extern crate std as",
+    "#[path",
+    "include!",
+    "include_str!",
+    "std::$",
 ];
 
 /// First path segments under `std` that give networking, file or process access.
@@ -201,6 +205,13 @@ pub(crate) fn forbidden_source(path: &str, text: &str) -> Vec<String> {
             found.push(format!("{path}: std::{segment}"));
         }
     }
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let renamed = code
+        .match_indices("std as ")
+        .any(|(index, _)| code[..index].chars().last().is_none_or(|c| !word(c)));
+    if renamed {
+        found.push(format!("{path}: std renamed"));
+    }
     if has_extern_block(&code) {
         found.push(format!("{path}: extern block"));
     }
@@ -314,6 +325,9 @@ pub(super) fn run() -> Result<(), String> {
             return Err(format!("{label}: cargo tree listed no local crate"));
         }
         for directory in locals {
+            if directory.join("build.rs").exists() {
+                violations.push(format!("{}: build script", directory.display()));
+            }
             let mut files = Vec::new();
             rust_files(&directory.join("src"), &mut files)?;
             for file in files {
@@ -398,11 +412,30 @@ mod tests {
         );
         assert_eq!(
             forbidden_source("d.rs", "use std as s; s::fs::write(p, b);"),
-            ["d.rs: use std as"]
+            ["d.rs: std renamed"]
         );
         assert_eq!(
             forbidden_source("e.rs", "use ::std::{self as s};"),
             ["e.rs: std::self"]
+        );
+        for renamed in [
+            "use ::std as s;",
+            "use {std as s};",
+            "use core::{ptr, std as s};",
+        ] {
+            assert_eq!(forbidden_source("f.rs", renamed), ["f.rs: std renamed"]);
+        }
+        assert!(forbidden_source("g.rs", "use mystd as s;").is_empty());
+        assert_eq!(
+            forbidden_source(
+                "h.rs",
+                "macro_rules! m { ($m:ident) => { std::$m::write(p, b) } }"
+            ),
+            ["h.rs: std::$"]
+        );
+        assert_eq!(
+            forbidden_source("i.rs", "#[path = \"../w.rs\"] mod w; include!(\"x.rs\");"),
+            ["i.rs: #[path", "i.rs: include!"]
         );
     }
 

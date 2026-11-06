@@ -13,7 +13,7 @@ from pathlib import Path
 FIELDS = ("x", "conv", "depthwise", "gamma", "beta")
 BACKENDS = {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}
 OUTPUT_ATOL = 2e-4
-GRADIENT_ATOL = 4e-4
+GRADIENT_ATOL = 1e-5
 # SHA-256 of reference_oracle.py --output JSON: sorted keys, indent=2, newline.
 # The seed/chain strings alone cannot guard against changed fixture parameters.
 FROZEN_ORACLE_SHA256 = "0fb5ef34f70be76cd498090b40a91b69b566c1b50bb08156512a7df14d4adbea"

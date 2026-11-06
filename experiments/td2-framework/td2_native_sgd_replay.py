@@ -22,7 +22,7 @@ FIELDS = ("conv", "depthwise", "gamma", "beta")
 GRAD_FIELDS = ("x", *FIELDS)
 BACKENDS = {"burn": "burn-flex-0.22.0", "candle": "candle-cpu-0.11.0"}
 ATOL_OUTPUT = 2e-4
-ATOL_GRADIENT = 4e-4
+ATOL_GRADIENT = 1e-5
 
 
 def f32(value):

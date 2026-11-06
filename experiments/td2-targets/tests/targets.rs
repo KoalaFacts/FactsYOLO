@@ -204,6 +204,25 @@ fn randomized_invariants_hold() {
             })
             .collect();
         let levels = assign(320, 4, &boxes).unwrap();
+        // Completeness: a location is positive exactly when some box is eligible.
+        for (k, level) in levels.iter().enumerate() {
+            let s = f64::from(level.stride);
+            let (lo, hi) = td2_targets::SCALE_RANGES[k];
+            for (at, c) in level.cells.iter().enumerate() {
+                let x = ((at % level.width) as f64 + 0.5) * s;
+                let y = ((at / level.width) as f64 + 0.5) * s;
+                let any = boxes.iter().any(|o| {
+                    let d = [x - o.left, y - o.top, o.right - x, o.bottom - y];
+                    let mo = d.iter().copied().fold(f64::MIN, f64::max);
+                    d.iter().all(|v| *v > 0.0)
+                        && (x - (o.left + o.right) / 2.0).abs() < CENTER_RADIUS * s
+                        && (y - (o.top + o.bottom) / 2.0).abs() < CENTER_RADIUS * s
+                        && mo > lo
+                        && mo <= hi
+                });
+                assert_eq!(c.is_some(), any, "level {k} cell {at}");
+            }
+        }
         for (k, level) in levels.iter().enumerate() {
             let s = f64::from(level.stride);
             let (lo, hi) = td2_targets::SCALE_RANGES[k];
@@ -249,4 +268,23 @@ fn scale_range_lower_bound_is_exclusive() {
         cell(&levels, 1, 120.0, 104.0).unwrap().ltrb,
         [5.0, 4.0, 3.0, 4.0]
     );
+}
+
+#[test]
+fn scale_range_upper_bound_is_inclusive() {
+    // Distances exactly 64 at a stride-8 centre stay on stride 8.
+    let levels = assign(320, 1, &[gt(36.0, 36.0, 164.0, 164.0, 0)]).unwrap();
+    assert_eq!(cell(&levels, 0, 100.0, 100.0).unwrap().ltrb, [8.0; 4]);
+    // Distances exactly 128 at a stride-16 centre stay on stride 16.
+    let levels = assign(320, 1, &[gt(-24.0, -24.0, 232.0, 232.0, 0)]).unwrap();
+    assert_eq!(cell(&levels, 1, 104.0, 104.0).unwrap().ltrb, [8.0; 4]);
+}
+
+#[test]
+fn location_on_a_box_edge_is_not_inside() {
+    // Left and top edges pass through the stride-8 centres at 100.
+    let levels = assign(320, 1, &[gt(100.0, 100.0, 120.0, 120.0, 0)]).unwrap();
+    assert!(cell(&levels, 0, 100.0, 108.0).is_none());
+    assert!(cell(&levels, 0, 108.0, 100.0).is_none());
+    assert_eq!(positives(&levels, 0), 4);
 }

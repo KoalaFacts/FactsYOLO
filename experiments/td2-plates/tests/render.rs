@@ -37,12 +37,17 @@ fn fnv1a(sample: &Sample) -> u64 {
     for byte in sample.text.bytes() {
         eat(byte);
     }
-    for corner in sample.plate_quad {
-        for value in corner {
-            for byte in value.to_bits().to_le_bytes() {
-                eat(byte);
-            }
+    let labels = sample
+        .chars
+        .iter()
+        .flat_map(|label| label.quad.into_iter().flatten().chain(label.bbox));
+    for value in sample.plate_quad.into_iter().flatten().chain(labels) {
+        for byte in value.to_bits().to_le_bytes() {
+            eat(byte);
         }
+    }
+    for byte in sample.plate_rgb.into_iter().chain(sample.text_rgb) {
+        eat(byte);
     }
     hash
 }
@@ -119,6 +124,9 @@ fn every_glyph_is_drawn_and_distinct() {
     assert_eq!(glyph_mask('a', height), None);
     assert_eq!(glyph_mask('!', height), None);
     assert_eq!(glyph_mask(' ', height), None);
+    assert_eq!(glyph_mask('A', 2), None);
+    assert_eq!(glyph_mask('A', 4097), None);
+    assert!(glyph_mask('A', 3).is_some());
 }
 
 #[test]
@@ -141,10 +149,10 @@ fn same_seed_is_bit_identical_and_seeds_differ() {
 fn frozen_render_hashes() {
     let format = Format::new("@@@ ###", "ABCDEFGHJKLMNPRSTUVWXYZ").expect("valid format");
     let cases: [(u64, &str, u64); 4] = [
-        (1, "ABC 123", 0xe701_9deb_d7b5_d655),
-        (2, "XYZ 789", 0x1cd7_ab7f_6747_c20f),
-        (3, "QO0 1I5", 0x8cc0_49cc_4f17_a6bb),
-        (4, &format.generate(4), 0x328b_d168_c131_aac8),
+        (1, "ABC 123", 0x09b6_b6d1_9511_1669),
+        (2, "XYZ 789", 0xf249_d42a_f634_eba8),
+        (3, "QO0 1I5", 0xec4e_08aa_f48e_9745),
+        (4, &format.generate(4), 0x7fbd_69a9_0734_4fc7),
     ];
     let mut actual = Vec::new();
     for (seed, text, _) in &cases {
@@ -236,6 +244,38 @@ fn labels_cover_exactly_the_drawn_characters() {
                     "seed {seed} glyph {glyph}: {ink_pixels} ink pixels"
                 );
             }
+            if scene.max_perspective == 0.0 {
+                for pair in sample.chars.windows(2) {
+                    assert!(
+                        pair[0].bbox[2] < pair[1].bbox[0],
+                        "seed {seed}: boxes overlap"
+                    );
+                }
+                // Glyphs that touch all four cell sides fill their boxes.
+                for label in sample
+                    .chars
+                    .iter()
+                    .filter(|label| "K7WM2".contains(label.glyph))
+                {
+                    let [left, top, right, bottom] = label.bbox;
+                    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, 0.0_f64, 0.0_f64);
+                    for y in top.floor() as usize..bottom.ceil() as usize {
+                        for x in left.floor() as usize..right.ceil() as usize {
+                            if distance2(pixel(&sample, x, y), ink) * 4 < distance2(ink, paper) {
+                                (x0, y0) = (x0.min(x as f64), y0.min(y as f64));
+                                (x1, y1) = (x1.max(x as f64 + 1.0), y1.max(y as f64 + 1.0));
+                            }
+                        }
+                    }
+                    for (drawn, labelled) in [(x0, left), (y0, top), (x1, right), (y1, bottom)] {
+                        assert!(
+                            (drawn - labelled).abs() <= 1.5,
+                            "seed {seed} glyph {}: ink {drawn} vs box {labelled}",
+                            label.glyph
+                        );
+                    }
+                }
+            }
             // Every inked plate pixel belongs to some character box.
             for y in 0..sample.height {
                 for x in 0..sample.width {
@@ -309,6 +349,14 @@ fn invalid_text_is_rejected() {
         })
     );
     assert!(render(&scene, &"A".repeat(12), 0).is_ok());
+    // `max` counts a text without spaces, even when spaces made it too long.
+    assert_eq!(
+        render(&scene, &["A"; 13].join(" "), 0),
+        Err(RenderError::TextTooLong {
+            glyphs: 13,
+            max: 12
+        })
+    );
 }
 
 #[test]
@@ -347,6 +395,23 @@ fn invalid_scenes_are_rejected() {
         },
         Scene {
             min_contrast: f64::INFINITY,
+            ..base
+        },
+        // Too small for one character, flat or with perspective.
+        Scene {
+            width: 26,
+            height: 26,
+            ..base
+        },
+        Scene {
+            width: 4096,
+            height: 26,
+            ..base
+        },
+        Scene {
+            width: 40,
+            height: 40,
+            max_perspective: 0.3,
             ..base
         },
     ];
@@ -426,5 +491,63 @@ fn jittered_plates_stay_convex() {
                 label.quad
             );
         }
+    }
+}
+
+#[test]
+fn colours_vary_at_high_contrast() {
+    for contrast in [0.6, 0.9] {
+        let scene = Scene {
+            min_contrast: contrast,
+            ..clean_scene()
+        };
+        let mut pairs = std::collections::BTreeSet::new();
+        let mut darker_text = 0;
+        for seed in 0..200 {
+            let sample = render(&scene, "AB12", seed).expect("renders");
+            let (paper, ink) = (luminance(sample.plate_rgb), luminance(sample.text_rgb));
+            assert!(
+                (paper - ink).abs() >= contrast,
+                "seed {seed}: {paper} vs {ink}"
+            );
+            pairs.insert((sample.plate_rgb, sample.text_rgb));
+            darker_text += usize::from(ink < paper);
+        }
+        assert!(
+            pairs.len() > 150,
+            "contrast {contrast}: only {} colour pairs",
+            pairs.len()
+        );
+        assert!(
+            (20..=180).contains(&darker_text),
+            "contrast {contrast}: {darker_text}/200 dark text"
+        );
+    }
+}
+
+#[test]
+fn noise_stays_within_its_amplitude() {
+    for seed in 0..8 {
+        let quiet = render(&clean_scene(), "AB12", seed).expect("renders");
+        let noisy = render(
+            &Scene {
+                noise_amplitude: 20,
+                ..clean_scene()
+            },
+            "AB12",
+            seed,
+        )
+        .expect("renders");
+        let largest = quiet
+            .rgb
+            .iter()
+            .zip(&noisy.rgb)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max();
+        assert!(
+            largest.is_some_and(|d| (1..=20).contains(&d)),
+            "seed {seed}: {largest:?}"
+        );
+        assert_eq!(quiet.chars, noisy.chars, "noise leaves labels alone");
     }
 }

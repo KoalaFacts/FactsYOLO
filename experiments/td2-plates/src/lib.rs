@@ -13,9 +13,10 @@
 //! layouts (spec section 8, T2 row) still need their own record.
 //!
 //! Determinism: output depends only on the inputs and the seed. Rendering
-//! uses integer arithmetic and IEEE-754 add, subtract, multiply, divide and
-//! square root (no trigonometric or other library functions), so the same
-//! inputs give identical bytes on every platform.
+//! uses integer arithmetic and IEEE-754 add, subtract, multiply and divide
+//! (no square root, trigonometric or other library functions), so the same
+//! inputs give identical bytes on every target with IEEE-754 binary64
+//! arithmetic (not x87-only targets such as i586).
 //!
 //! Development tooling only: never linked into the deployed library, no I/O,
 //! no dependencies.
@@ -223,8 +224,12 @@ fn on_stroke(lines: &[Polyline], x: f64, y: f64) -> bool {
 }
 
 /// Rasterizes one glyph into a `height × (height * 2 / 3)` mask (row-major,
-/// pixel centres sampled). `None` for a character outside [`GLYPHS`].
+/// pixel centres sampled). `None` for a character outside [`GLYPHS`] or a
+/// height outside 3..=4096.
 pub fn glyph_mask(glyph: char, height: usize) -> Option<Vec<bool>> {
+    if !(3..=4096).contains(&height) {
+        return None;
+    }
     let lines = strokes(glyph)?;
     let width = height * 2 / 3;
     let mut mask = Vec::with_capacity(width * height);
@@ -245,8 +250,9 @@ pub enum RenderError {
     EmptyText,
     /// The text holds a character outside [`GLYPHS`] and space.
     UnknownGlyph(char),
-    /// Characters would render below the minimum height. `max` is the
-    /// longest text without spaces that fits this scene.
+    /// Characters would render below the minimum height. `glyphs` counts
+    /// the text's non-space characters; `max` is the longest text without
+    /// spaces that fits this scene.
     TextTooLong { glyphs: usize, max: usize },
     /// A scene parameter is out of range.
     InvalidScene(&'static str),
@@ -262,7 +268,7 @@ impl fmt::Display for RenderError {
             Self::TextTooLong { glyphs, max } => {
                 write!(
                     f,
-                    "{glyphs} characters do not fit; at most {max} fit this scene"
+                    "{glyphs} characters do not fit; at most {max} fit this scene without spaces"
                 )
             }
             Self::InvalidScene(why) => write!(f, "invalid scene: {why}"),
@@ -280,7 +286,8 @@ pub struct Scene {
     pub width: usize,
     /// Frame height in pixels, 16..=4096.
     pub height: usize,
-    /// Largest corner displacement as a share of the plate height, 0..=0.3.
+    /// Largest corner displacement per axis as a share of the plate height,
+    /// 0..=0.3. The frame must hold one character at this perspective.
     pub max_perspective: f64,
     /// Largest box-blur radius in pixels, 0..=3.
     pub max_blur: u32,
@@ -315,6 +322,11 @@ impl Scene {
         if !(0.0..=0.9).contains(&self.min_contrast) {
             return Err(RenderError::InvalidScene(
                 "min_contrast must be finite and 0..=0.9",
+            ));
+        }
+        if max_scale(self, plate_units(1, 0)) < MIN_CHAR_PX {
+            return Err(RenderError::InvalidScene(
+                "frame cannot hold one character at this perspective",
             ));
         }
         Ok(())
@@ -462,6 +474,47 @@ fn luma(rgb: [u8; 3]) -> f64 {
     (0.2126 * f64::from(rgb[0]) + 0.7152 * f64::from(rgb[1]) + 0.0722 * f64::from(rgb[2])) / 255.0
 }
 
+/// A random plate colour and a text colour at least `contrast` luma away
+/// (0..=0.9). The text side (darker or lighter) is random among the sides the
+/// plate leaves room for; a random text colour is pulled towards black or
+/// white just far enough, so high contrasts keep varied colours.
+fn colours(rng: &mut Rng, contrast: f64) -> ([u8; 3], [u8; 3]) {
+    let mut paper = rng.colour();
+    for _ in 0..64 {
+        let l = luma(paper);
+        if l - contrast >= 0.0 || l + contrast <= 1.0 {
+            break;
+        }
+        paper = rng.colour();
+    }
+    let l = luma(paper);
+    let darker = match (l - contrast >= 0.0, l + contrast <= 1.0) {
+        (true, true) => rng.below(2) == 0,
+        (true, false) => true,
+        (false, true) => false,
+        (false, false) => return ([255, 255, 255], [0, 0, 0]),
+    };
+    let (target, bound) = if darker {
+        (0.0, l - contrast)
+    } else {
+        (1.0, l + contrast)
+    };
+    let ink = rng.colour();
+    let li = luma(ink);
+    if (darker && li <= bound) || (!darker && li >= bound) {
+        return (paper, ink);
+    }
+    // luma(ink + t (end - ink)) = li + t (target - li); +0.01 covers rounding.
+    let t = ((li - bound) / (li - target) + 0.01).min(1.0);
+    let end = target * 255.0;
+    let pulled = ink.map(|c| (f64::from(c) + t * (end - f64::from(c)) + 0.5) as u8);
+    if (luma(pulled) - l).abs() >= contrast {
+        (paper, pulled)
+    } else {
+        (paper, [end as u8; 3])
+    }
+}
+
 /// Plate width in character heights for `glyphs` characters and `spaces` gaps.
 fn plate_units(glyphs: usize, spaces: usize) -> f64 {
     let slots = glyphs + spaces;
@@ -576,7 +629,7 @@ pub fn render(scene: &Scene, text: &str, seed: u64) -> Result<Sample, RenderErro
     let plate_width = plate_units(glyphs, spaces);
     let scale_limit = max_scale(scene, plate_width);
     if scale_limit < MIN_CHAR_PX {
-        let max = (1..=glyphs)
+        let max = (1..)
             .take_while(|&n| max_scale(scene, plate_units(n, 0)) >= MIN_CHAR_PX)
             .count();
         return Err(RenderError::TextTooLong { glyphs, max });
@@ -586,14 +639,7 @@ pub fn render(scene: &Scene, text: &str, seed: u64) -> Result<Sample, RenderErro
     let (width, height) = (scene.width, scene.height);
 
     // Colours.
-    let (mut plate_rgb, mut text_rgb) = ([255, 255, 255], [0, 0, 0]);
-    for _ in 0..64 {
-        let (paper, ink) = (rng.colour(), rng.colour());
-        if (luma(paper) - luma(ink)).abs() >= scene.min_contrast {
-            (plate_rgb, text_rgb) = (paper, ink);
-            break;
-        }
-    }
+    let (plate_rgb, text_rgb) = colours(&mut rng, scene.min_contrast);
 
     // Background: a gradient with rectangles of clutter.
     let (top_colour, bottom_colour) = (rng.colour(), rng.colour());

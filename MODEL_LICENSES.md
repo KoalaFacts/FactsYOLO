@@ -100,7 +100,8 @@ Proposed use rules (rules 1, 2, 4 and 5 also apply to the validation split):
    rightsholder; that residual risk remains.
 3. Attribution: the manifest keeps `ImageID`, `Title`, `Author`,
    `AuthorProfileURL`, `OriginalLandingURL` and `License` for every training
-   image. Any weights trained on the subset ship with that attribution list,
+   image. If weights trained on the subset are ever published (a separate
+   owner decision), they ship with that attribution list,
    the CC BY 2.0 and CC BY 4.0 notices, "Open Images Dataset V7 annotations ©
    Google LLC, CC BY 4.0" with the licence and dataset links, and a statement of
    changes (class remapping, box filtering). Whether CC BY obligations attach to
@@ -139,7 +140,8 @@ non-commercial (unverified here). Spec section 8 requires evaluation data to
 allow local commercial evaluation, so decision (c) must settle this: either
 evaluate only on images with commercial-use licences (changes the section 9
 holdouts; needs a spec PR) or accept non-commercial images for local
-evaluation. As with Open Images, no subject consent is documented.
+evaluation (contradicts section 8's rule that non-commercial or unclear terms
+are excluded; also needs a spec PR changing section 8). As with Open Images, no subject consent is documented.
 
 ### Owner decision needed
 

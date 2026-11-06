@@ -36,7 +36,7 @@ class IdentityTests(unittest.TestCase):
         clone = self.root / "shallow"
         clone.mkdir()
         subprocess.run(["git", "clone", "-q", "--depth=1",
-                        "file://" + str(self.root), str(clone / "repo")], check=True)
+                        self.root.as_uri(), str(clone / "repo")], check=True)
         self.assertEqual(ci.inspect(clone / "repo", "pull_request",
                                     self.merge, self.topic)["checkout_kind"], "pr-test-merge")
 

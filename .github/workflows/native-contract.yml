@@ -110,3 +110,6 @@ jobs:
         if: always() && matrix.rust == '1.99.0'
         run: |
           cargo fmt --all -- --check || { cargo fmt --all; git diff; exit 1; }
+      - name: Documentation links and index
+        if: always() && matrix.rust == '1.99.0'
+        run: cargo run -p xtask --locked --offline -- check-docs

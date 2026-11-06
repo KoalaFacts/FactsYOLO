@@ -1,4 +1,4 @@
-# TD2 and the CCTV vision task roadmap (design draft)
+# TD2 and the CCTV vision task roadmap
 
 Date: 2026-11-05. Status: **accepted** (stage A complete; owner decisions in
 section 12). Direction set by the owner in the planning conversation:
@@ -341,9 +341,35 @@ Still the owner's, per stage:
 - Any spending or account, publishing weights or SDK packages, tags and
   releases, and licence or trademark changes.
 
-Work items, status and evidence for every stage are tracked in a roadmap
-ledger, `docs/plans/td2-roadmap.md`, added by the first pull request after this
-design is merged.
+Work items, status and evidence for every stage are tracked in section 13.
+
+## 13. Roadmap
+
+The work ledger. Every pull request that moves an item updates its row; run
+notes live in pull-request bodies. Statuses: todo, in progress (PR), done (PR,
+commit), blocked (reason; owner decision needed).
+
+| Id | Item | Why it matters for users | Status | Evidence |
+| --- | --- | --- | --- | --- |
+| A1 | This design | Agreed direction and gates | done (PR #68, `4ee20ea`) | Owner decisions, section 12 |
+| B1 | Independent F64 numerical oracle for the frozen proxy | Framework gradients are checked against code neither framework wrote | done (PR #69, `20985b6`) | [oracle](../../../experiments/td2-framework/README.md) |
+| B2 | Burn and Candle forward and autodiff on the proxy, compared with B1 | Shows each candidate computes correct gradients | in progress (PR #70) | — |
+| B3 | Matched multi-step training: same seeds, initialization and steps | Shows each candidate trains, not only differentiates | todo | — |
+| B4 | CPU throughput and peak memory, x64 and arm64 runners | Training cost on free hardware | todo | — |
+| B5 | Dependency, licence and GPU-path review | Keeps the core redistributable | todo | — |
+| B6 | Decision record selecting one framework | Unblocks stage D | todo | — |
+| C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | todo (owner approves before any download) | — |
+| C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
+| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | todo | — |
+| D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
+| D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
+| E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
+| E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |
+| F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
+| G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
+| I1 | T3 scene recognition design | Very important capability | todo | — |
+| J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 
 AI-assisted draft; no human certification or DCO sign-off is asserted on another
 person's behalf. Section 4 is a product-design summary, not legal advice.

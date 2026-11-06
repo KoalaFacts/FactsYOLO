@@ -57,6 +57,7 @@ cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 cargo run -p xtask --locked --offline -- c
+cargo run -p xtask --locked --offline -- isolation
 cargo run -p xtask --locked --offline -- verify
 cargo run -p xtask --locked --offline -- check-docs
 ```
@@ -64,7 +65,10 @@ cargo run -p xtask --locked --offline -- check-docs
 `check-docs` fails on broken relative links or anchors, Markdown files missing
 from the [documentation index](#documentation), and paths under the repository's
 top-level source directories (`crates/`, `docs/`, `experiments/`, ...) named in
-inline code that do not exist.
+inline code that do not exist. `isolation` (Linux) fails if the deployed
+library, built with each shipped feature set, gains networking or file-writing
+code in its source, a networking crate in its dependency graph, or a socket,
+name-resolution or file-mutation import in the built `libfacts_yolo.so`.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 

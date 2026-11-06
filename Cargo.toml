@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/facts-yolo", "experiments/td2-eval", "xtask"]
+members = ["crates/facts-yolo", "crates/fy-td2-artifact", "experiments/td2-eval", "xtask"]
 resolver = "3"
 exclude = ["experiments/cpu-detector/model"]
 

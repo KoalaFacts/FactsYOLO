@@ -367,7 +367,7 @@ commit), blocked (reason; owner decision needed).
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
-| H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (PR #73: original synthetic plate renderer; recognizer design todo) | `td2-plates` tests 12/12 debug and release |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 

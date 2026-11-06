@@ -1,0 +1,39 @@
+name: TD2 reference decoder
+on:
+  pull_request:
+    paths:
+      - 'experiments/td2-decode/**'
+      - '.github/workflows/td2-decode.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/td2-decode/**'
+      - '.github/workflows/td2-decode.yml'
+permissions:
+  contents: read
+jobs:
+  decode:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022]
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Test, lint and format check with the pinned toolchain
+        shell: bash
+        working-directory: experiments/td2-decode
+        run: |
+          cargo test --locked --offline
+          cargo test --locked --offline --release
+          cargo clippy --locked --offline --all-targets -- -D warnings
+          cargo fmt --check

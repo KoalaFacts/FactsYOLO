@@ -1,0 +1,15 @@
+[package]
+name = "td2-decode"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+description = "Reference TD2 post-processing: letterbox geometry, FCOS-style decoding, score fusion and per-class NMS (development only)"
+
+# Standalone so it does not touch the root workspace manifest; no dependencies.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+unsafe_op_in_unsafe_fn = "deny"

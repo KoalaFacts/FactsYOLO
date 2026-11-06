@@ -375,7 +375,8 @@ fn invalid_options_are_rejected() {
 fn decoding_is_deterministic_under_ties() {
     let lb = Letterbox::new(320, 320, 320).unwrap();
     let mut level = Level::new(320, 32, 1);
-    // Identical scores at disjoint locations: order follows location index.
+    // Identical scores and class at disjoint locations: the ABI comparator
+    // orders them by left edge, not by location index.
     for (x, y) in [(7, 1), (2, 5), (5, 2)] {
         level.set(x, y, 0, 0.9, 0.9, [0.4; 4]);
     }
@@ -383,5 +384,70 @@ fn decoding_is_deterministic_under_ties() {
     let b = decode(&[level.view()], &lb, &opts(0.1)).unwrap();
     assert_eq!(a, b);
     let tops: Vec<i32> = a.detections.iter().map(|d| d.edges.top as i32).collect();
-    assert_eq!(tops, vec![35, 67, 163]);
+    assert_eq!(tops, vec![163, 67, 35]);
+}
+
+#[test]
+fn cap_keeps_the_abi_first_box_under_ties() {
+    let lb = Letterbox::new(320, 320, 320).unwrap();
+    let mut level = Level::new(320, 32, 1);
+    level.set(5, 0, 0, 0.9, 0.9, [0.5; 4]); // left 160
+    level.set(0, 1, 0, 0.9, 0.9, [0.5; 4]); // left 0
+    let out = decode(
+        &[level.view()],
+        &lb,
+        &DecodeOptions {
+            max_detections: 1,
+            ..opts(0.1)
+        },
+    )
+    .unwrap();
+    assert!(out.truncated);
+    assert_eq!(out.detections[0].edges.left, 0.0);
+}
+
+#[test]
+fn overflowing_distances_are_rejected() {
+    let lb = Letterbox::new(320, 320, 320).unwrap();
+    let mut level = Level::new(320, 32, 1);
+    level.set(3, 3, 0, 0.9, 0.9, [1e38, 1.0, 1.0, 1.0]);
+    assert_eq!(
+        decode(&[level.view()], &lb, &opts(0.5)).unwrap_err(),
+        DecodeError::OutputInvalid
+    );
+}
+
+#[test]
+fn threshold_and_iou_boundaries() {
+    let lb = Letterbox::new(320, 320, 320).unwrap();
+    let mut level = Level::new(320, 32, 1);
+    level.set(1, 1, 0, 0.64, 0.64, [0.4; 4]);
+    let score = decode(&[level.view()], &lb, &opts(0.0)).unwrap().detections[0].score;
+    // A score exactly at the threshold is kept.
+    assert_eq!(
+        decode(&[level.view()], &lb, &opts(score))
+            .unwrap()
+            .detections
+            .len(),
+        1
+    );
+    // IoU just above the threshold is suppressed: B is 131 of A's 200 wide.
+    let mut pair = Level::new(320, 32, 1);
+    pair.set(0, 0, 0, 0.9, 0.9, [0.0, 0.0, 200.0 / 32.0, 1.0]);
+    pair.set(0, 1, 0, 0.8, 0.8, [0.0, 1.0, 131.0 / 32.0, 0.0]);
+    assert_eq!(
+        decode(&[pair.view()], &lb, &opts(0.5))
+            .unwrap()
+            .detections
+            .len(),
+        1
+    );
+    let above_one = DecodeOptions {
+        nms_iou: 1.01,
+        ..opts(0.5)
+    };
+    assert_eq!(
+        decode(&[level.view()], &lb, &above_one).unwrap_err(),
+        DecodeError::InvalidOptions
+    );
 }

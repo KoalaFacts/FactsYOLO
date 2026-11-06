@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Reference TD2 post-processing (development only).
 //!
 //! Implements the decoding contract of the TD2 design, section 6 "Decoding",
@@ -17,11 +18,18 @@
 //!    box of the same class is **above** `nms_iou`, then results are sorted
 //!    and capped.
 //!
-//! Ordering is total and deterministic: score descending, then class id
-//! ascending, then level order, then location index (row-major).
-//! Nonfinite logits or distances and negative distances are
-//! [`DecodeError::OutputInvalid`], matching the core's
-//! `FY_MODEL_OUTPUT_INVALID` rule.
+//! Precision and order, fixed so a backend can match bit for bit:
+//! - scores and IoU are compared in `f32` (IoU exactly `0.65f32` is kept);
+//! - NMS works on the clipped original-image boxes; candidates entirely in
+//!   the padding are dropped after the top-k cut;
+//! - candidates are ranked for top-k and greedy NMS by score descending,
+//!   class id, level order, then location index (row-major);
+//! - the final sort and cap use the core's ABI comparator: score
+//!   descending, class id, `left`, `top`, `right`, `bottom`, then rank.
+//!
+//! Nonfinite logits or distances, negative distances and kept candidates
+//! whose model-space box overflows are [`DecodeError::OutputInvalid`],
+//! matching the core's `FY_MODEL_OUTPUT_INVALID` rule.
 //!
 //! This crate is not part of the deployed library and changes no ABI or
 //! artifact format.
@@ -214,10 +222,11 @@ fn check_levels(levels: &[LevelOutput<'_>], size: u32) -> Result<usize, DecodeEr
             return Err(DecodeError::ShapeMismatch);
         }
         let grid = (size / level.stride) as usize;
-        let cells = grid * grid;
+        let cells = grid.checked_mul(grid).ok_or(DecodeError::ShapeMismatch)?;
+        let coords = cells.checked_mul(4).ok_or(DecodeError::ShapeMismatch)?;
         let n = level.class_logits.len();
         if level.objectness.len() != cells
-            || level.distances.len() != cells * 4
+            || level.distances.len() != coords
             || n == 0
             || n % cells != 0
         {
@@ -293,6 +302,12 @@ pub fn decode(
             right: cx + d[2] * stride,
             bottom: cy + d[3] * stride,
         };
+        let finite = [model.left, model.top, model.right, model.bottom]
+            .iter()
+            .all(|v| v.is_finite());
+        if !finite {
+            return Err(DecodeError::OutputInvalid);
+        }
         let Some(edges) = letterbox.to_source(model) else {
             continue;
         };
@@ -308,6 +323,17 @@ pub fn decode(
         }
     }
 
+    // The core's ABI comparator; `kept` is already in rank order, so a
+    // stable sort makes rank the final tie-break.
+    kept.sort_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then(a.class_id.cmp(&b.class_id))
+            .then(a.edges.left.total_cmp(&b.edges.left))
+            .then(a.edges.top.total_cmp(&b.edges.top))
+            .then(a.edges.right.total_cmp(&b.edges.right))
+            .then(a.edges.bottom.total_cmp(&b.edges.bottom))
+    });
     let truncated = kept.len() > options.max_detections;
     kept.truncate(options.max_detections);
     Ok(Decoded {

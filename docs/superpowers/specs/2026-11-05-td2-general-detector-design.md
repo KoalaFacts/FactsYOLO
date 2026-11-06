@@ -183,8 +183,9 @@ below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
 IoU 0.65, then apply the existing ABI sort and cap. Nonfinite or inverted
 outputs are `FY_MODEL_OUTPUT_INVALID`, as today.
 The reference implementation of this decoding contract (letterbox inverse,
-location centres at `(i + 0.5) × stride`, suppression when IoU is above the
-threshold, ties ordered by class then location) is
+location centres at `(i + 0.5) × stride`, `f32` score and IoU comparisons,
+NMS on clipped boxes with suppression only when IoU is above the threshold,
+and the core's existing ABI comparator for the final sort) is
 [`experiments/td2-decode`](../../../experiments/td2-decode/src/lib.rs); the
 stage E backend must match it.
 

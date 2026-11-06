@@ -48,9 +48,11 @@ telemetry, and sends nothing off the device.
 **Data stays under the customer's control.** No frame, crop, embedding, plate
 text, result or diagnostic is ever written or sent anywhere the customer does
 not control. The deployed library contains no networking code and opens no
-files beyond the artifact bytes the host passes in. Stage E adds a CI gate that
-fails if a deployed build gains a networking dependency or imports socket/HTTP
-symbols. Training-side tooling likewise never uploads customer data; customers
+files beyond the artifact bytes the host passes in. The CI gate
+`cargo run -p xtask -- isolation` (roadmap E2a, run in the Linux C conformance
+job) fails if a deployed feature set gains networking or file-mutation source,
+a networking dependency, foreign `extern` blocks or raw system calls, or
+socket, name-resolution, `open` or file-mutation imports. Training-side tooling likewise never uploads customer data; customers
 fine-tuning on their own footage do so locally. The host owns video decoding
 (RTSP/H.264/H.265), storage, retention, face galleries, plate watch-lists and
 all business logic; the core receives decoded frames and returns results.
@@ -361,7 +363,8 @@ commit), blocked (reason; owner decision needed).
 | D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
-| E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |
+| E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | in progress (PR #76) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate |
+| E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
 | H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |

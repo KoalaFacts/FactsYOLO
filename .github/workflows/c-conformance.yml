@@ -37,6 +37,10 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: cargo run -p xtask --locked --offline -- c
+      - name: Execute deployed-library isolation gate
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo run -p xtask --locked --offline -- isolation
       - name: Execute Windows C conformance in the discovered MSVC environment
         if: runner.os == 'Windows'
         shell: pwsh

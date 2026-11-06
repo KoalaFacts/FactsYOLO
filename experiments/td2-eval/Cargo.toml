@@ -1,0 +1,11 @@
+[package]
+name = "td2-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Independent COCO-style box detection evaluator for TD2 training evidence (development only)"
+
+[lints]
+workspace = true

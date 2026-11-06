@@ -56,10 +56,9 @@ Bare `src/`, `examples/` and `tests/<name>.rs` paths below are relative to
 | Docs gate | `xtask/src/docs.rs`; README documentation index | `cargo run -p xtask --locked --offline -- check-docs` (verified here) | "docs check passed" | new Markdown must be indexed from README; inline-code paths under `crates/`, `docs/`, `experiments/` ... must exist; hidden dirs (this one) are skipped |
 | TD1 experiment | `experiments/cpu-detector/` (`verify.py`, `verify_native.py`, `paired_trained_native.py`, `model`, `evaluate`) | `python3 experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence` (new dir), then `verify_native.py <evidence>/burn target/td1-evidence-burn` and the same for `candle`; Python gate unit tests: `python3 -m unittest discover -s experiments/cpu-detector -p 'test_*.py'` (verified here) | the JSON reports and `commands.json` in the evidence dir, `target/td1-evidence-*/summary.json`; CI job `train-save-reload` uploads them | native TD1 loader, artifact format, C/C# TD1 consumers |
 | TD2 Stage B oracle | `experiments/td2-framework/reference_oracle.py` | as `.github/workflows/td2-framework-oracle.yml` job `independent-reference`: `python3 -m unittest discover -s experiments/td2-framework -p 'test_reference_oracle.py' -v`, `python3 experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json`, then assert `framework_selected` and `training_executed` are false and `outputs` has 32 values (verified here) | the JSON itself (inputs, loss, finite-difference gradients) | any future Burn/Candle comparison that uses this reference |
+| TD2 D1 evaluator | `experiments/td2-eval/src/lib.rs` (`evaluate`), frozen cases `experiments/td2-eval/tests/data/pycocotools-crosscheck.txt` | `cargo test -p td2-eval --locked --offline` (verified here, 10/10); for a real cross-check re-score the frozen cases with pycocotools in a scratch venv (never in the repo) and compare every summary and per-class number | test counts; max difference vs pycocotools (0.0 at merge, PR #72) | Stage D reports against spec section 9 floors |
 
-`experiments/td2-eval` (COCO evaluator) and `experiments/td2-plates` (synthetic
-plates) arrive with PRs #72/#73 and were not on main when this was checked; add
-rows once `git ls-tree origin/main experiments/` lists them.
+`experiments/td2-plates` (synthetic plates, PR #73) is not on main yet; add its row when it merges.
 
 ## Gate
 

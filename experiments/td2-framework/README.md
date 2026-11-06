@@ -71,15 +71,15 @@ operator check, not a bitwise reproduction. GitHub Actions records the
 actual Linux/Windows results; a green Python test alone **does not** mean
 either Rust backend compiled or passed.
 
-**Not yet delivered:** repeated matched-seed SGD/Adam training, CPU
+**Not yet delivered:** framework-internal matched-seed SGD/Adam training, CPU
 throughput and peak-memory baselines, GPU viability, licensing decision
 for any distributed binary, and ADR 0002 framework selection. The oracle
 contains no licensed datasets or pre-trained weights.
 
 ## External-SGD replay through actual Rust autodiff (development-only)
 
-The optional \`td2_native_sgd_replay.py\` harness runs the **compiled** native
-\`td2_proxy\` executable at 21 consecutive F32 states on both backends, applying
+The optional `td2_native_sgd_replay.py` harness runs the **compiled** native
+`td2_proxy` executable at 21 consecutive F32 states on both backends, applying
 20 matched SGD updates (learning rate 0.002) to the 58 convolution, depthwise
 and BN affine parameters in Python between calls. The image, target, seed and
 model are fixed; every state is checked against fresh independent Python f64

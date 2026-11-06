@@ -13,7 +13,8 @@ command output into the PR and say which runs were local and which were CI.
 ## Setup
 
 - Rust: `rust-toolchain.toml` pins 1.99.0 (rustfmt, clippy) via rustup. The
-  TD1 experiment also needs 1.85.0 (`portable-msrv` step).
+  TD1 experiment also needs 1.85.0 (the `portable-msrv` step inside
+  `experiments/cpu-detector/verify.py`).
 - Clone with `GIT_LFS_SKIP_SMUDGE=1`, then `cargo fetch --locked` once; every
   gate after that runs `--locked --offline`. The TD1 experiment has its own
   lock: `cargo fetch --manifest-path experiments/cpu-detector/Cargo.toml --locked`.
@@ -37,6 +38,10 @@ command output into the PR and say which runs were local and which were CI.
   `experiments/cpu-detector/target/release`, so do not set `CARGO_TARGET_DIR` for it.
 
 ## Feature map
+
+Bare `src/`, `examples/` and `tests/<name>.rs` paths below are relative to
+`crates/facts-yolo/`; paths starting `tests/c/`, `tests/compat/`, `tests/dotnet/`,
+`tests/layout32/` and every other path are relative to the repo root.
 
 | feature | code entry points | how to exercise it for real | evidence to capture | neighbours at risk |
 |---|---|---|---|---|

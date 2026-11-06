@@ -41,6 +41,7 @@ jobs:
           git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          "${{ matrix.python }}" experiments/td2-framework/verify_ci_source.py --event "$GITHUB_EVENT_NAME" --checkout "$GITHUB_SHA" --source "${{ github.event.pull_request.head.sha || github.sha }}" --output td2-ci-source.json
       - name: Verify independent forward and finite-difference gradients
         shell: bash
         run: |
@@ -52,7 +53,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: td2-oracle-${{ matrix.os }}
-          path: td2-b-oracle.json
+          path: |
+            td2-b-oracle.json
+            td2-ci-source.json
           if-no-files-found: error
   real-rust-autodiff:
     strategy:
@@ -79,6 +82,7 @@ jobs:
           git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          "${{ matrix.python }}" experiments/td2-framework/verify_ci_source.py --event "$GITHUB_EVENT_NAME" --checkout "$GITHUB_SHA" --source "${{ github.event.pull_request.head.sha || github.sha }}" --output td2-ci-source.json
       - name: Install pinned Rust and fetch existing evaluation lockfile
         shell: bash
         run: |
@@ -111,6 +115,7 @@ jobs:
           name: td2-real-autodiff-${{ matrix.os }}
           path: |
             td2-b-oracle.json
+            td2-ci-source.json
             td2-burn.json
             td2-candle.json
             td2-burn-comparison.json

@@ -246,6 +246,11 @@ motorcycle, bus, truck and the animal classes. Computed by an independently
 implemented evaluator, cross-checked against a reference evaluator in
 development only.
 
+The evaluator is `experiments/td2-eval` (std-only Rust, not linked into the
+library). Object size ranges use box area, since TD2 data carries boxes only.
+Its tests freeze 12 random scenes scored by pycocotools 2.0.11 (plus one 130-detection case exercising the cap), which was run
+once in development to produce them and is not a dependency.
+
 Proposed first-usable accuracy floor at S=320, owner-adjustable **before**
 training:
 
@@ -360,7 +365,7 @@ commit), blocked (reason; owner decision needed).
 | B6 | Decision record selecting one framework | Unblocks stage D | todo | — |
 | C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | todo (owner approves before any download) | — |
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
-| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | todo | — |
+| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |

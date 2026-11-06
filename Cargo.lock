@@ -88,6 +88,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "td2-eval"
+version = "0.1.0"
+
+[[package]]
 name = "td2-plates"
 version = "0.1.0"
 

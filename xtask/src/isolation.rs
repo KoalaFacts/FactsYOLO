@@ -261,6 +261,16 @@ pub(crate) fn local_crates(tree: &str) -> Vec<PathBuf> {
     found
 }
 
+/// True when a `Cargo.toml` names a build script through a `build` key
+/// (anything but `build = false`).
+pub(crate) fn declares_build_script(manifest: &str) -> bool {
+    manifest.lines().any(|line| {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        line.split_once('=')
+            .is_some_and(|(key, value)| key.trim() == "build" && value.trim() != "false")
+    })
+}
+
 fn rust_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = std::fs::read_dir(directory).map_err(|e| format!("{directory:?}: {e}"))?;
     for entry in entries {
@@ -325,7 +335,9 @@ pub(super) fn run() -> Result<(), String> {
             return Err(format!("{label}: cargo tree listed no local crate"));
         }
         for directory in locals {
-            if directory.join("build.rs").exists() {
+            let manifest = std::fs::read_to_string(directory.join("Cargo.toml"))
+                .map_err(|e| format!("{}: {e}", directory.display()))?;
+            if directory.join("build.rs").exists() || declares_build_script(&manifest) {
                 violations.push(format!("{}: build script", directory.display()));
             }
             let mut files = Vec::new();
@@ -459,6 +471,23 @@ mod tests {
     fn source_scan_ignores_comments_and_clean_code() {
         let text = "// never use std::net here\nlet x = 1; /* std::fs\n is banned */\nuse std::{ptr, slice};\nmystd::fs::x();\n";
         assert!(forbidden_source("lib.rs", text).is_empty());
+    }
+
+    #[test]
+    fn manifest_build_key_is_a_build_script() {
+        assert!(declares_build_script(
+            "[package]\nname = \"x\"\nbuild = \"gen.rs\"\n"
+        ));
+        assert!(declares_build_script(
+            "[package]\n  build=\"b.rs\" # custom\n"
+        ));
+        assert!(!declares_build_script("[package]\nbuild = false\n"));
+        assert!(!declares_build_script(
+            "[package]\nname = \"x\"\n# build = \"gen.rs\"\n"
+        ));
+        assert!(!declares_build_script(
+            "[dependencies]\nbuild-helper = \"1\"\n"
+        ));
     }
 
     #[test]

@@ -29,8 +29,11 @@ def inspect(repo, event, checkout_sha, source_sha):
     if actual != checkout_sha:
         raise ValueError(f"checked out commit {actual} != GITHUB_SHA {checkout_sha}")
     if event == "pull_request":
+        # Parent headers end at the first blank line. Commit-message text
+        # may also begin with "parent " and must never affect provenance.
+        headers = git(repo, "cat-file", "-p", "HEAD").split("\n\n", 1)[0]
         parents = [line.split(" ", 1)[1] for line in
-                   git(repo, "cat-file", "-p", "HEAD").splitlines()
+                   headers.splitlines()
                    if line.startswith("parent ")]
         if len(parents) != 2:
             raise ValueError("PR test merge must have exactly two parents")

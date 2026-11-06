@@ -71,5 +71,20 @@ class IdentityTests(unittest.TestCase):
             ci.inspect(self.root, "push", "oops", self.merge)
 
 
+    def test_single_parent_message_cannot_forge_merge_parent(self):
+        git(self.root, "reset", "--hard", "-q", self.topic)
+        git(self.root, "commit", "--amend", "-qm", "ordinary commit\n\nparent " + self.base)
+        single = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "two parents"):
+            ci.inspect(self.root, "pull_request", single, self.base)
+
+    def test_merge_message_parent_line_does_not_change_real_parents(self):
+        git(self.root, "commit", "--amend", "-qm", "real merge\n\nparent " + self.base)
+        merge = git(self.root, "rev-parse", "HEAD")
+        result = ci.inspect(self.root, "pull_request", merge, self.topic)
+        self.assertEqual(result["checkout_kind"], "pr-test-merge")
+        self.assertEqual(result["source_head_sha"], self.topic)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,8 @@
 # FactsYOLO
 
-An independent, Rust-first computer-vision foundation for products written in
-C#, Go, and TypeScript.
+An independent, Rust-first computer-vision core with a C ABI and thin language
+bindings (C# first; Go and TypeScript are not part of the current TD2 tasks), for customers to embed in their
+own CCTV cameras, NVRs and edge devices and operate on premises.
 
 **Status: native infrastructure under implementation.** The repository contains
 a buildable Rust library, a C header, ABI/version diagnostics, checked borrowed
@@ -57,7 +58,13 @@ cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 cargo run -p xtask --locked --offline -- c
 cargo run -p xtask --locked --offline -- verify
+cargo run -p xtask --locked --offline -- check-docs
 ```
+
+`check-docs` fails on broken relative links or anchors, Markdown files missing
+from the [documentation index](#documentation), and paths under the repository's
+top-level source directories (`crates/`, `docs/`, `experiments/`, ...) named in
+inline code that do not exist.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 
@@ -124,10 +131,10 @@ workspace. No production compute framework has been selected.
 ## Intended design direction
 
 - One Rust implementation of the shared vision logic.
-- A versioned C ABI for native consumers, with thin C# and Go SDKs.
-- Node-API bindings for TypeScript on Node.js and a separate WASM build for
-  browsers, sharing core logic where supported rather than promising identical
-  native and browser binaries.
+- A versioned C ABI for native consumers, with a thin C# SDK first. Go and
+  TypeScript bindings may follow later; browser/WASM builds are not planned.
+- On-premises deployment: the deployed library has no networking code, writes
+  no files and stores nothing; the host owns decoding, storage and business logic.
 - Training tooling separate from inference deployment dependencies.
 - Explicit resource lifetimes, bounded workloads, reported device selection,
   and tested numerical tolerances across bindings and backends.
@@ -152,6 +159,32 @@ license is not a blanket permission for arbitrary model or data artifacts.
 No weights or datasets are included. See [MODEL_LICENSES.md](MODEL_LICENSES.md).
 Third-party notices, including the DCO document, retain their original terms;
 see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Documentation
+
+Current plan and design:
+
+- [TD2 design and roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md): accepted CCTV task family, first detector, stages; [section 13](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap) is the work ledger.
+- [TD2 Stage B oracle](experiments/td2-framework/README.md): independent numerical reference for the framework comparison.
+
+Decisions and policy:
+
+- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md).
+
+M1 native foundation (complete; historical design and evidence):
+
+- [Native contract design](docs/superpowers/specs/2026-10-12-native-contract-design.md) and [implementation plan](docs/superpowers/plans/2026-10-12-native-foundation.md).
+- Evidence by task: [1 ABI](docs/testing/native-contract.md), [2 image views](docs/testing/image-views.md), [3 ownership](docs/testing/model-session-ownership.md), [5 ledger](docs/testing/m1-task5-ledger.md), [6 ledger](docs/testing/m1-task6-ledger.md), [7 C#](docs/testing/dotnet-conformance.md), [8 resources and safety](docs/testing/m1-evidence.md); [execution ledger](docs/testing/m1-progress.md).
+
+TD1 experiment (maintenance-only; historical evidence):
+
+- [CPU detector design](docs/superpowers/specs/2026-10-14-cpu-detector-design.md), [training experiment](docs/testing/cpu-detector.md), [experiment dependencies](experiments/cpu-detector/DEPENDENCIES.md).
+- [Native integration design](docs/superpowers/specs/2026-10-14-td1-native-design.md) and [evidence](docs/testing/td1-native.md); [v1 compatibility gate](docs/testing/td1-v1-compatibility.md).
+- Diagnostics: [four-side paired](docs/testing/td1-four-side-paired.md), [four-side disjoint](docs/testing/td1-four-side-disjoint.md), [cross-generator](docs/testing/td1-cross-generator.md), [background-blind](docs/testing/td1-background-blind.md), [spatial alias](docs/testing/td1-spatial-alias.md) (why TD1 is frozen).
+
+SDK packaging and testing:
+
+- [Local SDK design](docs/superpowers/specs/2026-10-15-local-dotnet-sdk-design.md), [plan](docs/superpowers/plans/2026-10-15-local-dotnet-sdk.md) and [installation gate](docs/testing/dotnet-sdk.md); [package README](sdk/dotnet/README.md); [Linux binary audit](docs/testing/linux-sdk-redistribution.md); [.NET 11 consumers](docs/testing/dotnet11-compatibility.md).
 
 ## Contributing and project decisions
 

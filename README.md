@@ -65,10 +65,12 @@ cargo run -p xtask --locked --offline -- check-docs
 `check-docs` fails on broken relative links or anchors, Markdown files missing
 from the [documentation index](#documentation), and paths under the repository's
 top-level source directories (`crates/`, `docs/`, `experiments/`, ...) named in
-inline code that do not exist. `isolation` (Linux) fails if the deployed
-library, built with each shipped feature set, gains networking or file-writing
-code in its source, a networking crate in its dependency graph, or a socket,
-name-resolution or file-mutation import in the built `libfacts_yolo.so`.
+inline code that do not exist. `isolation` (Linux) checks each shipped
+feature set of the deployed library: the source of every local crate in its
+graph must not use `std::fs`, `std::net`, `std::os`, `std::process`, foreign
+`extern` blocks, `libc::`, `syscall` or `asm!`; its dependency graph must hold
+no networking crate; and the built `libfacts_yolo.so` must not import socket,
+name-resolution, `open`/`openat` or file-mutation symbols.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 

@@ -2,7 +2,10 @@
 
 Date: 2026-10-12
 
-Status: **Proposed for owner review; not an approved implementation plan.**
+Status: approved in PR #2 (`592a719`). Its M1 scope (C ABI, ownership, sessions,
+C#) was implemented by M1 tasks 1–8 (PRs #4–#11); section 9's Go/Node/browser
+bindings and section 10 were deferred (see the M1 plan's coverage table). The
+proposal text below is unchanged history.
 
 Baseline: PR #1 merged as `09d5409a2d677094374e3f91aada20dd4dc7b1e1`.
 This document introduces no executable code, released ABI, backend dependency,

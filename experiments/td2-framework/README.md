@@ -75,3 +75,20 @@ either Rust backend compiled or passed.
 throughput and peak-memory baselines, GPU viability, licensing decision
 for any distributed binary, and ADR 0002 framework selection. The oracle
 contains no licensed datasets or pre-trained weights.
+
+## External-SGD replay through actual Rust autodiff (development-only)
+
+The optional \`td2_native_sgd_replay.py\` harness runs the **compiled** native
+\`td2_proxy\` executable at 21 consecutive F32 states on both backends, applying
+20 matched SGD updates (learning rate 0.002) to the 58 convolution, depthwise
+and BN affine parameters in Python between calls. The image, target, seed and
+model are fixed; every state is checked against fresh independent Python f64
+forward, MSE and finite-difference gradients. Full per-step loss/errors and the
+native executable SHA-256 are preserved by the TD2 CI on Linux and Windows.
+Native ELF/PE magic prevents a Python test stub from being silently labelled
+a Rust execution, but does not attest that the binary came from a given commit.
+
+This is **external SGD**, not framework-internal optimizer training. Reported
+walltime includes subprocess starts and the Python numerical oracle and MUST
+NOT be called framework training throughput. No CPU peak-memory, GPU, framework
+selection or production accuracy claim follows from this gate.

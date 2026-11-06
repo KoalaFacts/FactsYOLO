@@ -95,6 +95,15 @@ jobs:
             cargo run --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --quiet --bin td2_proxy -- "$backend" td2-b-oracle.json > "td2-$backend.json"
             "${{ matrix.python }}" experiments/td2-framework/verify_backend.py "$backend" td2-b-oracle.json "td2-$backend.json" --output "td2-$backend-comparison.json"
           done
+      - name: Check matched 20-step Rust autodiff with externally applied SGD
+        shell: bash
+        run: |
+          exe=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then exe=".exe"; fi
+          bin="experiments/cpu-detector/target/release/td2_proxy${exe}"
+          for backend in burn candle; do
+            "${{ matrix.python }}" experiments/td2-framework/td2_native_sgd_replay.py --binary "$bin" --backend "$backend" --output "td2-$backend-20step-sgd.json"
+          done
       - name: Preserve exact numerical evidence (no weights or pixels)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -106,4 +115,6 @@ jobs:
             td2-candle.json
             td2-burn-comparison.json
             td2-candle-comparison.json
+            td2-burn-20step-sgd.json
+            td2-candle-20step-sgd.json
           if-no-files-found: ignore

@@ -284,10 +284,7 @@ stages, before their first training run.
 | J | T4 face recognition | Design, licensed or consented data, alignment and embedding model, embedding and comparison operations, safeguards from section 4 |
 
 Each stage is reviewed and merged before the next starts, per CONTRIBUTING.
-H–J may start their design and data work in parallel with E–G. Tooling that
-uses no external data (such as the synthetic plate renderer in section 8) may
-start earlier, while an earlier stage waits on review or the owner; it trains
-nothing.
+H–J may start their design and data work in parallel with E–G.
 
 ## 11. Compute and cost
 

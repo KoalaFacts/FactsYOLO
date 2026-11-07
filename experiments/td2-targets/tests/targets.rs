@@ -144,7 +144,7 @@ fn rejects_finite_box_endpoints_with_unrepresentable_geometry() {
     for bad in [
         gt(-1e200, -1e200, 1e200, 1e200, 0), // finite spans, area overflows
         gt(-f64::MAX, -1.0, f64::MAX, 1.0, 0), // width itself overflows
-        gt(80.0, 80.0, 1e200, 1e200, 0),    // finite endpoints, area overflows
+        gt(80.0, 80.0, 1e200, 1e200, 0),     // finite endpoints, area overflows
     ] {
         assert_eq!(
             assign(320, 1, &[bad]).unwrap_err(),

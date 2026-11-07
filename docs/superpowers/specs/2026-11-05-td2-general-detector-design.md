@@ -178,6 +178,23 @@ compression and low-light gain. The exact assignment rule, loss weights,
 augmentation and schedule are fixed in stage D and recorded, not tuned against
 the holdout.
 
+The assignment rule and the loss terms are frozen in `experiments/td2-targets`
+(std-only Rust F64 oracle, not linked into the library; roadmap D2a): strides
+8/16/32 on an S/s grid of cell centres; a location is a candidate when it lies
+strictly inside the box and strictly within 2.5 strides of its centre on both
+axes; it is kept on a level when the largest of its four edge distances is in
+(0, 64], (64, 128] or (128, ∞) pixels respectively; a location kept for
+several boxes goes to the smallest area, then the lowest box index; regression
+targets are the four distances in stride units. Focal loss uses α = 0.25,
+γ = 2. The chosen training framework must reproduce these targets and loss
+values. Boxes whose finite endpoints yield nonfinite F64 spans or area
+are rejected as invalid input rather than silently losing their training
+targets. GIoU returns no result when intermediate F64 geometry is not
+representable (even for finite input distances) or when the union or
+enclosing area underflows to zero, rather than propagating NaN or infinity
+into training. Loss weights, augmentation and schedule remain
+open in D2b.
+
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
 IoU 0.65, then apply the existing ABI sort and cap. Nonfinite or inverted
@@ -358,7 +375,8 @@ commit), blocked (reason; owner decision needed).
 | C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | todo (owner approves before any download) | — |
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
-| D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
+| D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | in progress (branch `claude/td2-d2a-targets-losses`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
+| D2b | Frozen layer table, loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |

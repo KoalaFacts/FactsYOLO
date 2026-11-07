@@ -1,7 +1,8 @@
 """Verify source provenance for GitHub Actions test-merge or push checkouts.
 
 For pull_request, GITHUB_SHA denotes GitHub's synthetic merge commit, not the
-source PR head. Check the raw second parent, even on depth-1 Git fetches.
+source PR head. Check both raw parents against the event base and head,
+even on depth-1 Git fetches.
 This does not attest the built Rust binary or establish product accuracy.
 """
 import argparse
@@ -21,7 +22,7 @@ def git(repo, *args):
     return run.stdout.strip()
 
 
-def inspect(repo, event, checkout_sha, source_sha):
+def inspect(repo, event, checkout_sha, source_sha, base_sha=None):
     if not all(isinstance(sha, str) and _SHA.fullmatch(sha)
                for sha in (checkout_sha, source_sha)):
         raise ValueError("invalid SHA supplied to CI identity check")
@@ -29,6 +30,8 @@ def inspect(repo, event, checkout_sha, source_sha):
     if actual != checkout_sha:
         raise ValueError(f"checked out commit {actual} != GITHUB_SHA {checkout_sha}")
     if event == "pull_request":
+        if not isinstance(base_sha, str) or not _SHA.fullmatch(base_sha):
+            raise ValueError("invalid SHA supplied for CI PR base")
         # Parent headers end at the first blank line. Commit-message text
         # may also begin with "parent " and must never affect provenance.
         headers = git(repo, "cat-file", "-p", "HEAD").split("\n\n", 1)[0]
@@ -37,6 +40,8 @@ def inspect(repo, event, checkout_sha, source_sha):
                    if line.startswith("parent ")]
         if len(parents) != 2:
             raise ValueError("PR test merge must have exactly two parents")
+        if parents[0] != base_sha:
+            raise ValueError("PR base is not first parent of CI test merge")
         if parents[1] != source_sha:
             raise ValueError("PR head is not second parent of CI test merge")
         kind = "pr-test-merge"
@@ -46,8 +51,11 @@ def inspect(repo, event, checkout_sha, source_sha):
         kind = "push-commit"
     else:
         raise ValueError(f"unsupported GitHub event: {event}")
-    return {"checkout_kind": kind, "checked_out_sha": checkout_sha,
-            "source_head_sha": source_sha, "binary_source_attested": False}
+    result = {"checkout_kind": kind, "checked_out_sha": checkout_sha,
+              "source_head_sha": source_sha, "binary_source_attested": False}
+    if event == "pull_request":
+        result["base_sha"] = base_sha
+    return result
 
 
 def main():
@@ -55,9 +63,10 @@ def main():
     parser.add_argument("--event", required=True)
     parser.add_argument("--checkout", required=True)
     parser.add_argument("--source", required=True)
+    parser.add_argument("--base", help="PR base SHA from the event (mandatory for PR)")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = inspect(Path.cwd(), args.event, args.checkout, args.source)
+    result = inspect(Path.cwd(), args.event, args.checkout, args.source, args.base)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
                            encoding="utf-8")
     print(f"verified {result['checkout_kind']} checkout {args.checkout}, source {args.source}")

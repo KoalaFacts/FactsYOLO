@@ -23,6 +23,11 @@ command output into the PR and say which runs were local and which were CI.
 - `xtask dotnet`: .NET SDK exactly 10.0.403 (`sdk/dotnet/global.json`,
   `tests/dotnet/global.json`, `rollForward: disable`) plus nuget.org access for
   restore and the Native AOT ILCompiler package.
+  If `dotnet` is missing, install it into a scratch folder (outside the repo):
+  `curl -sSL -o dotnet-install.sh https://dot.net/v1/dotnet-install.sh`, then
+  `bash dotnet-install.sh --version 10.0.403 --install-dir <scratch>/sdk` and
+  `export PATH=<scratch>/sdk:$PATH DOTNET_ROOT=<scratch>/sdk`. With it,
+  `xtask verify` runs in about two minutes on 2 CPUs (verified 2026-11-07).
 - `xtask miri`: `rustup toolchain install nightly-2026-10-13 --profile minimal --component miri`.
 - `xtask layout32`: `rustup target add i686-unknown-linux-gnu --toolchain 1.99.0`,
   multilib C headers (Ubuntu `gcc-multilib`, or `CC_I686`) and `objcopy`.
@@ -59,6 +64,7 @@ Bare `src/`, `examples/` and `tests/<name>.rs` paths below are relative to
 | TD2 Stage B oracle | `experiments/td2-framework/reference_oracle.py` | as `.github/workflows/td2-framework-oracle.yml` job `independent-reference`: `python3 -m unittest discover -s experiments/td2-framework -p 'test_reference_oracle.py' -v`, `python3 experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json`, then assert `framework_selected` and `training_executed` are false and `outputs` has 32 values (verified here) | the JSON itself (inputs, loss, finite-difference gradients) | any future Burn/Candle comparison that uses this reference |
 | TD2 D1 evaluator | `experiments/td2-eval/src/lib.rs` (`evaluate`), frozen cases `experiments/td2-eval/tests/data/pycocotools-crosscheck.txt` | `cargo test -p td2-eval --locked --offline` (verified here, 10/10); for a real cross-check re-score the frozen cases with pycocotools in a scratch venv (never in the repo) and compare every summary and per-class number | test counts; max difference vs pycocotools (0.0 at merge, PR #72) | Stage D reports against spec section 9 floors |
 | TD2 D2a targets and losses | `experiments/td2-targets/src/lib.rs`; spec section on target assignment | `cargo test -p td2-targets --locked --offline` (verified here, 17/17, 2026-11-08) | test count; for a changed rule, the mutation it must catch (PR #78 lists 7 boundary/tie-break mutations) | D2b layer table and loss weights, D3 training targets |
+| TD2 E1a artifact container | `crates/fy-td2-artifact/src/lib.rs` (`parse`, `encode`, `Limits`, `MAGIC` `FYTDv002`); spec section 7 byte layout | `cargo test -p fy-td2-artifact --locked --offline` (verified here, 12/12); for a real check encode a sample with an independent encoder written from the spec (Python `struct` + `hashlib` in a scratch dir) and compare bytes and digest, then fuzz `parse` with random and resealed inputs from a scratch crate | test counts; golden digest equality; fuzz input count with 0 panics and every accepted input re-encoding byte-identically | E1b backend wiring, `fy_model_open` artifact checks, isolation gate once linked |
 
 `experiments/td2-plates` (synthetic plates, PR #73) is not on main yet; add its row when it merges.
 
@@ -104,6 +110,11 @@ Add the rows above that your change touches (TD1, Miri, layout32, experiments).
   evidence directories must be new.
 - Never use dataset pixels or external/pretrained weights as verification
   inputs. Use original synthetic frames and artifacts trained in the same job.
+- A clean clippy on the pinned 1.99.0 does not mean the CI lane
+  `rust (ubuntu-24.04, 1.85.0)` passes: older clippy fires lints that 1.99
+  no longer does (e.g. `format_collect`, PR #79). Also run
+  `RUSTUP_TOOLCHAIN=1.85.0 cargo clippy --workspace --all-targets --locked --offline --target-dir target/msrv -- -D warnings`
+  (`rustup toolchain install 1.85.0 --profile minimal --component clippy`).
 - Unit tests of a Rust function do not show that the shipped library, header
   and C# consumer agree; run `xtask c` and `xtask dotnet` for that.
 

@@ -221,6 +221,22 @@ A new, separate format; FYTDv001 is unchanged and stays TD1-only.
 The task-kind field lets T2–T4 models reuse the container with their own
 layer kinds, each defined in its stage.
 
+**Byte layout (fixed in stage E1a, `crates/fy-td2-artifact`).** All integers
+little-endian. Header, 64 bytes: magic `FYTDv002` (0..8), format version `u32` = 2
+(8), task kind `u32` (12; 1 = T1, others rejected until their stage), input size S
+`u32` (16; 32..=1024, multiple of 32), class count `u32` (20; 1..=120 for T1),
+layer count `u32` (24; 1..=1024), reserved `u32` = 0 (28), parameter count `u64`
+in F32 elements (32), total byte length `u64` (40), reserved zero (48..64). Then
+one 64-byte record per layer: kind `u32` (non-zero), activation `u32`, ten
+kind-specific `u32` fields (shapes, strides, padding, groups, inputs; meanings
+fixed in D2b), parameter offset `u64` and parameter count `u64` in F32 elements.
+Layer ranges are contiguous, in table order, starting at 0 and covering every
+parameter. The parameter region starts right after the table (always 64-byte
+aligned) and is followed by a 32-byte SHA-256 of every preceding byte, which is
+the `model_id`. The total length must equal the slice length and the layout sum;
+limits and header fields are checked before any allocation or hashing, and
+allocations are fallible. Layer-kind semantics are checked by the backend (E1b).
+
 ## 8. Data and licensing (gate C, then per task)
 
 Training data must allow the project to publish weights for commercial use.
@@ -383,8 +399,9 @@ commit), blocked (reason; owner decision needed).
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
 | D2b | Frozen layer table, loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
-| E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
-| E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | in progress (PR #76) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate; verifier bypasses that wrote files through the built library (`use std::*`, `$c::fs` with `nc!(std)`, `cfg_attr(.., path = ..)`) and a custom `build =` key are now rejected with unit tests; a macro rebuilding `std::fs` from `std` and `::` tokens fails the defined-symbol check (`defines std::fs::write`) |
+| E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
+| E1b | Native `td2` backend: layer-kind validation (after D2b), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
+| E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | done (PR #76, `c42a499`) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate; verifier bypasses that wrote files through the built library (`use std::*`, `$c::fs` with `nc!(std)`, `cfg_attr(.., path = ..)`) and a custom `build =` key are now rejected with unit tests; a macro rebuilding `std::fs` from `std` and `::` tokens fails the defined-symbol check (`defines std::fs::write`) |
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |

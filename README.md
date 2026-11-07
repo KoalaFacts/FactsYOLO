@@ -42,8 +42,9 @@ animals, people, vehicles, faces, licence plates), then licence-plate, scene
 and face recognition, for on-premises CCTV cameras, NVRs and edge devices. Only
 unlinked training-side experiments exist so far: the Stage B oracle
 (`experiments/td2-framework`), an evaluator (`experiments/td2-eval`) and the
-target/loss reference (`experiments/td2-targets`); no TD2 model, backend or
-artifact format is on main. TD1 is maintenance-only.
+target/loss reference (`experiments/td2-targets`), plus the FYTDv002 container
+parser (`crates/fy-td2-artifact`, not linked into the library); no TD2 model or
+backend is on main. TD1 is maintenance-only.
 
 ## Build and verify
 

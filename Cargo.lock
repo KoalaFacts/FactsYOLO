@@ -54,6 +54,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fy-td2-artifact"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "fy-tiny-model"
 version = "0.1.0"
 dependencies = [

@@ -39,8 +39,11 @@ establishing a stable SDK support promise.
 The [TD2 and CCTV vision task roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md)
 is the accepted design for the next model work: general detection (objects,
 animals, people, vehicles, faces, licence plates), then licence-plate, scene
-and face recognition, for on-premises CCTV cameras, NVRs and edge devices. It
-is a plan, not implemented functionality; TD1 is maintenance-only.
+and face recognition, for on-premises CCTV cameras, NVRs and edge devices. Only
+its training-side references exist so far, as unlinked experiments: an independent
+COCO-style evaluator (`experiments/td2-eval`) and a frozen target-assignment and
+loss reference (`experiments/td2-targets`). There is no TD2 model, backend or
+artifact format on main; TD1 is maintenance-only.
 
 ## Build and verify
 
@@ -90,7 +93,7 @@ cargo build -p facts-yolo --features td1 --locked --offline --release
 cargo test -p facts-yolo --features td1 --locked --offline
 ```
 
-TD1 requires64x64 RGB/BGR/RGBA views, reports CPU backend1/F32/one thread and
+TD1 requires 64x64 RGB/BGR/RGBA views, reports backend 1 (`FY_BACKEND_TD1_CPU`), F32 and one thread, and
 accepts only the checked FYTDv001 artifact. The default remains backend-free;
 private contract fixtures remain separately marked TEST_ONLY. Real-artifact CI
 exercises C shared/static consumers on Linux x64 and C DLL consumers on Windows
@@ -169,7 +172,7 @@ Current plan and design:
 
 Decisions and policy:
 
-- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md), [agent instructions](CLAUDE.md).
+- [Project and licence decision](docs/decisions/0001-project-and-license.md) (accepted baseline, open technical decisions), [contributing](CONTRIBUTING.md) (provenance, DCO sign-off), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md) (project identity), [agent instructions](CLAUDE.md).
 
 M1 native foundation (complete; historical design and evidence):
 
@@ -185,10 +188,3 @@ TD1 experiment (maintenance-only; historical evidence):
 SDK packaging and testing:
 
 - [Local SDK design](docs/superpowers/specs/2026-10-15-local-dotnet-sdk-design.md), [plan](docs/superpowers/plans/2026-10-15-local-dotnet-sdk.md) and [installation gate](docs/testing/dotnet-sdk.md); [package README](sdk/dotnet/README.md); [Linux binary audit](docs/testing/linux-sdk-redistribution.md); [.NET 11 consumers](docs/testing/dotnet11-compatibility.md).
-
-## Contributing and project decisions
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for provenance requirements and DCO sign-off,
-[TRADEMARKS.md](TRADEMARKS.md) for project-identity guidance, and
-[the project and license decision](docs/decisions/0001-project-and-license.md)
-for the accepted baseline and outstanding technical decisions.

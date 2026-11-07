@@ -23,6 +23,11 @@ command output into the PR and say which runs were local and which were CI.
 - `xtask dotnet`: .NET SDK exactly 10.0.403 (`sdk/dotnet/global.json`,
   `tests/dotnet/global.json`, `rollForward: disable`) plus nuget.org access for
   restore and the Native AOT ILCompiler package.
+  If `dotnet` is missing, install it into a scratch folder (outside the repo):
+  `curl -sSL -o dotnet-install.sh https://dot.net/v1/dotnet-install.sh`, then
+  `bash dotnet-install.sh --version 10.0.403 --install-dir <scratch>/sdk` and
+  `export PATH=<scratch>/sdk:$PATH DOTNET_ROOT=<scratch>/sdk`. With it,
+  `xtask verify` runs in about two minutes on 2 CPUs (verified 2026-11-07).
 - `xtask miri`: `rustup toolchain install nightly-2026-10-13 --profile minimal --component miri`.
 - `xtask layout32`: `rustup target add i686-unknown-linux-gnu --toolchain 1.99.0`,
   multilib C headers (Ubuntu `gcc-multilib`, or `CC_I686`) and `objcopy`.

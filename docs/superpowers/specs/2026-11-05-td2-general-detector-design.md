@@ -190,8 +190,9 @@ targets are the four distances in stride units. Focal loss uses α = 0.25,
 values. Boxes whose finite endpoints yield nonfinite F64 spans or area
 are rejected as invalid input rather than silently losing their training
 targets. GIoU returns no result when intermediate F64 geometry is not
-representable (even for finite input distances) or when an area underflows
-to zero, rather than propagating NaN or infinity into training. Loss weights, augmentation and schedule remain
+representable (even for finite input distances) or when the union or
+enclosing area underflows to zero, rather than propagating NaN or infinity
+into training. Loss weights, augmentation and schedule remain
 open in D2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates

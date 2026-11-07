@@ -161,7 +161,9 @@ top-down plus bottom-up feature pyramid over strides 8/16/32, and a decoupled
 head per level: one branch for class logits plus objectness, one for four box
 distances. Batch norm is folded into convolution weights at export. Budgets:
 **≤ 3.0 M parameters** (≤ 12 MB F32) and **≤ 2.5 GFLOPs at S=320**. The exact
-layer table is fixed in stage D before training.
+layer table is fixed in stage D before training. Operators are limited to ones
+that quantize well to INT8, and the backbone exposes its pyramid features so T3
+can reuse them.
 
 The layer table is frozen in `experiments/td2-arch` (std-only Rust, not linked
 into the library; roadmap D2b1): a stride-4 stem (two 3×3 stride-2
@@ -177,9 +179,8 @@ C=120 it has 1,757,463 parameters and 1.455 GFLOPs (2 per multiply-accumulate,
 plus bias and add elements); 2.458 GFLOPs at S=416. Only 1×1/3×3 convolutions,
 3×3 depthwise convolutions, SiLU, nearest upsample and element-wise add are
 used: the stage B operator list (section 10) plus add, which stage B must
-also cover before ADR 0002. Changing the table changes these frozen numbers. Operators are limited to ones
-that quantize well to INT8, and the backbone exposes its pyramid features so T3
-can reuse them.
+also cover before ADR 0002. Any change to the table, including rewiring
+that keeps every shape, fails the frozen totals or the wiring fingerprint test.
 
 **Box encoding.** Anchor-free: each feature location predicts non-negative
 distances to the left/top/right/bottom edges in stride units, as in
@@ -392,7 +393,7 @@ commit), blocked (reason; owner decision needed).
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | in progress (branch `claude/td2-d2a-targets-losses`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
-| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (branch `claude/td2-d2b1-layer-table`) | `experiments/td2-arch`: 8 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks; 7 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs) each caught |
+| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (branch `claude/td2-d2b1-layer-table`) | `experiments/td2-arch`: 9 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, 16-multiple input size) each caught |
 | D2b2 | Frozen loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |

@@ -153,7 +153,7 @@ fn rejects_class_counts_and_input_sizes_out_of_range() {
         analyze(&t, 320, 121, &HEADS),
         Err(ArchError::ClassCount(121))
     );
-    for size in [0, 100, 330] {
+    for size in [0, 100, 330, 336] {
         assert_eq!(
             analyze(&t, size, 10, &HEADS),
             Err(ArchError::InputSize(size))
@@ -299,4 +299,50 @@ fn rejects_malformed_tables() {
             input: "p8.cls.out"
         })
     );
+}
+
+/// Canonical text of the table: every layer's name, kind, inputs and
+/// settings, independent of `Debug` formatting.
+fn canonical(layers: &[Layer]) -> String {
+    let mut out = String::new();
+    for l in layers {
+        let entry = match l.op {
+            Op::Conv {
+                input,
+                out,
+                kernel,
+                stride,
+                depthwise,
+                act,
+            } => {
+                let act = match act {
+                    Act::Linear => "linear",
+                    Act::Silu => "silu",
+                };
+                format!(
+                    "{}=conv({input},{out},k{kernel},s{stride},dw{depthwise},{act});",
+                    l.name
+                )
+            }
+            Op::Upsample2 { input } => format!("{}=up2({input});", l.name),
+            Op::Add { a, b } => format!("{}=add({a},{b});", l.name),
+        };
+        out.push_str(&entry);
+    }
+    out
+}
+
+/// FNV-1a 64 (fingerprint only, not security).
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+#[test]
+fn wiring_fingerprint_is_frozen() {
+    let text = canonical(&table(MAX_CLASSES).unwrap());
+    assert!(text.starts_with("stem.0=conv(input,24,k3,s2,dwfalse,silu);"));
+    assert!(text.contains("bu4.sum=add(bu4.down,td4);"));
+    assert_eq!(fnv1a(text.as_bytes()), 10_822_089_495_293_790_261);
 }

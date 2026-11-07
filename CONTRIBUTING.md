@@ -70,6 +70,11 @@ Run the workspace Debug and Release tests, native build, clippy, formatting and
 `check-docs` commands in [README](README.md), plus the applicable C smoke commands in the
 [workflow](.github/workflows/native-contract.yml). Include actual command output
 and distinguish local execution from remote CI. CI is not DCO enforcement.
+Every workflow triggered by `pull_request` carries a per-pull-request
+`concurrency` group that cancels in-progress pull-request runs, so a new push cancels the
+superseded run instead of queuing behind it on the free runner pool; runs on
+`main` are keyed by commit and never cancelled. The `xtask` test
+`every_repository_pull_request_workflow_cancels_superseded_runs` enforces it.
 
 Write failing regression tests before behavior changes, then verify the whole
 suite. Do not report a detector or SDK as implemented because the native query

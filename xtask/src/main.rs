@@ -7,6 +7,8 @@ mod gates;
 mod native;
 mod resources;
 mod safety;
+#[cfg(test)]
+mod workflows;
 
 fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();

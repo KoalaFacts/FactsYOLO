@@ -99,6 +99,10 @@ Add the rows above that your change touches (TD1, Miri, layout32, experiments).
   manifest is an inventory, not a pass. Look for `outcome.txt` = `PASS`.
 - A Rust panic backtrace in the .NET log is the expected `native-faults`
   control; the pass/fail counts and the final line decide.
+- xtask fixes its repository root at compile time. Sharing one `--target-dir`
+  between worktrees used to make every xtask command check the other tree and
+  pass; it now exits with "xtask was built from ..." (roadmap X2). Give each
+  worktree its own target dir.
 - CI jobs blocked by billing finish with zero steps executed; that is neither
   green nor red. Open the job and confirm steps ran before quoting it.
 - Experiments are verified by their recorded metric JSON and command logs

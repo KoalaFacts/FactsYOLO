@@ -409,6 +409,7 @@ commit), blocked (reason; owner decision needed).
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 | X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | done (PR #77, `b64f45a`) | `xtask` workflow tests 7/7 |
+| X2 | xtask refuses to run outside the tree it was built from | Evidence from `xtask` (C conformance, isolation, docs) always describes the checked-out tree | in progress (this PR) | `same_tree` unit tests 2/2; reproduced: a binary built in a second worktree with a shared `--target-dir` passed `check-docs` against the wrong tree and now exits 1 |
 
 AI-assisted draft; no human certification or DCO sign-off is asserted on another
 person's behalf. Section 4 is a product-design summary, not legal advice.

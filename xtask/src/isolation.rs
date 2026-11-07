@@ -30,7 +30,8 @@ const FORBIDDEN_TOKENS: [&str; 10] = [
 ];
 
 /// First path segments under `std` that give networking, file or process access.
-const FORBIDDEN_STD_MODULES: [&str; 5] = ["fs", "net", "os", "process", "self"];
+/// `*` is a glob import of all of `std`, which brings `fs` and `net` into scope.
+const FORBIDDEN_STD_MODULES: [&str; 6] = ["*", "fs", "net", "os", "process", "self"];
 
 /// Crates whose presence in the deployed graph means networking capability.
 const FORBIDDEN_CRATES: [&str; 18] = [
@@ -161,6 +162,8 @@ fn std_segments(rest: &str, segments: &mut Vec<String>) {
             .collect();
         if !segment.is_empty() {
             segments.push(segment);
+        } else if rest.starts_with('*') {
+            segments.push("*".to_owned());
         }
     }
 }
@@ -180,6 +183,42 @@ fn has_extern_block(code: &str) -> bool {
 
 /// Returns `path: finding` for networking, file, process or foreign-call
 /// access in one source file.
+/// True when a crate manifest names a build script through the `build` key
+/// (a script outside the default `build.rs` location); `build = false` is fine.
+pub(crate) fn custom_build_script(manifest: &str) -> bool {
+    manifest.lines().any(|line| {
+        let compacted: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+        compacted
+            .strip_prefix("build=")
+            .is_some_and(|value| value != "false")
+    })
+}
+
+/// `$name::` path roots inside macros (other than `$crate::`) let a caller
+/// pass `std` in as a token, which the textual `std::` scan cannot see.
+fn macro_path_roots(code: &str) -> Vec<String> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut roots: Vec<String> = code
+        .match_indices('$')
+        .filter_map(|(index, _)| {
+            let name: String = code[index + 1..].chars().take_while(|c| word(*c)).collect();
+            let after = &code[index + 1 + name.len()..];
+            (!name.is_empty() && name != "crate" && after.starts_with("::"))
+                .then(|| format!("${name}::"))
+        })
+        .collect();
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+/// `path = "..."` as an attribute argument (for example inside `cfg_attr`),
+/// which pulls in a module from outside `src/` like `#[path]` does.
+fn has_path_attribute(code: &str) -> bool {
+    code.match_indices("path=\"")
+        .any(|(index, _)| matches!(code[..index].chars().last(), Some('(' | ',')))
+}
+
 pub(crate) fn forbidden_source(path: &str, text: &str) -> Vec<String> {
     let code = compact(text);
     let mut found = Vec::new();
@@ -214,6 +253,12 @@ pub(crate) fn forbidden_source(path: &str, text: &str) -> Vec<String> {
     }
     if has_extern_block(&code) {
         found.push(format!("{path}: extern block"));
+    }
+    for root in macro_path_roots(&code) {
+        found.push(format!("{path}: macro path root {root}"));
+    }
+    if has_path_attribute(&code) {
+        found.push(format!("{path}: path attribute"));
     }
     found
 }
@@ -325,7 +370,10 @@ pub(super) fn run() -> Result<(), String> {
             return Err(format!("{label}: cargo tree listed no local crate"));
         }
         for directory in locals {
-            if directory.join("build.rs").exists() {
+            let manifest = directory.join("Cargo.toml");
+            let manifest = std::fs::read_to_string(&manifest)
+                .map_err(|e| format!("{}: {e}", manifest.display()))?;
+            if directory.join("build.rs").exists() || custom_build_script(&manifest) {
                 violations.push(format!("{}: build script", directory.display()));
             }
             let mut files = Vec::new();
@@ -431,12 +479,60 @@ mod tests {
                 "h.rs",
                 "macro_rules! m { ($m:ident) => { std::$m::write(p, b) } }"
             ),
-            ["h.rs: std::$"]
+            ["h.rs: std::$", "h.rs: macro path root $m::"]
         );
         assert_eq!(
             forbidden_source("i.rs", "#[path = \"../w.rs\"] mod w; include!(\"x.rs\");"),
             ["i.rs: #[path", "i.rs: include!"]
         );
+    }
+
+    #[test]
+    fn source_scan_flags_verifier_bypasses() {
+        // Each of these passed the gate and wrote a file through the built
+        // library before this check existed (verifier, 2026-11-08).
+        assert_eq!(
+            forbidden_source("a.rs", "use std::*; fs::write(p, b);"),
+            ["a.rs: std::*"]
+        );
+        assert_eq!(
+            forbidden_source("b.rs", "use std::{ptr, *};"),
+            ["b.rs: std::*"]
+        );
+        assert_eq!(
+            forbidden_source(
+                "c.rs",
+                "macro_rules! nc { ($c:ident) => { $c::fs::write(p, b) } } nc!(std);"
+            ),
+            ["c.rs: macro path root $c::"]
+        );
+        assert_eq!(
+            forbidden_source("d.rs", "#[cfg_attr(all(), path = \"../x.rs\")] mod xw;"),
+            ["d.rs: path attribute"]
+        );
+        assert_eq!(
+            forbidden_source("e.rs", "#![cfg_attr(unix,path=\"y.rs\")]"),
+            ["e.rs: path attribute"]
+        );
+        // `$crate::` names the macro's own crate and stays allowed, as do
+        // ordinary `path` variables and globs of other modules.
+        let clean = "macro_rules! m { () => { $crate::run() } }\n\
+                     let path = \"model\"; f(path); use core::ptr::*;";
+        assert!(forbidden_source("f.rs", clean).is_empty());
+    }
+
+    #[test]
+    fn manifest_scan_flags_custom_build_scripts() {
+        assert!(custom_build_script(
+            "[package]\nname = \"x\"\nbuild = \"gen.rs\"\n"
+        ));
+        assert!(custom_build_script("[package]\nbuild=\"tools/b.rs\"\n"));
+        assert!(!custom_build_script(
+            "[package]\nname = \"x\"\nbuild = false\n"
+        ));
+        assert!(!custom_build_script(
+            "[package]\nname = \"x\"\n[build-dependencies]\n"
+        ));
     }
 
     #[test]

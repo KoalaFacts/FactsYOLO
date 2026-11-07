@@ -72,7 +72,11 @@ graph must not use `std::fs`, `std::net`, `std::os`, `std::process`, foreign
 from outside `src/` (`#[path]`, `include!`, build scripts); its dependency
 graph must hold no networking crate (registry crates are checked by name and
 by the import check, not by source); and the built `libfacts_yolo.so` must not import socket,
-name-resolution, `open`/`openat` or file-mutation symbols.
+name-resolution, `open`/`openat` or file-mutation symbols. The source check is
+a conservative textual deny-list (it also rejects `std::*` globs, `$name::`
+macro path roots and `path = "..."` attribute arguments), not a proof:
+`std::fs::write` links through allowed `open64`/`write` imports, so a bypass
+of the text scan is not caught by the import check.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 

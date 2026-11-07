@@ -52,7 +52,9 @@ files beyond the artifact bytes the host passes in. The CI gate
 `cargo run -p xtask -- isolation` (roadmap E2a, run in the Linux C conformance
 job) fails if a deployed feature set gains networking or file-mutation source,
 a networking dependency, foreign `extern` blocks or raw system calls, or
-socket, name-resolution, `open` or file-mutation imports. Training-side tooling likewise never uploads customer data; customers
+socket, name-resolution, `open` or file-mutation imports. Its source check is a
+conservative textual deny-list, so code review still owns new macros and
+attributes in the deployed crates. Training-side tooling likewise never uploads customer data; customers
 fine-tuning on their own footage do so locally. The host owns video decoding
 (RTSP/H.264/H.265), storage, retention, face galleries, plate watch-lists and
 all business logic; the core receives decoded frames and returns results.
@@ -363,7 +365,7 @@ commit), blocked (reason; owner decision needed).
 | D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
-| E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | in progress (PR #76) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate |
+| E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | in progress (PR #76) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate; verifier bypasses that wrote files through the built library (`use std::*`, `$c::fs` with `nc!(std)`, `cfg_attr(.., path = ..)`) and a custom `build =` key are now rejected with unit tests |
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |

@@ -183,8 +183,9 @@ pub fn sigmoid_focal_loss(logit: f64, target: f64) -> f64 {
 }
 
 /// `1 − GIoU` of two boxes given as `[l, t, r, b]` distances from the same
-/// location. `None` when a distance is negative or nonfinite, or both boxes
-/// are empty.
+/// location. `None` when a distance is negative or nonfinite, both boxes
+/// are empty, or intermediate geometry is not representable as finite F64.
+/// In particular, finite distances must never produce a nonfinite loss.
 pub fn giou_loss(pred: [f64; 4], target: [f64; 4]) -> Option<f64> {
     if pred
         .iter()
@@ -194,14 +195,23 @@ pub fn giou_loss(pred: [f64; 4], target: [f64; 4]) -> Option<f64> {
         return None;
     }
     let area = |d: [f64; 4]| (d[0] + d[2]) * (d[1] + d[3]);
+    let pred_area = area(pred);
+    let target_area = area(target);
     let inter_w = pred[0].min(target[0]) + pred[2].min(target[2]);
     let inter_h = pred[1].min(target[1]) + pred[3].min(target[3]);
     let inter = inter_w * inter_h;
-    let union = area(pred) + area(target) - inter;
-    if union <= 0.0 {
+    if !pred_area.is_finite() || !target_area.is_finite() || !inter.is_finite() {
+        return None;
+    }
+    let union = pred_area + target_area - inter;
+    if !union.is_finite() || union <= 0.0 {
         return None;
     }
     let enclosing = (pred[0].max(target[0]) + pred[2].max(target[2]))
         * (pred[1].max(target[1]) + pred[3].max(target[3]));
-    Some(1.0 - inter / union + (enclosing - union) / enclosing)
+    if !enclosing.is_finite() || enclosing <= 0.0 {
+        return None;
+    }
+    let loss = 1.0 - inter / union + (enclosing - union) / enclosing;
+    loss.is_finite().then_some(loss)
 }

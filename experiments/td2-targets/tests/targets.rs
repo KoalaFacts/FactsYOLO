@@ -185,6 +185,22 @@ fn giou_hand_cases() {
 }
 
 #[test]
+fn giou_rejects_finite_inputs_that_overflow_intermediate_geometry() {
+    // Inputs are finite; their intermediate areas do not fit in F64.
+    // The old implementation returned Some(NaN), including for 1e160.
+    for magnitude in [1e154, 1e160, 1e200, f64::MAX] {
+        let huge = [magnitude; 4];
+        assert_eq!(giou_loss(huge, [1.0; 4]), None, "magnitude={magnitude}");
+        assert_eq!(giou_loss([1.0; 4], huge), None, "magnitude={magnitude}");
+    }
+    // Individual areas are finite, but their sum overflows.
+    let near_limit = [5e153; 4];
+    assert_eq!(giou_loss(near_limit, near_limit), None);
+    // Large-but-representable geometry remains valid.
+    assert_eq!(giou_loss([1e153; 4], [1.0; 4]), Some(1.0));
+}
+
+#[test]
 fn randomized_invariants_hold() {
     // Deterministic LCG; original synthetic boxes only.
     let mut state: u64 = 0x0005_eed0_f7d2;

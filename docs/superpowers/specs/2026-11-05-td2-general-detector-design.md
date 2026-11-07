@@ -187,7 +187,10 @@ axes; it is kept on a level when the largest of its four edge distances is in
 several boxes goes to the smallest area, then the lowest box index; regression
 targets are the four distances in stride units. Focal loss uses α = 0.25,
 γ = 2. The chosen training framework must reproduce these targets and loss
-values. Loss weights, augmentation and schedule remain open in D2b.
+values. GIoU returns no result when intermediate F64 geometry is not
+representable (even for finite input distances), rather than propagating
+NaN or infinity into training. Loss weights, augmentation and schedule remain
+open in D2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at

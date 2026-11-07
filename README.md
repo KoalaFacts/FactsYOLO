@@ -74,9 +74,10 @@ graph must hold no networking crate (registry crates are checked by name and
 by the import check, not by source); and the built `libfacts_yolo.so` must not import socket,
 name-resolution, `open`/`openat` or file-mutation symbols. The source check is
 a conservative textual deny-list (it also rejects `std::*` globs, `$name::`
-macro path roots and `path = "..."` attribute arguments), not a proof:
-`std::fs::write` links through allowed `open64`/`write` imports, so a bypass
-of the text scan is not caught by the import check.
+macro path roots and `path = ...` attribute arguments), not a proof, so the
+gate also reads the built library's own symbols (`nm -C --defined-only`) and
+fails on std file-write, `OpenOptions`, directory, socket, pipe or process
+code, which catches std calls hidden from the text scan by macros.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 

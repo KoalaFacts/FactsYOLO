@@ -2,9 +2,10 @@
 //! Deployed-library isolation gate (TD2 spec section 2, roadmap E2a).
 //!
 //! The deployed library must contain no networking code and must not create,
-//! write, rename or delete files. Three independent checks enforce that for
-//! every deployable feature set: the crate source, the normal dependency graph
-//! and the dynamic symbols the built Linux `cdylib` imports.
+//! write, rename or delete files. Four independent checks enforce that for
+//! every deployable feature set: the crate source, the normal dependency graph,
+//! the dynamic symbols the built Linux `cdylib` imports and the std symbols it
+//! defines.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -212,11 +213,13 @@ fn macro_path_roots(code: &str) -> Vec<String> {
     roots
 }
 
-/// `path = "..."` as an attribute argument (for example inside `cfg_attr`),
+/// `path = ...` (any literal, raw strings included) as an attribute argument (for example inside `cfg_attr`),
 /// which pulls in a module from outside `src/` like `#[path]` does.
 fn has_path_attribute(code: &str) -> bool {
-    code.match_indices("path=\"")
-        .any(|(index, _)| matches!(code[..index].chars().last(), Some('(' | ',')))
+    code.match_indices("path=").any(|(index, _)| {
+        matches!(code[..index].chars().last(), Some('(' | ','))
+            && !code[index + "path=".len()..].starts_with('=')
+    })
 }
 
 pub(crate) fn forbidden_source(path: &str, text: &str) -> Vec<String> {
@@ -273,6 +276,50 @@ pub(crate) fn forbidden_crates(tree: &str) -> Vec<String> {
         .collect();
     found.sort();
     found.dedup();
+    found
+}
+
+/// Defined std symbols (as `nm -C` prints them) that only exist when code
+/// writes, deletes or renames files, opens files through `OpenOptions`, uses
+/// sockets or spawns processes. Checking the compiled library catches what
+/// macros or other tricks hide from the textual source scan; the runtime's
+/// own read-only symbolization code (`File::open_c`, `readlink`) stays allowed.
+const FORBIDDEN_STD_SYMBOLS: [&str; 24] = [
+    "<std::fs::File as core::io::write::Write>",
+    "<std::fs::File as std::io::Write>",
+    "std::fs::DirBuilder",
+    "std::fs::OpenOptions",
+    "std::fs::write",
+    "std::net::TcpListener",
+    "std::net::TcpStream",
+    "std::net::UdpSocket",
+    "std::process::Command",
+    "std::sys::fs::copy",
+    "std::sys::fs::hard_link",
+    "std::sys::fs::remove_dir",
+    "std::sys::fs::remove_file",
+    "std::sys::fs::rename",
+    "std::sys::fs::set_perm",
+    "std::sys::fs::symlink",
+    "std::sys::fs::unix::DirBuilder",
+    "std::sys::fs::unix::link",
+    "std::sys::fs::unix::rmdir",
+    "std::sys::fs::unix::symlink",
+    "std::sys::fs::unix::unlink",
+    "std::sys::net::",
+    "std::sys::pipe::",
+    "std::sys::process::",
+];
+
+/// Parses `nm -C --defined-only` output and returns the forbidden std
+/// symbol patterns it contains.
+pub(crate) fn forbidden_std_symbols(nm: &str) -> Vec<String> {
+    let mut found: Vec<String> = FORBIDDEN_STD_SYMBOLS
+        .iter()
+        .filter(|pattern| nm.lines().any(|line| line.contains(*pattern)))
+        .map(|pattern| (*pattern).to_owned())
+        .collect();
+    found.sort();
     found
 }
 
@@ -422,6 +469,27 @@ pub(super) fn run() -> Result<(), String> {
             "{label}: {imports} imports checked, {} forbidden",
             symbols.len()
         );
+        let defined = captured(
+            Command::new("nm")
+                .args(["-C", "--defined-only"])
+                .arg(&library),
+        )?;
+        let std_symbols = defined
+            .lines()
+            .filter(|line| line.contains("std::"))
+            .count();
+        if std_symbols == 0 {
+            return Err(format!(
+                "{}: no std symbols read; is the library stripped?",
+                library.display()
+            ));
+        }
+        let code = forbidden_std_symbols(&defined);
+        violations.extend(code.iter().map(|name| format!("{label}: defines {name}")));
+        println!(
+            "{label}: {std_symbols} std symbols checked, {} forbidden",
+            code.len()
+        );
     }
     if violations.is_empty() {
         println!("isolation gate passed: no networking or file-mutation code in deployed builds");
@@ -514,10 +582,16 @@ mod tests {
             forbidden_source("e.rs", "#![cfg_attr(unix,path=\"y.rs\")]"),
             ["e.rs: path attribute"]
         );
+        for raw in [
+            "#[cfg_attr(all(), path = r\"../x.rs\")] mod xw;",
+            "#[cfg_attr(all(), path = r#\"../x.rs\"#)] mod xw;",
+        ] {
+            assert_eq!(forbidden_source("r.rs", raw), ["r.rs: path attribute"]);
+        }
         // `$crate::` names the macro's own crate and stays allowed, as do
         // ordinary `path` variables and globs of other modules.
         let clean = "macro_rules! m { () => { $crate::run() } }\n\
-                     let path = \"model\"; f(path); use core::ptr::*;";
+                     let path = \"model\"; f(path); g(path == p); use core::ptr::*;";
         assert!(forbidden_source("f.rs", clean).is_empty());
     }
 
@@ -533,6 +607,49 @@ mod tests {
         assert!(!custom_build_script(
             "[package]\nname = \"x\"\n[build-dependencies]\n"
         ));
+    }
+
+    #[test]
+    fn symbol_scan_flags_std_write_network_and_process_code() {
+        // Real `nm -C --defined-only` lines from a release build in which
+        // macro-hidden std calls passed the source check (verifier, 2026-11-08).
+        let nm = "\
+0000000000012340 t std::fs::write::inner
+0000000000012350 t <std::fs::File as core::io::write::Write>::write_all
+0000000000012360 t <std::fs::OpenOptions>::_open
+0000000000012370 t <std::sys::fs::unix::DirBuilder>::mkdir
+0000000000012380 t std::sys::fs::remove_file
+0000000000012390 t std::sys::fs::rename
+00000000000123a0 t <std::sys::fs::unix::unlink as core::ops::function::Fn<(&core::ffi::c_str::CStr,)>>::call
+00000000000123b0 t <std::sys::net::connection::socket::TcpStream>::connect::inner
+00000000000123c0 t <std::process::Command>::status
+00000000000123d0 t <std::sys::process::unix::common::Command>::spawn
+00000000000123e0 t std::sys::pipe::unix::pipe
+";
+        assert_eq!(
+            forbidden_std_symbols(nm),
+            [
+                "<std::fs::File as core::io::write::Write>",
+                "std::fs::OpenOptions",
+                "std::fs::write",
+                "std::process::Command",
+                "std::sys::fs::remove_file",
+                "std::sys::fs::rename",
+                "std::sys::fs::unix::DirBuilder",
+                "std::sys::fs::unix::unlink",
+                "std::sys::net::",
+                "std::sys::pipe::",
+                "std::sys::process::",
+            ]
+        );
+        // The runtime's own read-only symbolization code stays allowed.
+        let runtime = "\
+0000000000001000 t <std::sys::fs::unix::File>::open_c
+0000000000001010 t <&std::fs::File as alloc::io::read::Read>::read_to_string
+0000000000001020 t std::sys::fs::unix::readlink
+0000000000001030 t std::process::abort
+";
+        assert!(forbidden_std_symbols(runtime).is_empty());
     }
 
     #[test]

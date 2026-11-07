@@ -92,6 +92,10 @@ name = "td2-eval"
 version = "0.1.0"
 
 [[package]]
+name = "td2-targets"
+version = "0.1.0"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

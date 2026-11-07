@@ -13,7 +13,11 @@ mod workflows;
 
 fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    let tree = std::env::current_dir()
+        .map_err(|error| error.to_string())
+        .and_then(|cwd| evidence::same_tree(evidence::root(), &cwd));
     let result = match args.as_slice() {
+        _ if tree.is_err() => tree,
         [command] if command == "help" => {
             println!(
                 "cargo run -p xtask -- c|exports|isolation|check-docs|resources|manifest|verify|miri|layout32|dotnet --mode jit|aot [--rid RID]"

@@ -13,6 +13,26 @@ pub(super) fn root() -> &'static Path {
         .expect("workspace parent")
 }
 
+/// Fails when the working directory is outside the tree this binary was
+/// built from. `root()` is fixed at compile time, so an xtask binary built
+/// in one worktree and reused from another through a shared `--target-dir`
+/// would otherwise check the first tree and report its results as this one's.
+pub(super) fn same_tree(root: &Path, cwd: &Path) -> Result<(), String> {
+    let canonical = |path: &Path| {
+        path.canonicalize()
+            .map_err(|error| format!("{}: {error}", path.display()))
+    };
+    let (root, cwd) = (canonical(root)?, canonical(cwd)?);
+    if cwd.starts_with(&root) {
+        return Ok(());
+    }
+    Err(format!(
+        "xtask was built from {} but runs in {}; use a separate --target-dir per worktree",
+        root.display(),
+        cwd.display()
+    ))
+}
+
 pub(super) fn cargo() -> Command {
     let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     command.current_dir(root());
@@ -141,4 +161,41 @@ pub(super) fn manifest(directory: &Path) -> Result<(), String> {
         }
     }
     std::fs::write(directory.join("manifest.txt"), text).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tree_tests {
+    use super::same_tree;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!("xtask-tree-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("repo/sub")).unwrap();
+        std::fs::create_dir_all(base.join("other")).unwrap();
+        base
+    }
+
+    #[test]
+    fn running_inside_the_build_tree_passes() {
+        let base = scratch("inside");
+        assert_eq!(same_tree(&base.join("repo"), &base.join("repo")), Ok(()));
+        assert_eq!(
+            same_tree(&base.join("repo"), &base.join("repo/sub")),
+            Ok(())
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn a_binary_built_from_another_worktree_is_rejected() {
+        let base = scratch("outside");
+        let error = same_tree(&base.join("repo"), &base.join("other")).unwrap_err();
+        assert!(error.contains("built from"), "{error}");
+        assert!(error.contains("--target-dir"), "{error}");
+        // A sibling whose name only starts with the root's name is outside too.
+        std::fs::create_dir_all(base.join("repo2")).unwrap();
+        assert!(same_tree(&base.join("repo"), &base.join("repo2")).is_err());
+        assert!(same_tree(&base.join("repo"), &base.join("missing")).is_err());
+        std::fs::remove_dir_all(base).unwrap();
+    }
 }

@@ -53,7 +53,12 @@ fn put_u64(bytes: &mut [u8], at: usize, v: u64) {
 }
 
 fn hex(d: &[u8]) -> String {
-    d.iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write as _;
+    d.iter()
+        .fold(String::with_capacity(d.len() * 2), |mut out, b| {
+            let _ = write!(out, "{b:02x}");
+            out
+        })
 }
 
 #[test]

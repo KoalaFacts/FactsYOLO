@@ -107,6 +107,11 @@ Add the rows above that your change touches (TD1, Miri, layout32, experiments).
   evidence directories must be new.
 - Never use dataset pixels or external/pretrained weights as verification
   inputs. Use original synthetic frames and artifacts trained in the same job.
+- A clean clippy on the pinned 1.99.0 does not mean the CI lane
+  `rust (ubuntu-24.04, 1.85.0)` passes: older clippy fires lints that 1.99
+  no longer does (e.g. `format_collect`, PR #79). Also run
+  `RUSTUP_TOOLCHAIN=1.85.0 cargo clippy --workspace --all-targets --locked --offline --target-dir target/msrv -- -D warnings`
+  (`rustup toolchain install 1.85.0 --profile minimal --component clippy`).
 - Unit tests of a Rust function do not show that the shipped library, header
   and C# consumer agree; run `xtask c` and `xtask dotnet` for that.
 

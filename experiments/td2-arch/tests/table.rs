@@ -424,3 +424,37 @@ fn rejects_counts_that_overflow_instead_of_panicking() {
     let layers = [conv("a", INPUT, 8, u32::MAX, 1, false)];
     assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
 }
+
+#[test]
+fn rejects_a_head_wired_to_the_wrong_level() {
+    // Stride 8 pointed at the stride-32 outputs: channels match, sides do not.
+    let heads = [Head {
+        stride: 8,
+        class_layer: "p32.cls.out",
+        box_layer: "p32.box.out",
+    }];
+    assert!(matches!(
+        analyze(&table(1).unwrap(), 320, 1, &heads),
+        Err(ArchError::HeadShape {
+            layer: "p32.cls.out",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn rejects_upsample_chains_that_overflow() {
+    let mut layers = vec![conv("a", INPUT, 1, 1, 1, false)];
+    let names: Vec<&'static str> = (0..40)
+        .map(|i| &*Box::leak(format!("u{i}").into_boxed_str()))
+        .collect();
+    let mut prev = "a";
+    for &name in &names {
+        layers.push(Layer {
+            name,
+            op: Op::Upsample2 { input: prev },
+        });
+        prev = name;
+    }
+    assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
+}

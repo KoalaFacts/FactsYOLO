@@ -177,7 +177,7 @@ Current plan and design:
 
 Decisions and policy:
 
-- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md).
+- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md), [agent instructions](CLAUDE.md).
 
 M1 native foundation (complete; historical design and evidence):
 

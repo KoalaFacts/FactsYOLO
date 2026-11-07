@@ -217,6 +217,12 @@ fn giou_rejects_finite_inputs_that_overflow_intermediate_geometry() {
     // Individual areas are finite, but their sum overflows.
     let near_limit = [5e153; 4];
     assert_eq!(giou_loss(near_limit, near_limit), None);
+    // Individual areas and their union are finite; only the enclosing box
+    // overflows. Without the enclosure guard this returned Some(NaN).
+    assert_eq!(
+        giou_loss([1e154, 1.0, 1e154, 1.0], [1.0, 1e154, 1.0, 1e154]),
+        None
+    );
     // Large-but-representable geometry remains valid.
     assert_eq!(giou_loss([1e153; 4], [1.0; 4]), Some(1.0));
 }

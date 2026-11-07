@@ -190,8 +190,8 @@ targets are the four distances in stride units. Focal loss uses α = 0.25,
 values. Boxes whose finite endpoints yield nonfinite F64 spans or area
 are rejected as invalid input rather than silently losing their training
 targets. GIoU returns no result when intermediate F64 geometry is not
-representable (even for finite input distances), rather than propagating
-NaN or infinity into training. Loss weights, augmentation and schedule remain
+representable (even for finite input distances) or when an area underflows
+to zero, rather than propagating NaN or infinity into training. Loss weights, augmentation and schedule remain
 open in D2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
@@ -374,7 +374,7 @@ commit), blocked (reason; owner decision needed).
 | C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | todo (owner approves before any download) | — |
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
-| D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | in progress (branch `claude/td2-d2a-targets-losses`) | `experiments/td2-targets`: 15 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught |
+| D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | in progress (branch `claude/td2-d2a-targets-losses`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
 | D2b | Frozen layer table, loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |

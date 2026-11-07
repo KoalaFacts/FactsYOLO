@@ -40,10 +40,10 @@ The [TD2 and CCTV vision task roadmap](docs/superpowers/specs/2026-11-05-td2-gen
 is the accepted design for the next model work: general detection (objects,
 animals, people, vehicles, faces, licence plates), then licence-plate, scene
 and face recognition, for on-premises CCTV cameras, NVRs and edge devices. Only
-its training-side references exist so far, as unlinked experiments: an independent
-COCO-style evaluator (`experiments/td2-eval`) and a frozen target-assignment and
-loss reference (`experiments/td2-targets`). There is no TD2 model, backend or
-artifact format on main; TD1 is maintenance-only.
+unlinked training-side experiments exist so far: the Stage B oracle
+(`experiments/td2-framework`), an evaluator (`experiments/td2-eval`) and the
+target/loss reference (`experiments/td2-targets`); no TD2 model, backend or
+artifact format is on main. TD1 is maintenance-only.
 
 ## Build and verify
 

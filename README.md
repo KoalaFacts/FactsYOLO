@@ -39,12 +39,10 @@ establishing a stable SDK support promise.
 The [TD2 and CCTV vision task roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md)
 is the accepted design for the next model work: general detection (objects,
 animals, people, vehicles, faces, licence plates), then licence-plate, scene
-and face recognition, for on-premises CCTV cameras, NVRs and edge devices. Only
-unlinked training-side experiments exist so far: the Stage B oracle
-(`experiments/td2-framework`), an evaluator (`experiments/td2-eval`) and the
-target/loss reference (`experiments/td2-targets`), plus the FYTDv002 container
-parser (`crates/fy-td2-artifact`, not linked into the library); no TD2 model or
-backend is on main. TD1 is maintenance-only.
+and face recognition, for on-premises CCTV cameras, NVRs and edge devices. So
+far only unlinked TD2 experiments under `experiments/` and the FYTDv002
+container parser (`crates/fy-td2-artifact`) exist; no TD2 model or backend is
+on main. TD1 is maintenance-only.
 
 ## Build and verify
 
@@ -107,9 +105,9 @@ cargo build -p facts-yolo --features td1 --locked --offline --release
 cargo test -p facts-yolo --features td1 --locked --offline
 ```
 
-TD1 requires 64x64 RGB/BGR/RGBA views, reports backend 1 (`FY_BACKEND_TD1_CPU`), F32 and one thread, and
-accepts only the checked FYTDv001 artifact. The default remains backend-free;
-private contract fixtures remain separately marked TEST_ONLY. Real-artifact CI
+TD1 requires 64x64 RGB/BGR/RGBA views, reports `FY_BACKEND_TD1_CPU`, F32 and
+one thread, and accepts only the checked FYTDv001 artifact. The default remains
+backend-free; private contract fixtures remain separately marked TEST_ONLY. Real-artifact CI
 exercises C shared/static consumers on Linux x64 and C DLL consumers on Windows
 x64, plus C# JIT/AOT on both. Each host trains and consumes its own ephemeral
 artifacts; Windows static C and cross-host bitwise training identity are not claimed.

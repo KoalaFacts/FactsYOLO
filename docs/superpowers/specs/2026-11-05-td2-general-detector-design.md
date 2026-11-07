@@ -161,7 +161,23 @@ top-down plus bottom-up feature pyramid over strides 8/16/32, and a decoupled
 head per level: one branch for class logits plus objectness, one for four box
 distances. Batch norm is folded into convolution weights at export. Budgets:
 **≤ 3.0 M parameters** (≤ 12 MB F32) and **≤ 2.5 GFLOPs at S=320**. The exact
-layer table is fixed in stage D before training. Operators are limited to ones
+layer table is fixed in stage D before training.
+
+The layer table is frozen in `experiments/td2-arch` (std-only Rust, not linked
+into the library; roadmap D2b1): a stride-4 stem (two 3×3 stride-2
+convolutions, 24 and 48 channels, one block), inverted residual blocks (1×1
+expand ×2, 3×3 depthwise, 1×1 linear project, residual add) at strides 8/16/32
+with widths 96/192/320 and 2/3/2 blocks, each stage entered by a stride-2
+depthwise-separable unit; 1×1 laterals to 96 channels, top-down (nearest 2×
+upsample, add) and bottom-up (stride-2 depthwise-separable unit, add) paths
+with a depthwise-separable unit after each sum; and per level two separate
+branches of two depthwise-separable units each ending in a 1×1 linear output
+of C+1 channels (class logits, objectness) or 4 (box distances). At S=320 with
+C=120 it has 1,757,463 parameters and 1.455 GFLOPs (2 per multiply-accumulate,
+plus bias and add elements); 2.458 GFLOPs at S=416. Only 1×1/3×3 convolutions,
+3×3 depthwise convolutions, SiLU, nearest upsample and element-wise add are
+used: the stage B operator list (section 10) plus add, which stage B must
+also cover before ADR 0002. Changing the table changes these frozen numbers. Operators are limited to ones
 that quantize well to INT8, and the backbone exposes its pyramid features so T3
 can reuse them.
 
@@ -193,7 +209,7 @@ targets. GIoU returns no result when intermediate F64 geometry is not
 representable (even for finite input distances) or when the union or
 enclosing area underflows to zero, rather than propagating NaN or infinity
 into training. Loss weights, augmentation and schedule remain
-open in D2b.
+open in D2b2.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
@@ -376,7 +392,8 @@ commit), blocked (reason; owner decision needed).
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | in progress (branch `claude/td2-d2a-targets-losses`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
-| D2b | Frozen layer table, loss weights, augmentation and schedule | Fixed before training | todo | — |
+| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (branch `claude/td2-d2b1-layer-table`) | `experiments/td2-arch`: 8 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks; 7 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs) each caught |
+| D2b2 | Frozen loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |

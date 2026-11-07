@@ -57,6 +57,7 @@ cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 cargo run -p xtask --locked --offline -- c
+cargo run -p xtask --locked --offline -- isolation
 cargo run -p xtask --locked --offline -- verify
 cargo run -p xtask --locked --offline -- check-docs
 ```
@@ -64,7 +65,19 @@ cargo run -p xtask --locked --offline -- check-docs
 `check-docs` fails on broken relative links or anchors, Markdown files missing
 from the [documentation index](#documentation), and paths under the repository's
 top-level source directories (`crates/`, `docs/`, `experiments/`, ...) named in
-inline code that do not exist.
+inline code that do not exist. `isolation` (Linux) checks each shipped
+feature set of the deployed library: the source of every local crate in its
+graph must not use `std::fs`, `std::net`, `std::os`, `std::process`, foreign
+`extern` blocks, `libc::`, `syscall` or `asm!`, rename `std`, or pull code
+from outside `src/` (`#[path]`, `include!`, build scripts); its dependency
+graph must hold no networking crate (registry crates are checked by name and
+by the import check, not by source); and the built `libfacts_yolo.so` must not import socket,
+name-resolution, `open`/`openat` or file-mutation symbols. The source check is
+a conservative textual deny-list (it also rejects `std::*` globs, `$name::`
+macro path roots and `path = ...` attribute arguments), not a proof, so the
+gate also reads the built library's own symbols (`nm -C --defined-only`) and
+fails on std file-write, `OpenOptions`, directory, socket, pipe or process
+code, which catches std calls hidden from the text scan by macros.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 
@@ -169,7 +182,7 @@ Current plan and design:
 
 Decisions and policy:
 
-- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md).
+- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md), [agent instructions](CLAUDE.md).
 
 M1 native foundation (complete; historical design and evidence):
 

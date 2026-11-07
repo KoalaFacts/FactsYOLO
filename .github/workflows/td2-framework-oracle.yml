@@ -3,11 +3,19 @@ on:
   pull_request:
     paths:
       - 'experiments/td2-framework/**'
+      - 'experiments/cpu-detector/evaluate/src/bin/td2_proxy.rs'
+      - 'experiments/cpu-detector/Cargo.toml'
+      - 'experiments/cpu-detector/Cargo.lock'
+      - 'experiments/cpu-detector/evaluate/Cargo.toml'
       - '.github/workflows/td2-framework-oracle.yml'
   push:
     branches: [main]
     paths:
       - 'experiments/td2-framework/**'
+      - 'experiments/cpu-detector/evaluate/src/bin/td2_proxy.rs'
+      - 'experiments/cpu-detector/Cargo.toml'
+      - 'experiments/cpu-detector/Cargo.lock'
+      - 'experiments/cpu-detector/evaluate/Cargo.toml'
       - '.github/workflows/td2-framework-oracle.yml'
 concurrency:
   # A newer push to the same pull request supersedes the older run; main runs are never cancelled.
@@ -37,10 +45,11 @@ jobs:
           git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          "${{ matrix.python }}" experiments/td2-framework/verify_ci_source.py --event "$GITHUB_EVENT_NAME" --checkout "$GITHUB_SHA" --source "${{ github.event.pull_request.head.sha || github.sha }}" --base "${{ github.event.pull_request.base.sha || '' }}" --output td2-ci-source.json
       - name: Verify independent forward and finite-difference gradients
         shell: bash
         run: |
-          "${{ matrix.python }}" -m unittest discover -s experiments/td2-framework -p 'test_reference_oracle.py' -v
+          "${{ matrix.python }}" -m unittest discover -s experiments/td2-framework -p 'test_*.py' -v
           "${{ matrix.python }}" experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json
           "${{ matrix.python }}" -c 'import json; d=json.load(open("td2-b-oracle.json",encoding="utf-8")); assert not d["framework_selected"] and not d["training_executed"]; assert len(d["outputs"])==32'
       - name: Preserve numerical reference values
@@ -48,5 +57,73 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: td2-oracle-${{ matrix.os }}
-          path: td2-b-oracle.json
+          path: |
+            td2-b-oracle.json
+            td2-ci-source.json
           if-no-files-found: error
+  real-rust-autodiff:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: python3
+          - os: windows-2022
+            python: python
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      RUSTUP_TOOLCHAIN: '1.99.0'
+      CARGO_TERM_COLOR: never
+      RAYON_NUM_THREADS: '1'
+    steps:
+      - name: Check out exact public commit
+        shell: bash
+        run: |
+          git init .
+          git config core.autocrlf false
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          "${{ matrix.python }}" experiments/td2-framework/verify_ci_source.py --event "$GITHUB_EVENT_NAME" --checkout "$GITHUB_SHA" --source "${{ github.event.pull_request.head.sha || github.sha }}" --base "${{ github.event.pull_request.base.sha || '' }}" --output td2-ci-source.json
+      - name: Install pinned Rust and fetch existing evaluation lockfile
+        shell: bash
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          cargo fetch --manifest-path experiments/cpu-detector/Cargo.toml --locked
+      - name: Compile both real framework graphs, compare forward and autodiff
+        shell: bash
+        run: |
+          "${{ matrix.python }}" -m unittest discover -s experiments/td2-framework -p "test_*.py" -v
+          "${{ matrix.python }}" experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json
+          cargo test --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --bin td2_proxy
+          cargo build --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --bin td2_proxy
+          for backend in burn candle; do
+            cargo run --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --quiet --bin td2_proxy -- "$backend" td2-b-oracle.json > "td2-$backend.json"
+            "${{ matrix.python }}" experiments/td2-framework/verify_backend.py "$backend" td2-b-oracle.json "td2-$backend.json" --output "td2-$backend-comparison.json"
+          done
+      - name: Check matched 20-step Rust autodiff with externally applied SGD
+        shell: bash
+        run: |
+          exe=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then exe=".exe"; fi
+          bin="experiments/cpu-detector/target/release/td2_proxy${exe}"
+          for backend in burn candle; do
+            "${{ matrix.python }}" experiments/td2-framework/td2_native_sgd_replay.py --binary "$bin" --backend "$backend" --output "td2-$backend-20step-sgd.json"
+          done
+      - name: Preserve exact numerical evidence (no weights or pixels)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: td2-real-autodiff-${{ matrix.os }}
+          path: |
+            td2-b-oracle.json
+            td2-ci-source.json
+            td2-burn.json
+            td2-candle.json
+            td2-burn-comparison.json
+            td2-candle-comparison.json
+            td2-burn-20step-sgd.json
+            td2-candle-20step-sgd.json
+          if-no-files-found: ignore

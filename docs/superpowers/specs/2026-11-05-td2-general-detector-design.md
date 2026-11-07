@@ -187,7 +187,9 @@ axes; it is kept on a level when the largest of its four edge distances is in
 several boxes goes to the smallest area, then the lowest box index; regression
 targets are the four distances in stride units. Focal loss uses α = 0.25,
 γ = 2. The chosen training framework must reproduce these targets and loss
-values. GIoU returns no result when intermediate F64 geometry is not
+values. Boxes whose finite endpoints yield nonfinite F64 spans or area
+are rejected as invalid input rather than silently losing their training
+targets. GIoU returns no result when intermediate F64 geometry is not
 representable (even for finite input distances), rather than propagating
 NaN or infinity into training. Loss weights, augmentation and schedule remain
 open in D2b.

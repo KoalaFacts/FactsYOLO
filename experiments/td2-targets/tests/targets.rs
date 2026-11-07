@@ -137,6 +137,27 @@ fn rejects_invalid_inputs() {
 }
 
 #[test]
+fn rejects_finite_box_endpoints_with_unrepresentable_geometry() {
+    // Previously these boxes were accepted despite an infinite computed area.
+    // A box centred on the image then silently had zero assigned positives,
+    // because its area could never beat the initial best_area = infinity.
+    for bad in [
+        gt(-1e200, -1e200, 1e200, 1e200, 0), // finite spans, area overflows
+        gt(-f64::MAX, -1.0, f64::MAX, 1.0, 0), // width itself overflows
+        gt(80.0, 80.0, 1e200, 1e200, 0),    // finite endpoints, area overflows
+    ] {
+        assert_eq!(
+            assign(320, 1, &[bad]).unwrap_err(),
+            TargetError::InvalidBox(0),
+            "{bad:?}"
+        );
+    }
+    // A normal finite positive-area box must retain its existing targets.
+    let valid = assign(320, 1, &[gt(80.0, 80.0, 120.0, 120.0, 0)]).unwrap();
+    assert_eq!(positives(&valid, 0), 25);
+}
+
+#[test]
 fn bce_is_stable_at_extremes() {
     assert!((bce_with_logits(0.0, 1.0) - std::f64::consts::LN_2).abs() < 1e-15);
     assert!((bce_with_logits(0.0, 0.0) - std::f64::consts::LN_2).abs() < 1e-15);

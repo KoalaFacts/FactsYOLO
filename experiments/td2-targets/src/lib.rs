@@ -71,7 +71,7 @@ pub enum TargetError {
     InputSize(u32),
     /// The class count is zero.
     ClassCount,
-    /// The box at this index is nonfinite or has no positive width and height.
+    /// The box has nonfinite coordinates, nonpositive spans, or an unrepresentable F64 span/area.
     InvalidBox(usize),
     ClassOutOfRange {
         index: usize,
@@ -96,7 +96,18 @@ pub fn assign(
         let finite = [b.left, b.top, b.right, b.bottom]
             .iter()
             .all(|v| v.is_finite());
-        if !finite || b.right <= b.left || b.bottom <= b.top {
+        let width = b.right - b.left;
+        let height = b.bottom - b.top;
+        // Finite endpoints can still overflow a span or area. Silently
+        // accepting infinite areas drops their targets: every cell starts
+        // with best_area = infinity, so an infinite area can never win.
+        if !finite
+            || width <= 0.0
+            || height <= 0.0
+            || !width.is_finite()
+            || !height.is_finite()
+            || !(width * height).is_finite()
+        {
             return Err(TargetError::InvalidBox(index));
         }
         if b.class >= class_count {

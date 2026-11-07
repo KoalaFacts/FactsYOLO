@@ -346,3 +346,81 @@ fn wiring_fingerprint_is_frozen() {
     assert!(text.contains("bu4.sum=add(bu4.down,td4);"));
     assert_eq!(fnv1a(text.as_bytes()), 10_822_089_495_293_790_261);
 }
+
+#[test]
+fn rejects_sizes_above_the_maximum() {
+    let t = table(MAX_CLASSES).unwrap();
+    assert!(analyze(&t, MAX_INPUT_SIZE, MAX_CLASSES, &HEADS).is_ok());
+    let over = MAX_INPUT_SIZE + 32;
+    assert_eq!(
+        analyze(&t, over, MAX_CLASSES, &HEADS),
+        Err(ArchError::InputSize(over))
+    );
+}
+
+#[test]
+fn rejects_heads_off_the_pyramid_strides() {
+    // A zero stride used to divide by zero; 4 is not a TD2 output stride.
+    for stride in [0, 4, 64] {
+        let heads = [Head {
+            stride,
+            class_layer: "a",
+            box_layer: "a",
+        }];
+        let layers = [conv("a", INPUT, 8, 3, 2, false)];
+        assert_eq!(
+            analyze(&layers, 64, 1, &heads),
+            Err(ArchError::HeadStride(stride))
+        );
+    }
+}
+
+#[test]
+fn rejects_activated_or_non_convolution_head_outputs() {
+    let mut t = table(1).unwrap();
+    let i = t.iter().position(|l| l.name == "p16.box.out").unwrap();
+    if let Op::Conv { act, .. } = &mut t[i].op {
+        *act = Act::Silu;
+    }
+    assert_eq!(
+        analyze(&t, 320, 1, &HEADS),
+        Err(ArchError::HeadActivation("p16.box.out"))
+    );
+    // Same shape, but an add of the box output with itself.
+    let mut t = table(1).unwrap();
+    let j = t.iter().position(|l| l.name == "p32.cls.out").unwrap();
+    t.push(Layer {
+        name: "p32.box.sum",
+        op: Op::Add {
+            a: "p32.box.out",
+            b: "p32.box.out",
+        },
+    });
+    let heads = [
+        HEADS[0],
+        HEADS[1],
+        Head {
+            stride: 32,
+            class_layer: t[j].name,
+            box_layer: "p32.box.sum",
+        },
+    ];
+    assert_eq!(
+        analyze(&t, 320, 1, &heads),
+        Err(ArchError::HeadActivation("p32.box.sum"))
+    );
+}
+
+#[test]
+fn rejects_counts_that_overflow_instead_of_panicking() {
+    // u32::MAX channels into a u32::MAX-wide 3×3 convolution: the
+    // multiply-accumulate count exceeds u64.
+    let layers = [
+        conv("a", INPUT, u32::MAX, 3, 1, false),
+        conv("b", "a", u32::MAX, 3, 1, false),
+    ];
+    assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
+    // An odd kernel so large that k² alone exceeds u64.
+    let layers = [conv("a", INPUT, 8, u32::MAX, 1, false)];
+    assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
+}

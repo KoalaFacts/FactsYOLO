@@ -41,6 +41,8 @@ pub const MAX_PARAMETERS: u64 = 3_000_000;
 pub const MAX_FLOPS_AT_BASELINE: u64 = 2_500_000_000;
 /// Baseline input size S.
 pub const BASELINE_SIZE: u32 = 320;
+/// Largest input size accepted by [`analyze`]; bounds every count.
+pub const MAX_INPUT_SIZE: u32 = 1280;
 /// Width of every pyramid and head feature.
 pub const PYRAMID_WIDTH: u32 = 96;
 /// Name of the implicit input layer.
@@ -131,6 +133,12 @@ pub enum ArchError {
         expected: Shape,
         actual: Shape,
     },
+    /// A head's stride is not one of [`HEAD_STRIDES`].
+    HeadStride(u32),
+    /// A head output is not a convolution without activation.
+    HeadActivation(&'static str),
+    /// A parameter, FLOP or shape count does not fit its integer type.
+    Overflow,
 }
 
 impl fmt::Display for ArchError {
@@ -392,9 +400,19 @@ pub fn analyze(
     if classes == 0 || classes > MAX_CLASSES {
         return Err(ArchError::ClassCount(classes));
     }
-    if size == 0 || size % 32 != 0 {
+    if size == 0 || size % 32 != 0 || size > MAX_INPUT_SIZE {
         return Err(ArchError::InputSize(size));
     }
+    if let Some(head) = heads.iter().find(|h| !HEAD_STRIDES.contains(&h.stride)) {
+        return Err(ArchError::HeadStride(head.stride));
+    }
+    let mul = |values: &[u64]| {
+        values
+            .iter()
+            .try_fold(1u64, |acc, &v| acc.checked_mul(v))
+            .ok_or(ArchError::Overflow)
+    };
+    let mut linear: HashMap<&'static str, bool> = HashMap::new();
     let mut shapes: HashMap<&'static str, Shape> = HashMap::new();
     shapes.insert(
         INPUT,
@@ -449,25 +467,32 @@ pub fn analyze(
                         output: out,
                     });
                 }
-                let per_out = u64::from(if depthwise { 1 } else { x.c })
-                    * u64::from(kernel)
-                    * u64::from(kernel);
+                let per_out = mul(&[
+                    u64::from(if depthwise { 1 } else { x.c }),
+                    u64::from(kernel),
+                    u64::from(kernel),
+                ])?;
                 let y = Shape {
                     c: out,
                     h: x.h / stride,
                     w: x.w / stride,
                 };
-                let elements = u64::from(y.c) * u64::from(y.h) * u64::from(y.w);
-                let params = per_out * u64::from(out) + u64::from(out);
-                (y, params, 2 * per_out * elements + elements)
+                let elements = mul(&[u64::from(y.c), u64::from(y.h), u64::from(y.w)])?;
+                let params = mul(&[per_out, u64::from(out)])?
+                    .checked_add(u64::from(out))
+                    .ok_or(ArchError::Overflow)?;
+                let flops = mul(&[2, per_out, elements])?
+                    .checked_add(elements)
+                    .ok_or(ArchError::Overflow)?;
+                (y, params, flops)
             }
             Op::Upsample2 { input } => {
                 let x = get(input)?;
                 (
                     Shape {
                         c: x.c,
-                        h: x.h * 2,
-                        w: x.w * 2,
+                        h: x.h.checked_mul(2).ok_or(ArchError::Overflow)?,
+                        w: x.w.checked_mul(2).ok_or(ArchError::Overflow)?,
                     },
                     0,
                     0,
@@ -482,12 +507,24 @@ pub fn analyze(
                         b: sb,
                     });
                 }
-                (sa, 0, u64::from(sa.c) * u64::from(sa.h) * u64::from(sa.w))
+                (
+                    sa,
+                    0,
+                    mul(&[u64::from(sa.c), u64::from(sa.h), u64::from(sa.w)])?,
+                )
             }
         };
         shapes.insert(layer.name, shape);
-        total_p += parameters;
-        total_f += flops;
+        let is_linear = matches!(
+            layer.op,
+            Op::Conv {
+                act: Act::Linear,
+                ..
+            }
+        );
+        linear.insert(layer.name, is_linear);
+        total_p = total_p.checked_add(parameters).ok_or(ArchError::Overflow)?;
+        total_f = total_f.checked_add(flops).ok_or(ArchError::Overflow)?;
         reports.push(LayerReport {
             name: layer.name,
             shape,
@@ -513,6 +550,10 @@ pub fn analyze(
                     expected,
                     actual,
                 });
+            }
+            // Logits and raw distances must not pass through an activation.
+            if linear.get(name) != Some(&true) {
+                return Err(ArchError::HeadActivation(name));
             }
         }
     }

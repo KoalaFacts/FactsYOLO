@@ -197,8 +197,13 @@ are rejected as invalid input rather than silently losing their training
 targets. GIoU returns no result when intermediate F64 geometry is not
 representable (even for finite input distances) or when the union or
 enclosing area underflows to zero, rather than propagating NaN or infinity
-into training. Loss weights, augmentation and schedule remain
-open in D2b.
+into training. The batch loss (`total_loss`, roadmap D2b2a) sums focal loss over
+every location and class, objectness BCE over every location and `1 − GIoU`
+over positives only, divides each sum by the batch's positive count (at least
+1) and weights them 1 / 1 / 5 (class / objectness / box); a target class at or
+above the prediction's class count, a mis-sized or nonfinite prediction, or a
+positive box without a GIoU is an error. Augmentation and schedule remain open
+in D2b2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
@@ -397,7 +402,9 @@ commit), blocked (reason; owner decision needed).
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
-| D2b | Frozen layer table, loss weights, augmentation and schedule | Fixed before training | todo | — |
+| D2b1 | Frozen layer table | Fixed before training | in progress (branch `claude/td2-d2b1-layer-table`) | — |
+| D2b2a | Frozen loss weights and per-batch normalization | Fixed before training | in progress (this PR) | `experiments/td2-targets/tests/total.rs`: 8 tests incl. closed-form zero-logit and objectness-logit sums, GIoU mean, per-batch (not per-image) normalization; 9 guard/term mutations each caught |
+| D2b2b | Frozen augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | in progress (this PR) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
 | E1b | Native `td2` backend: layer-kind validation (after D2b), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |

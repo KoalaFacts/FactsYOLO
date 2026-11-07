@@ -35,6 +35,12 @@ pub const CENTER_RADIUS: f64 = 2.5;
 pub const FOCAL_ALPHA: f64 = 0.25;
 /// Focal-loss focusing exponent.
 pub const FOCAL_GAMMA: f64 = 2.0;
+/// Weight of the class (focal) term in [`total_loss`].
+pub const WEIGHT_CLASS: f64 = 1.0;
+/// Weight of the objectness (BCE) term in [`total_loss`].
+pub const WEIGHT_OBJECTNESS: f64 = 1.0;
+/// Weight of the box (GIoU) term in [`total_loss`].
+pub const WEIGHT_BOX: f64 = 5.0;
 
 /// Ground-truth box in letterboxed input pixels with its class index.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -225,4 +231,135 @@ pub fn giou_loss(pred: [f64; 4], target: [f64; 4]) -> Option<f64> {
     }
     let loss = 1.0 - inter / union + (enclosing - union) / enclosing;
     loss.is_finite().then_some(loss)
+}
+
+/// Network outputs for one pyramid level, row-major like [`LevelTargets`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct LevelPrediction {
+    /// `cells × class_count` class logits, class fastest.
+    pub class_logits: Vec<f64>,
+    /// One objectness logit per cell.
+    pub objectness: Vec<f64>,
+    /// `[l, t, r, b]` distances in stride units per cell; read only at
+    /// positive locations.
+    pub boxes: Vec<[f64; 4]>,
+}
+
+/// Loss terms of one batch, each already divided by `max(1, positives)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LossParts {
+    pub class: f64,
+    pub objectness: f64,
+    pub boxes: f64,
+    /// `WEIGHT_CLASS·class + WEIGHT_OBJECTNESS·objectness + WEIGHT_BOX·boxes`.
+    pub total: f64,
+    /// Positive locations in the whole batch.
+    pub positives: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LossError {
+    EmptyBatch,
+    ClassCount,
+    /// The image has a different number of levels than its targets.
+    Levels {
+        image: usize,
+    },
+    /// A prediction vector length does not match its level.
+    Shape {
+        image: usize,
+        level: usize,
+    },
+    /// A logit is NaN or infinite.
+    NonFinite {
+        image: usize,
+        level: usize,
+    },
+    /// A positive location's box prediction has no GIoU (see [`giou_loss`]).
+    InvalidBox {
+        image: usize,
+        level: usize,
+        cell: usize,
+    },
+    /// A target class is not below `class_count`.
+    ClassOutOfRange {
+        image: usize,
+        level: usize,
+        cell: usize,
+    },
+}
+
+/// Frozen training loss of a batch (stage D2b2a).
+///
+/// Sums the sigmoid focal loss over every location and class (one-hot
+/// target at positives), the objectness BCE over every location (1 at
+/// positives, 0 elsewhere) and `1 − GIoU` over positive locations only, then
+/// divides each sum by the batch's positive count (at least 1) and weights
+/// them with `WEIGHT_CLASS`, `WEIGHT_OBJECTNESS` and `WEIGHT_BOX`. The
+/// per-positive normalization and the box weight follow
+/// [YOLOX](https://arxiv.org/abs/2107.08430) in idea only.
+pub fn total_loss(
+    batch: &[(&[LevelTargets], &[LevelPrediction])],
+    class_count: usize,
+) -> Result<LossParts, LossError> {
+    if batch.is_empty() {
+        return Err(LossError::EmptyBatch);
+    }
+    if class_count == 0 {
+        return Err(LossError::ClassCount);
+    }
+    let (mut cls, mut obj, mut reg, mut positives) = (0.0, 0.0, 0.0, 0usize);
+    for (image, (targets, preds)) in batch.iter().enumerate() {
+        if targets.len() != preds.len() {
+            return Err(LossError::Levels { image });
+        }
+        for (level, (t, p)) in targets.iter().zip(preds.iter()).enumerate() {
+            let cells = t.cells.len();
+            let shape_ok = cells
+                .checked_mul(class_count)
+                .is_some_and(|n| n == p.class_logits.len())
+                && p.objectness.len() == cells
+                && p.boxes.len() == cells;
+            if !shape_ok {
+                return Err(LossError::Shape { image, level });
+            }
+            if p.class_logits
+                .iter()
+                .chain(&p.objectness)
+                .any(|v| !v.is_finite())
+            {
+                return Err(LossError::NonFinite { image, level });
+            }
+            for (cell, target) in t.cells.iter().enumerate() {
+                let logits = &p.class_logits[cell * class_count..(cell + 1) * class_count];
+                let positive_class = target.map(|a| usize::from(a.class));
+                if positive_class.is_some_and(|c| c >= class_count) {
+                    return Err(LossError::ClassOutOfRange { image, level, cell });
+                }
+                for (c, &logit) in logits.iter().enumerate() {
+                    let y = if positive_class == Some(c) { 1.0 } else { 0.0 };
+                    cls += sigmoid_focal_loss(logit, y);
+                }
+                let y = if target.is_some() { 1.0 } else { 0.0 };
+                obj += bce_with_logits(p.objectness[cell], y);
+                if let Some(a) = target {
+                    reg += giou_loss(p.boxes[cell], a.ltrb).ok_or(LossError::InvalidBox {
+                        image,
+                        level,
+                        cell,
+                    })?;
+                    positives += 1;
+                }
+            }
+        }
+    }
+    let n = positives.max(1) as f64;
+    let (class, objectness, boxes) = (cls / n, obj / n, reg / n);
+    Ok(LossParts {
+        class,
+        objectness,
+        boxes,
+        total: WEIGHT_CLASS * class + WEIGHT_OBJECTNESS * objectness + WEIGHT_BOX * boxes,
+        positives,
+    })
 }

@@ -137,6 +137,25 @@ fn rejects_invalid_inputs() {
 }
 
 #[test]
+fn target_limits_match_t1_artifact_contract() {
+    // Both were accepted by the old oracle, despite being impossible to encode
+    // as an FYTDv002 T1 header. Check before constructing any target grid.
+    assert_eq!(
+        assign(1056, 1, &[]).unwrap_err(),
+        TargetError::InputSize(1056)
+    );
+    assert_eq!(assign(32, 121, &[]).unwrap_err(), TargetError::ClassCount);
+
+    // The inclusive upper boundaries must remain usable.
+    let levels = assign(1024, 1, &[]).unwrap();
+    assert_eq!(
+        levels.iter().map(|l| l.width).collect::<Vec<_>>(),
+        vec![128, 64, 32]
+    );
+    assert_eq!(assign(32, 120, &[]).unwrap().len(), STRIDES.len());
+}
+
+#[test]
 fn rejects_finite_box_endpoints_with_unrepresentable_geometry() {
     // Previously these boxes were accepted despite an infinite computed area.
     // A box centred on the image then silently had zero assigned positives,

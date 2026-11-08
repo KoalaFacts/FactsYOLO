@@ -482,11 +482,11 @@ fn rejects_unsupported_kernels_even_when_frozen_head_shapes_still_match() {
 #[test]
 fn rejects_a_head_wired_to_the_wrong_level() {
     // Stride 8 pointed at the stride-32 outputs: channels match, sides do not.
-    let heads = [Head {
-        stride: 8,
-        class_layer: "p32.cls.out",
-        box_layer: "p32.box.out",
-    }];
+    // Swapping the finest and coarsest outputs keeps a full, distinct set.
+    let mut heads = HEADS;
+    (heads[0].class_layer, heads[2].class_layer) = (heads[2].class_layer, heads[0].class_layer);
+    (heads[0].box_layer, heads[2].box_layer) = (heads[2].box_layer, heads[0].box_layer);
+    assert_eq!(heads[0].class_layer, "p32.cls.out");
     assert!(matches!(
         analyze(&table(1).unwrap(), 320, 1, &heads),
         Err(ArchError::HeadShape {
@@ -511,4 +511,65 @@ fn rejects_upsample_chains_that_overflow() {
         prev = name;
     }
     assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
+}
+
+#[test]
+fn rejects_head_sets_that_are_not_one_distinct_head_per_stride() {
+    let t = table(3).unwrap();
+    // Each of these returned Ok: the canonical table's outputs satisfy every
+    // per-head shape check, but the set does not describe three heads.
+    assert_eq!(analyze(&t, 320, 3, &[]), Err(ArchError::HeadCount(0)));
+    assert_eq!(
+        analyze(&t, 320, 3, &HEADS[..2]),
+        Err(ArchError::HeadCount(2))
+    );
+    assert_eq!(
+        analyze(&t, 320, 3, &[HEADS[0]; 3]),
+        Err(ArchError::HeadOrder {
+            index: 1,
+            stride: 8
+        })
+    );
+    assert_eq!(
+        analyze(&t, 320, 3, &[HEADS[2], HEADS[1], HEADS[0]]),
+        Err(ArchError::HeadOrder {
+            index: 0,
+            stride: 32
+        })
+    );
+    // With C+1 = 4 the class and box outputs have the same shape, so one
+    // layer could serve as both.
+    let mut heads = HEADS;
+    heads[1].class_layer = heads[1].box_layer;
+    assert_eq!(
+        analyze(&t, 320, 3, &heads),
+        Err(ArchError::HeadOutputReused(HEADS[1].box_layer))
+    );
+    // The frozen head set is still accepted.
+    assert!(analyze(&t, 320, 3, &HEADS).is_ok());
+}
+
+#[test]
+fn rejects_dead_layers_and_consumed_head_outputs() {
+    // A linear 4-channel branch off `p8.box.b` named as the stride-8 box
+    // output passes every per-head check, leaving `p8.box.out` dead.
+    let mut t = table(1).unwrap();
+    let mut extra = conv("extra", "p8.box.b", 4, 1, 1, false);
+    if let Op::Conv { act, .. } = &mut extra.op {
+        *act = Act::Linear;
+    }
+    t.push(extra);
+    let mut heads = HEADS;
+    heads[0].box_layer = "extra";
+    assert_eq!(
+        analyze(&t, 320, 1, &heads),
+        Err(ArchError::UnusedLayer("p8.box.out"))
+    );
+    // A head output fed into a later layer is not a final output.
+    let mut t = table(1).unwrap();
+    t.push(conv("tail", "p32.cls.out", 8, 1, 1, false));
+    assert_eq!(
+        analyze(&t, 320, 1, &HEADS),
+        Err(ArchError::ConsumedOutput("p32.cls.out"))
+    );
 }

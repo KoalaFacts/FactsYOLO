@@ -262,7 +262,8 @@ operation and rounding half away from zero at the end; a flip maps
 box edges `[l, r]` to `[W − r, W − l]` and photometric operations never move
 boxes. Empty or mis-sized images, nonfinite or out-of-range parameters and
 nonfinite, inverted, empty (zero width or height) or out-of-image boxes are
-errors. Scale jitter, blur and
+errors. If reflection rounds a positive-width box to zero width in F64,
+augmentation rejects it instead of returning a broken target. Scale jitter, blur and
 JPEG-style compression remain open in D2b2b2.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates

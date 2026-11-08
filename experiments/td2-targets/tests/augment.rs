@@ -79,6 +79,22 @@ fn flip_mirrors_rows_and_boxes() {
 }
 
 #[test]
+fn flip_rejects_boxes_collapsed_by_f64_rounding() {
+    let img = image(2, 2, &[0; 12]);
+    // Representable positive width, but both reflected edges round to 2.0.
+    let boxes = [gt(0.0, 0.0, 1e-16, 1.0)];
+    assert!(apply(&img, &boxes, &Params::IDENTITY).is_ok());
+    let flipped = Params {
+        flip: true,
+        ..Params::IDENTITY
+    };
+    assert_eq!(
+        apply(&img, &boxes, &flipped),
+        Err(AugmentError::Box { index: 0 })
+    );
+}
+
+#[test]
 fn gain_and_brightness_scale_then_clamp_and_round() {
     let img = image(2, 1, &[100, 200, 3, 255, 0, 51]);
     let p = Params {

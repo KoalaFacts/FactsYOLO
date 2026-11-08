@@ -19,7 +19,7 @@
 //! - `total = W_CLS · cls + W_OBJ · obj + W_BOX · boxes`, an error when not
 //!   finite (finite extreme logits can sum past `f64::MAX`).
 //!
-//! A batch loss is the mean of its per-image totals.
+//! A batch loss is the mean of its per-image totals ([`batch_loss`]).
 
 use crate::{LevelTargets, bce_with_logits, giou_loss, sigmoid_focal_loss};
 
@@ -52,7 +52,9 @@ pub struct LevelOutputs<'a> {
     pub cls: &'a [f64],
     /// `cells` objectness logits.
     pub obj: &'a [f64],
-    /// `cells × 4` non-negative `[l, t, r, b]` distances in stride units.
+    /// `cells × 4` `[l, t, r, b]` distances in stride units. All must be
+    /// finite; they must be non-negative only at positives (GIoU is taken
+    /// there alone).
     pub ltrb: &'a [f64],
 }
 
@@ -96,6 +98,8 @@ pub enum LossError {
     /// Every output is finite but a summed term or the weighted total is not
     /// representable as finite F64.
     Overflow,
+    /// A batch has no images.
+    EmptyBatch,
 }
 
 /// Loss of one image from its assigned targets and raw head outputs.
@@ -163,6 +167,18 @@ pub fn image_loss(
         total,
         positives,
     })
+}
+
+/// Batch loss: the mean of the per-image totals.
+pub fn batch_loss(images: &[LossParts]) -> Result<f64, LossError> {
+    if images.is_empty() {
+        return Err(LossError::EmptyBatch);
+    }
+    let sum: f64 = images.iter().map(|p| p.total).sum();
+    if !sum.is_finite() {
+        return Err(LossError::Overflow);
+    }
+    Ok(sum / images.len() as f64)
 }
 
 #[derive(Debug, PartialEq, Eq)]

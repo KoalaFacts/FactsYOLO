@@ -384,3 +384,28 @@ fn rejects_finite_outputs_whose_sums_overflow() {
         Err(LossError::Overflow)
     );
 }
+
+#[test]
+fn batch_loss_is_the_mean_of_image_totals() {
+    let part = |total: f64| td2_targets::recipe::LossParts {
+        cls: 0.0,
+        obj: 0.0,
+        boxes: 0.0,
+        total,
+        positives: 0,
+    };
+    assert_eq!(
+        td2_targets::recipe::batch_loss(&[part(1.0), part(2.0), part(6.0)]),
+        Ok(3.0)
+    );
+    assert_eq!(td2_targets::recipe::batch_loss(&[part(0.5)]), Ok(0.5));
+    assert_eq!(
+        td2_targets::recipe::batch_loss(&[]),
+        Err(LossError::EmptyBatch)
+    );
+    // Two finite totals near f64::MAX overflow when summed.
+    assert_eq!(
+        td2_targets::recipe::batch_loss(&[part(f64::MAX), part(f64::MAX)]),
+        Err(LossError::Overflow)
+    );
+}

@@ -444,7 +444,10 @@ pub fn analyze(
                 act: _,
             } => {
                 let x = get(input)?;
-                if kernel == 0 || kernel % 2 == 0 {
+                // The frozen detector uses only 1x1/3x3 dense convolutions
+                // and 3x3 depthwise convolutions. Reject unsupported kinds
+                // before counting a malformed table as a valid architecture.
+                if !matches!(kernel, 1 | 3) || (depthwise && kernel != 3) {
                     return Err(ArchError::BadKernel {
                         layer: layer.name,
                         kernel,

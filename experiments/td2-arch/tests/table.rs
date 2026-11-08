@@ -420,9 +420,37 @@ fn rejects_counts_that_overflow_instead_of_panicking() {
         conv("b", "a", u32::MAX, 3, 1, false),
     ];
     assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
-    // An odd kernel so large that k² alone exceeds u64.
+}
+
+#[test]
+fn rejects_unsupported_kernels_even_when_frozen_head_shapes_still_match() {
+    // Both edits previously returned Ok: changing a kernel changes the
+    // computation, but same-padded output and all head shapes still match.
+    for (layer_name, kernel) in [("stem.0", 5), ("c3.0.dw", 1)] {
+        let mut layers = table(1).unwrap();
+        let layer = layers.iter_mut().find(|l| l.name == layer_name).unwrap();
+        if let Op::Conv { kernel: k, .. } = &mut layer.op {
+            *k = kernel;
+        } else {
+            panic!("{layer_name} must be a convolution");
+        }
+        assert_eq!(
+            analyze(&layers, 320, 1, &HEADS),
+            Err(ArchError::BadKernel {
+                layer: layer_name,
+                kernel,
+            })
+        );
+    }
+    // An enormous odd kernel must fail operator validation, not overflow.
     let layers = [conv("a", INPUT, 8, u32::MAX, 1, false)];
-    assert_eq!(analyze(&layers, 64, 1, &[]), Err(ArchError::Overflow));
+    assert_eq!(
+        analyze(&layers, 64, 1, &[]),
+        Err(ArchError::BadKernel {
+            layer: "a",
+            kernel: u32::MAX,
+        })
+    );
 }
 
 #[test]

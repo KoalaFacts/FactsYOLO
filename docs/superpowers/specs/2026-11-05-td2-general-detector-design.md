@@ -413,7 +413,7 @@ commit), blocked (reason; owner decision needed).
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
-| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (PR #73: original synthetic plate renderer; recognizer design todo) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (synthetic plate renderer done in PR #73, `00ff24f`; recognizer design todo) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 | X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | done (PR #77, `b64f45a`) | `xtask` workflow tests 7/7 |

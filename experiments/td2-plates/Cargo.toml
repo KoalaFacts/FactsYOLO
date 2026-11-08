@@ -1,0 +1,11 @@
+[package]
+name = "td2-plates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Original synthetic licence-plate renderer for T2 recognition training data (development only)"
+
+[lints]
+workspace = true

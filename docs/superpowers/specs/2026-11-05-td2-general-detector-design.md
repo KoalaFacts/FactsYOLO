@@ -245,9 +245,11 @@ Flip and photometric augmentation are frozen in
 from a 64-bit seed with SplitMix64, in a fixed order whatever is switched on:
 horizontal flip p = 0.5; low-light gain p = 0.2 with gain in [0.15, 0.5];
 brightness factor [0.75, 1.25]; contrast factor [0.75, 1.25] around the mean
-BT.601 luma; saturation [0.6, 1.4] as a blend with luma; grayscale p = 0.1.
-They are applied in that order to RGB8 pixels in F64, clamping to [0, 255]
-after each operation and rounding half away from zero at the end; a flip maps
+BT.601 luma of the image after gain and brightness; saturation [0.6, 1.4] as
+a blend of each pixel with its luma; grayscale p = 0.1, which replaces the
+saturation step with factor 0 (it is not applied after saturation). They are
+applied in that order to RGB8 pixels in F64, clamping to [0, 255] after each
+operation and rounding half away from zero at the end; a flip maps
 box edges `[l, r]` to `[W − r, W − l]` and photometric operations never move
 boxes. Empty or mis-sized images, nonfinite or out-of-range parameters and
 nonfinite, inverted or out-of-image boxes are errors. Scale jitter, blur and

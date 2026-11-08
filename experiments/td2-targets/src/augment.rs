@@ -18,8 +18,9 @@
 //! is rounded before the multiply).
 //!
 //! Pixels are RGB8, row-major, three bytes per pixel. Operations run in the
-//! order flip, low-light gain, brightness, contrast, saturation, grayscale on
-//! F64 channel values; each operation clamps to [0, 255] and the final value
+//! order flip, low-light gain, brightness, contrast, saturation on
+//! F64 channel values (grayscale replaces the saturation step with factor 0,
+//! it is not applied after it); each operation clamps to [0, 255] and the final value
 //! is rounded half away from zero to u8.
 
 use crate::GtBox;

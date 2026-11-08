@@ -121,6 +121,8 @@ fn contrast_pivots_on_mean_luma() {
 #[test]
 fn saturation_and_grayscale_blend_towards_luma() {
     // Pure red: luma 0.299·200 = 59.8.
+    // Grayscale replaces saturation (factor 0): saturating 1.3 first would
+    // clamp to [242, 0, 0] and give luma 72.4 → 72, not 60.
     let img = image(1, 1, &[200, 0, 0]);
     let gray = Params {
         grayscale: true,

@@ -26,7 +26,7 @@
 //!   for the bias and 1 per element of an add; activations and upsampling are
 //!   not counted.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 /// Largest class count the table must fit (section 6).
@@ -138,6 +138,19 @@ pub enum ArchError {
     HeadStride(u32),
     /// A head output is not a convolution without activation.
     HeadActivation(&'static str),
+    /// `heads` does not hold exactly one head per [`HEAD_STRIDES`] entry.
+    HeadCount(usize),
+    /// Head `index` has `stride` instead of `HEAD_STRIDES[index]`.
+    HeadOrder {
+        index: usize,
+        stride: u32,
+    },
+    /// One layer is named as more than one head output.
+    HeadOutputReused(&'static str),
+    /// A layer that is neither consumed by a later layer nor a head output.
+    UnusedLayer(&'static str),
+    /// A head output that a later layer consumes.
+    ConsumedOutput(&'static str),
     /// A parameter, FLOP or shape count does not fit its integer type.
     Overflow,
 }
@@ -536,6 +549,26 @@ pub fn analyze(
             flops,
         });
     }
+    // Exactly one head per pyramid stride, finest first, and six distinct
+    // output layers: a per-head shape check alone accepts an empty, partial
+    // or repeated set, and with C+1 = 4 one layer could be both outputs.
+    if heads.len() != HEAD_STRIDES.len() {
+        return Err(ArchError::HeadCount(heads.len()));
+    }
+    let mut outputs = HashSet::new();
+    for (index, (head, stride)) in heads.iter().zip(HEAD_STRIDES).enumerate() {
+        if head.stride != stride {
+            return Err(ArchError::HeadOrder {
+                index,
+                stride: head.stride,
+            });
+        }
+        for name in [head.class_layer, head.box_layer] {
+            if !outputs.insert(name) {
+                return Err(ArchError::HeadOutputReused(name));
+            }
+        }
+    }
     for head in heads {
         let side = size / head.stride;
         for (name, c) in [(head.class_layer, classes + 1), (head.box_layer, 4)] {
@@ -559,6 +592,26 @@ pub fn analyze(
             if linear.get(name) != Some(&true) {
                 return Err(ArchError::HeadActivation(name));
             }
+        }
+    }
+    // Every layer feeds a later one or is a head output, never both.
+    let mut used = HashSet::new();
+    for layer in layers {
+        match layer.op {
+            Op::Conv { input, .. } | Op::Upsample2 { input } => {
+                used.insert(input);
+            }
+            Op::Add { a, b } => {
+                used.insert(a);
+                used.insert(b);
+            }
+        }
+    }
+    for layer in layers {
+        match (used.contains(layer.name), outputs.contains(layer.name)) {
+            (false, false) => return Err(ArchError::UnusedLayer(layer.name)),
+            (true, true) => return Err(ArchError::ConsumedOutput(layer.name)),
+            _ => {}
         }
     }
     Ok(Report {

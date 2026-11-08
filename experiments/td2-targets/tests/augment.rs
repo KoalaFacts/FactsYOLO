@@ -554,6 +554,51 @@ mod scale {
         }
     }
 
+    /// FNV-1a 64 over every output byte and every kept box's edge bits and
+    /// class, across a sweep of sizes and sampled scale jitters. It pins the
+    /// exact pixel arithmetic of section 6, including details no hand-computed
+    /// case isolates (for example the source coordinate using the rounded ratio
+    /// `fx = W/cw` rather than `W/cw` evaluated per pixel). The value was
+    /// reproduced by an independent script written from the spec text.
+    #[test]
+    fn output_fingerprint_is_frozen() {
+        fn fnv(h: &mut u64, bytes: &[u8]) {
+            for &b in bytes {
+                *h ^= u64::from(b);
+                *h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        let mut h = 0xcbf2_9ce4_8422_2325_u64;
+        let mut applied = 0;
+        for seed in 0..400_u64 {
+            let Some(p) = sample_scale(seed) else {
+                continue;
+            };
+            applied += 1;
+            let (w, h_px) = (3 + (seed % 29) as usize, 2 + (seed % 19) as usize);
+            let img = pattern(w, h_px, seed as u32);
+            let boxes = [
+                gt(0.0, 0.0, w as f64, h_px as f64),
+                gt(
+                    0.3 * w as f64,
+                    0.1 * h_px as f64,
+                    0.9 * w as f64,
+                    0.8 * h_px as f64,
+                ),
+            ];
+            let (out, kept) = apply_scale(&img, &boxes, &p).unwrap();
+            fnv(&mut h, &out.rgb);
+            for b in kept {
+                for v in [b.left, b.top, b.right, b.bottom] {
+                    fnv(&mut h, &v.to_bits().to_le_bytes());
+                }
+                fnv(&mut h, &b.class.to_le_bytes());
+            }
+        }
+        assert_eq!(applied, 207, "applied");
+        assert_eq!(h, 13_464_640_970_823_089_057, "fingerprint");
+    }
+
     #[test]
     fn rejects_bad_parameters_and_inputs() {
         let img = pattern(4, 4, 0);

@@ -16,7 +16,8 @@
 //! - `obj`: binary cross-entropy over every location (1 at positives,
 //!   0 elsewhere), divided by `n`;
 //! - `boxes`: `1 − GIoU` over positive locations, divided by `n`;
-//! - `total = W_CLS · cls + W_OBJ · obj + W_BOX · boxes`.
+//! - `total = W_CLS · cls + W_OBJ · obj + W_BOX · boxes`, an error when not
+//!   finite (finite extreme logits can sum past `f64::MAX`).
 //!
 //! A batch loss is the mean of its per-image totals.
 
@@ -92,6 +93,9 @@ pub enum LossError {
         level: usize,
         cell: usize,
     },
+    /// Every output is finite but a summed term or the weighted total is not
+    /// representable as finite F64.
+    Overflow,
 }
 
 /// Loss of one image from its assigned targets and raw head outputs.
@@ -146,11 +150,17 @@ pub fn image_loss(
     }
     let n = positives.max(1) as f64;
     let (cls, obj, boxes) = (cls / n, obj / n, boxes / n);
+    let total = W_CLS * cls + W_OBJ * obj + W_BOX * boxes;
+    // Every term is finite and non-negative, so NaN cannot arise, but
+    // finite extreme logits can still sum past F64::MAX.
+    if !total.is_finite() {
+        return Err(LossError::Overflow);
+    }
     Ok(LossParts {
         cls,
         obj,
         boxes,
-        total: W_CLS * cls + W_OBJ * obj + W_BOX * boxes,
+        total,
         positives,
     })
 }

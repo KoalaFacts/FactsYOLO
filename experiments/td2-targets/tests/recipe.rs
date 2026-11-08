@@ -368,3 +368,19 @@ fn schedule_rejects_out_of_range_steps() {
         BASE_LR * MIN_LR_FRACTION
     ));
 }
+
+#[test]
+fn rejects_finite_outputs_whose_sums_overflow() {
+    // Each term is finite, but the sums or the weighted total are not.
+    let targets = [level(3, vec![None, None, None])];
+    let big = [1e308; 3];
+    assert_eq!(
+        image_loss(&targets, &[out(&big, &big, &[0.0; 12])], 1),
+        Err(LossError::Overflow)
+    );
+    let one = [level(1, vec![None])];
+    assert_eq!(
+        image_loss(&one, &[out(&[1e308], &[1.7e308], &[0.0; 4])], 1),
+        Err(LossError::Overflow)
+    );
+}

@@ -359,6 +359,23 @@ fn rejects_sizes_above_the_maximum() {
 }
 
 #[test]
+fn input_range_matches_the_fytdv002_header() {
+    // Section 7: the artifact header accepts S in 32..=1024. A table that
+    // validates at a size no FYTDv002 artifact can carry is a false pass.
+    assert_eq!(MAX_INPUT_SIZE, 1024);
+    let t = table(MAX_CLASSES).unwrap();
+    for size in [32, 1024] {
+        assert!(analyze(&t, size, MAX_CLASSES, &HEADS).is_ok(), "{size}");
+    }
+    for size in [1056, 1280] {
+        assert_eq!(
+            analyze(&t, size, MAX_CLASSES, &HEADS),
+            Err(ArchError::InputSize(size))
+        );
+    }
+}
+
+#[test]
 fn rejects_heads_off_the_pyramid_strides() {
     // A zero stride used to divide by zero; 4 is not a TD2 output stride.
     for stride in [0, 4, 64] {

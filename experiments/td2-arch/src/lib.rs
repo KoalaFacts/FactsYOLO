@@ -41,8 +41,9 @@ pub const MAX_PARAMETERS: u64 = 3_000_000;
 pub const MAX_FLOPS_AT_BASELINE: u64 = 2_500_000_000;
 /// Baseline input size S.
 pub const BASELINE_SIZE: u32 = 320;
-/// Largest input size accepted by [`analyze`]; bounds every count.
-pub const MAX_INPUT_SIZE: u32 = 1280;
+/// Largest input size accepted by [`analyze`]; bounds every count and equals
+/// the largest S an FYTDv002 header can carry (spec section 7).
+pub const MAX_INPUT_SIZE: u32 = 1024;
 /// Width of every pyramid and head feature.
 pub const PYRAMID_WIDTH: u32 = 96;
 /// Name of the implicit input layer.

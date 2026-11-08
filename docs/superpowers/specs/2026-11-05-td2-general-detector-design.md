@@ -187,8 +187,9 @@ used: the stage B operator list (section 10) plus add, which stage B must
 also cover before ADR 0002. Any change to the table, including rewiring
 that keeps every shape, fails the frozen totals or the wiring fingerprint test.
 The validator also rejects kernels other than dense 1×1/3×3 and depthwise 3×3
-(even when every head shape still matches), input sizes above 1280, head strides
-other than 8/16/32, head outputs that are not convolutions without activation, and any
+(even when every head shape still matches), input sizes above 1024 (the
+largest S an FYTDv002 header can carry, section 7), head strides other than
+8/16/32, head outputs that are not convolutions without activation, and any
 count that overflows, returning an error rather than panicking.
 
 **Box encoding.** Anchor-free: each feature location predicts non-negative

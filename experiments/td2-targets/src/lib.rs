@@ -287,6 +287,8 @@ pub enum LossError {
         level: usize,
         cell: usize,
     },
+    /// Every input is finite but a loss sum or the weighted total is not.
+    Overflow,
 }
 
 /// Frozen training loss of a batch (stage D2b2a).
@@ -295,7 +297,9 @@ pub enum LossError {
 /// target at positives), the objectness BCE over every location (1 at
 /// positives, 0 elsewhere) and `1 − GIoU` over positive locations only, then
 /// divides each sum by the batch's positive count (at least 1) and weights
-/// them with `WEIGHT_CLASS`, `WEIGHT_OBJECTNESS` and `WEIGHT_BOX`. The
+/// them with `WEIGHT_CLASS`, `WEIGHT_OBJECTNESS` and `WEIGHT_BOX`. A sum
+/// that overflows F64 even though every input is finite is
+/// [`LossError::Overflow`], never an infinite loss. The
 /// per-positive normalization and the box weight follow
 /// [YOLOX](https://arxiv.org/abs/2107.08430) in idea only.
 pub fn total_loss(
@@ -355,11 +359,20 @@ pub fn total_loss(
     }
     let n = positives.max(1) as f64;
     let (class, objectness, boxes) = (cls / n, obj / n, reg / n);
+    let total = WEIGHT_CLASS * class + WEIGHT_OBJECTNESS * objectness + WEIGHT_BOX * boxes;
+    // Each term is finite and non-negative, so only an overflowing sum can
+    // make a part or the total nonfinite; never hand ∞ to an optimizer.
+    if ![class, objectness, boxes, total]
+        .iter()
+        .all(|v| v.is_finite())
+    {
+        return Err(LossError::Overflow);
+    }
     Ok(LossParts {
         class,
         objectness,
         boxes,
-        total: WEIGHT_CLASS * class + WEIGHT_OBJECTNESS * objectness + WEIGHT_BOX * boxes,
+        total,
         positives,
     })
 }

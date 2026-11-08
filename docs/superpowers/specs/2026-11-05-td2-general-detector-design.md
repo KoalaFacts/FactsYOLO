@@ -202,7 +202,8 @@ every location and class, objectness BCE over every location and `1 − GIoU`
 over positives only, divides each sum by the batch's positive count (at least
 1) and weights them 1 / 1 / 5 (class / objectness / box); a target class at or
 above the prediction's class count, a mis-sized or nonfinite prediction, or a
-positive box without a GIoU is an error. Augmentation and schedule remain open
+positive box without a GIoU is an error, and so is a sum that overflows F64
+although every input is finite (never an infinite loss). Augmentation and schedule remain open
 in D2b2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
@@ -411,7 +412,7 @@ commit), blocked (reason; owner decision needed).
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
 | D2b1 | Frozen layer table | Fixed before training | in progress (branch `claude/td2-d2b1-layer-table`) | — |
-| D2b2a | Frozen loss weights and per-batch normalization | Fixed before training | in progress (this PR) | `experiments/td2-targets/tests/total.rs`: 8 tests incl. closed-form zero-logit and objectness-logit sums, GIoU mean, per-batch (not per-image) normalization; 9 guard/term mutations each caught |
+| D2b2a | Frozen loss weights and per-batch normalization | Fixed before training | in progress (this PR) | `experiments/td2-targets/tests/total.rs`: 9 tests incl. closed-form zero-logit and objectness-logit sums, GIoU mean, per-batch (not per-image) normalization, finite logits whose sum overflows rejected (returned `total: inf` as `Ok` before the guard); 9 guard/term mutations each caught |
 | D2b2b | Frozen augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |

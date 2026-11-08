@@ -248,3 +248,31 @@ fn rejects_short_box_vectors() {
         );
     }
 }
+
+#[test]
+fn rejects_finite_logits_whose_loss_sum_overflows() {
+    // Each logit is finite and each per-element BCE (≈ 1e308) is finite,
+    // but their sum is not: the batch loss must be an error, never ∞.
+    let classes = 1usize;
+    let levels = assign(64, 1, &[]).unwrap();
+    let mut preds = neutral(&levels, classes);
+    preds[0].objectness[0] = f64::MAX;
+    preds[0].objectness[1] = f64::MAX;
+    assert_eq!(
+        total_loss(&[(&levels, &preds)], classes),
+        Err(LossError::Overflow)
+    );
+    // The same for the class term.
+    let mut preds = neutral(&levels, classes);
+    preds[0].class_logits[0] = f64::MAX;
+    preds[0].class_logits[1] = f64::MAX;
+    assert_eq!(
+        total_loss(&[(&levels, &preds)], classes),
+        Err(LossError::Overflow)
+    );
+    // One huge logit alone is still a finite, valid loss.
+    let mut preds = neutral(&levels, classes);
+    preds[0].objectness[0] = 1e300;
+    let parts = total_loss(&[(&levels, &preds)], classes).unwrap();
+    assert!(parts.total.is_finite() && parts.objectness >= 1e300);
+}

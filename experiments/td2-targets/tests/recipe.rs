@@ -256,6 +256,28 @@ fn rejects_empty_image_and_zero_sized_grids() {
 }
 
 #[test]
+fn loss_class_count_matches_t1_artifact_contract() {
+    // Assignment rejects C=121; the loss oracle must not accept the same
+    // model-unrepresentable head merely because its tensor is well-shaped.
+    let targets = [level(1, vec![None])];
+    let logits = [0.0; 121];
+    let obj = [0.0];
+    let ltrb = [0.0; 4];
+    for invalid in [121, u16::MAX] {
+        assert_eq!(
+            image_loss(&targets, &[out(&logits, &obj, &ltrb)], invalid),
+            Err(LossError::ClassCount),
+            "class count {invalid}"
+        );
+    }
+
+    // The inclusive supported bound C=120 stays valid.
+    let valid = image_loss(&targets, &[out(&logits[..120], &obj, &ltrb)], 120).unwrap();
+    assert_eq!(valid.positives, 0);
+    assert!(valid.total.is_finite() && valid.total > 0.0);
+}
+
+#[test]
 fn rejects_mismatched_shapes() {
     let targets = [level(2, vec![pos(0, [1.0; 4]), None])];
     let ok_cls = [0.0; 2];

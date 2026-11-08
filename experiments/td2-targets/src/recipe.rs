@@ -110,7 +110,8 @@ pub fn image_loss(
     outputs: &[LevelOutputs],
     class_count: u16,
 ) -> Result<LossParts, LossError> {
-    if class_count == 0 {
+    // Match the frozen FYTDv002 T1 class domain already checked by `assign`.
+    if class_count == 0 || class_count > 120 {
         return Err(LossError::ClassCount);
     }
     if targets.len() != outputs.len() {

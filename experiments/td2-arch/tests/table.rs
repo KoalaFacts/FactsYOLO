@@ -548,3 +548,28 @@ fn rejects_head_sets_that_are_not_one_distinct_head_per_stride() {
     // The frozen head set is still accepted.
     assert!(analyze(&t, 320, 3, &HEADS).is_ok());
 }
+
+#[test]
+fn rejects_dead_layers_and_consumed_head_outputs() {
+    // A linear 4-channel branch off `p8.box.b` named as the stride-8 box
+    // output passes every per-head check, leaving `p8.box.out` dead.
+    let mut t = table(1).unwrap();
+    let mut extra = conv("extra", "p8.box.b", 4, 1, 1, false);
+    if let Op::Conv { act, .. } = &mut extra.op {
+        *act = Act::Linear;
+    }
+    t.push(extra);
+    let mut heads = HEADS;
+    heads[0].box_layer = "extra";
+    assert_eq!(
+        analyze(&t, 320, 1, &heads),
+        Err(ArchError::UnusedLayer("p8.box.out"))
+    );
+    // A head output fed into a later layer is not a final output.
+    let mut t = table(1).unwrap();
+    t.push(conv("tail", "p32.cls.out", 8, 1, 1, false));
+    assert_eq!(
+        analyze(&t, 320, 1, &HEADS),
+        Err(ArchError::ConsumedOutput("p32.cls.out"))
+    );
+}

@@ -147,6 +147,10 @@ pub enum ArchError {
     },
     /// One layer is named as more than one head output.
     HeadOutputReused(&'static str),
+    /// A layer that is neither consumed by a later layer nor a head output.
+    UnusedLayer(&'static str),
+    /// A head output that a later layer consumes.
+    ConsumedOutput(&'static str),
     /// A parameter, FLOP or shape count does not fit its integer type.
     Overflow,
 }
@@ -588,6 +592,26 @@ pub fn analyze(
             if linear.get(name) != Some(&true) {
                 return Err(ArchError::HeadActivation(name));
             }
+        }
+    }
+    // Every layer feeds a later one or is a head output, never both.
+    let mut used = HashSet::new();
+    for layer in layers {
+        match layer.op {
+            Op::Conv { input, .. } | Op::Upsample2 { input } => {
+                used.insert(input);
+            }
+            Op::Add { a, b } => {
+                used.insert(a);
+                used.insert(b);
+            }
+        }
+    }
+    for layer in layers {
+        match (used.contains(layer.name), outputs.contains(layer.name)) {
+            (false, false) => return Err(ArchError::UnusedLayer(layer.name)),
+            (true, true) => return Err(ArchError::ConsumedOutput(layer.name)),
+            _ => {}
         }
     }
     Ok(Report {

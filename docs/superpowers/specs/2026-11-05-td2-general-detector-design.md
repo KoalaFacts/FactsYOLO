@@ -252,8 +252,18 @@ applied in that order to RGB8 pixels in F64, clamping to [0, 255] after each
 operation and rounding half away from zero at the end; a flip maps
 box edges `[l, r]` to `[W − r, W − l]` and photometric operations never move
 boxes. Empty or mis-sized images, nonfinite or out-of-range parameters and
-nonfinite, inverted or out-of-image boxes are errors. Scale jitter, blur and
-JPEG-style compression remain open in D2b2b2.
+nonfinite, inverted or out-of-image boxes are errors.
+
+Scale jitter is frozen in the same module (roadmap D2b2b2). It uses draws 8 to
+11 of the same seed's stream, so the flip and photometric draws are unchanged:
+p = 0.5, scale [0.5, 1.5], and two placement draws. The content becomes
+max(1, round(W · scale)) × max(1, round(H · scale)) on a canvas of the
+original size, at offset ±min(d, ⌊u · (d + 1)⌋) per axis with d the size
+difference (negative to crop a larger content, positive to pad a smaller one
+with black). Pixels are sampled bilinearly with half-pixel centres, clamped to
+the image. Box edges are scaled, shifted and clipped to the canvas; a box is
+dropped when a clipped side is below 2 px or under 25% of its scaled area stays
+visible. Blur and JPEG-style compression remain open in D2b2b3.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
@@ -463,7 +473,8 @@ commit), blocked (reason; owner decision needed).
 | D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (PR #81) | `experiments/td2-arch`: 17 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and activated or wrong-level head outputs are rejected, each test failing before its fix |
 | D2b2a | Frozen loss weighting and normalization, optimizer settings, learning-rate schedule | Training recipe fixed before any training, so results cannot be tuned against the holdout | in progress (branch `claude/td2-d2b2a-loss-schedule`; PR opens after #81 merges) | `td2-targets` recipe tests 15/15: closed-form zero-logit and GIoU cases, per-level sums, perfect outputs for `assign` targets give zero box loss, 200 randomized images recounted from the D2a primitives, overflowing sums and empty batches rejected; 6 mutations (no max(1) normalizer, unchecked distances, warmup off by one, warmup 1/10, class bound, decay end) each caught |
 | D2b2b1 | Frozen flip and photometric augmentation (low-light gain, brightness, contrast, saturation, grayscale) | Robustness to night, glare and colour shifts on customer cameras, fixed before training | in progress (branch `claude/td2-d2b2b1-flip-photometric`; PR opens after D2b2a merges) | `td2-targets` augment tests 10/10: hand-computed pixel cases incl. clamping and half-away rounding, double flip restores input, photometric ops never move boxes over 200 seeds, 20,000-seed frequencies within 4.5 σ, sampled parameters for seeds 0 and 14 matched bit-for-bit by an independent Python SplitMix64; mutations (flip box edges, contrast pivot, skipped or reordered draws, truncation instead of rounding, open range check, grayscale ignored, box bound, luma weights) each caught |
-| D2b2b2 | Frozen scale jitter, blur and JPEG-style compression | Robustness to distance, focus and codec artefacts, fixed before training | todo | — |
+| D2b2b2 | Frozen scale jitter (crop or pad, bilinear resampling, box clipping and dropping) | Robustness to objects at different distances from the camera, fixed before training | in progress (branch `claude/td2-d2b2b2-scale-jitter`; PR after D2b2b1) | `td2-targets` augment tests 18/18 (8 for scale jitter): hand-computed pad, crop and bilinear cases, box scale/clip/drop by side and by visible area, 300 randomized sizes with kept boxes inside the canvas, seeds 14 and 16 matched bit-for-bit by an independent Python SplitMix64; 8 mutations (no half-pixel centre, floor instead of round, no offset bound, draw count, visible-area rule, side rule, pad value, nearest sampling) each caught |
+| D2b2b3 | Frozen blur and JPEG-style compression | Robustness to focus and codec artefacts, fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
 | E1b | Native `td2` backend: layer-kind validation (after D2b1), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |

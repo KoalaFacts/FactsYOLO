@@ -188,9 +188,11 @@ also cover before ADR 0002. Any change to the table, including rewiring
 that keeps every shape, fails the frozen totals or the wiring fingerprint test.
 The validator also rejects kernels other than dense 1×1/3×3 and depthwise 3×3
 (even when every head shape still matches), input sizes above 1024 (the
-largest S an FYTDv002 header can carry, section 7), head strides other than
-8/16/32, head outputs that are not convolutions without activation, and any
-count that overflows, returning an error rather than panicking.
+largest S an FYTDv002 header can carry, section 7), convolution strides other
+than 1 or 2, head sets other than exactly one head per stride 8/16/32 (finest
+first) with six distinct output layers, head outputs that are not
+convolutions without activation, and any count that overflows, returning an
+error rather than panicking.
 
 **Box encoding.** Anchor-free: each feature location predicts non-negative
 distances to the left/top/right/bottom edges in stride units, as in
@@ -427,7 +429,7 @@ commit), blocked (reason; owner decision needed).
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
-| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (PR #81) | `experiments/td2-arch`: 17 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and activated or wrong-level head outputs are rejected, each test failing before its fix |
+| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (PR #81) | `experiments/td2-arch`: 18 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and stride-4 convolutions, empty, partial, repeated or out-of-order head sets, one layer used as two head outputs, and activated or wrong-level head outputs are rejected, each test failing before its fix |
 | D2b2 | Frozen loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |

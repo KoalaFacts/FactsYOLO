@@ -47,7 +47,7 @@ Take the first row that is not done or blocked, in this order:
 2. Stage C: research and record the dataset terms, category mapping and attribution in `MODEL_LICENSES.md`. The owner must approve before any download (PR #74 waits on that).
 3. Stage D: the harness (D1, D2a, D2b1 and D2b2a are done; D2b2b augmentation is next, with D2b2b1 flip and photometric prepared on `claude/td2-d2b2b1-flip-photometric`), then reduced-scale training on free runners (D3, after B6 and C2).
 4. Stage E: the native td2 backend, NEON/AVX2, aarch64 CI with real execution, and the no-networking CI gate (E2a is done). Then stage F onward.
-- While an item waits on the owner or on CI, advance the next unblocked one, for example T2–T4 design work or synthetic plate rendering (H1).
+- Keep implementation WIP at one open PR: finish existing work before opening another. While an item waits on owner approval, CI or external review, do non-conflicting reproduction, measurements or preparation on the next unblocked item without stacking implementation PRs (for example T2–T4 design work).
 - T4 training stays blocked until a budget exists. TD1 is maintenance-only.
 - Long training and benchmark jobs run as GitHub Actions workflows. They resume in chunks well under 6 hours. Each finished chunk's checkpoint is saved with `actions/cache`, keyed by run identity. Metrics are scalar JSON artifacts. Finished runs are analysed and their results recorded, including negative ones.
 
@@ -55,11 +55,13 @@ Take the first row that is not done or blocked, in this order:
 - Branch prefix `claude/`; housekeeping branch `claude/docs-hygiene-YYYY-MM-DD`; harness install branch `claude/verify-skills`. Squash merge pinned to the head SHA.
 - Never merge `codex/` branches or Dependabot PRs. Never push to or merge a branch this task did not open (for example `feat/…`).
 - A PR may be merged only after:
-  - every hosted check on its head has completed and passed, hosted CodeQL included;
-  - any review bot has finished.
-- If Codex reviews this repo and has not reviewed the head, wait while the PR is younger than 12 hours: up to about 30 minutes in-run, otherwise until the next run. If Codex reports that it cannot review (failed review, usage limit), the independent review agent stands in.
+  - every applicable hosted check on the **latest head** has completed and passed, hosted CodeQL included;
+  - all review bots have finished and all blocking findings/review threads are resolved;
+  - a qualified **non-author** reviewer has submitted a formal GitHub `APPROVED` review covering the latest head. `COMMENTED`, an agent's read-only PASS, an older-head review, or the author's own review do not satisfy this gate. Never bypass protection or self-approve.
+- If Codex reviews this repo and has not reviewed the head, wait while the PR is younger than 12 hours: up to about 30 minutes in-run, otherwise until the next run. If Codex cannot review (failed review or usage limit), a genuinely independent agent can supply additional technical findings, but **cannot replace the formal GitHub non-author approval**. Do not repeatedly request a quota-blocked review; keep the PR open and work on non-conflicting preparation.
 - First line of every PR body: "Opened by the FactsYOLO scheduled task."
 - Merging deploys nothing. Releases, tags, packages and weights are owner-only.
+- This recurring task must remain enabled at its existing frequency with no end date unless the owner explicitly authorizes a change. CI failures, network/tool issues, review limits, no progress and suppression of repeated notifications are not authorization to stop or slow it.
 
 ## Project rules
 - The deployed library has no networking code, no telemetry and no file writes. It stores nothing. The host owns decoding, storage, galleries and watch-lists.

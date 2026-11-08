@@ -226,13 +226,18 @@ Loss weighting, optimizer and schedule are frozen in
 n = max(1, positive locations over all levels): focal loss summed over every
 location and class (one-hot at positives), BCE objectness summed over every
 location, and `1 − GIoU` summed over positives, each divided by n; total =
-1·cls + 1·obj + 5·box; a batch loss is the mean of image totals. Nonfinite
+1·cls + 1·obj + 5·box; a batch loss (`batch_loss`) is the mean of image
+totals, and an empty batch or an overflowing sum is an error. Nonfinite
 outputs anywhere in a level, a positive's class outside the class count, a
 positive whose predicted box makes GIoU undefined, and a total that overflows
 F64 are errors, never silently skipped. AdamW (β 0.9/0.999, ε 1e-8, decoupled
-weight decay 0.05 on convolution weights only), global gradient-norm clip 10,
-peak learning rate 2e-3: linear warmup over max(1, ⌊total/20⌋) steps, then
-cosine decay to 5% of the peak at the last step; runs shorter than 20 steps
+weight decay 0.05 on convolution weights only: biases and batch-norm scales
+and shifts get none; the decay acts on the weights in the step and is never
+added to the gradient), global L2 clip at norm 10 of the raw loss gradient over
+all parameters before the AdamW update,
+peak learning rate 2e-3: linear warmup over w = max(1, ⌊total/20⌋) steps
+(step k at (k + 1)/w of the peak), then cosine decay from the peak at step w
+to 5% of the peak at the last step, so steps w − 1 and w are both at the peak; runs shorter than 20 steps
 are rejected. Augmentation remains open in D2b2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
@@ -441,7 +446,7 @@ commit), blocked (reason; owner decision needed).
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
 | D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (PR #81) | `experiments/td2-arch`: 17 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and activated or wrong-level head outputs are rejected, each test failing before its fix |
-| D2b2a | Frozen loss weighting and normalization, optimizer settings, learning-rate schedule | Training recipe fixed before any training, so results cannot be tuned against the holdout | in progress (branch `claude/td2-d2b2a-loss-schedule`; PR opens after #81 merges) | `td2-targets` recipe tests 14/14: closed-form zero-logit and GIoU cases, per-level sums, perfect outputs for `assign` targets give zero box loss, 200 randomized images recounted from the D2a primitives, overflowing sums rejected; 6 mutations (no max(1) normalizer, unchecked distances, warmup off by one, warmup 1/10, class bound, decay end) each caught |
+| D2b2a | Frozen loss weighting and normalization, optimizer settings, learning-rate schedule | Training recipe fixed before any training, so results cannot be tuned against the holdout | in progress (branch `claude/td2-d2b2a-loss-schedule`; PR opens after #81 merges) | `td2-targets` recipe tests 15/15: closed-form zero-logit and GIoU cases, per-level sums, perfect outputs for `assign` targets give zero box loss, 200 randomized images recounted from the D2a primitives, overflowing sums and empty batches rejected; 6 mutations (no max(1) normalizer, unchecked distances, warmup off by one, warmup 1/10, class bound, decay end) each caught |
 | D2b2b | Frozen augmentation reference (flip, scale and colour jitter, grayscale, blur, JPEG-style compression, low-light gain) | Robustness to camera conditions, fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |

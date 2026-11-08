@@ -433,8 +433,7 @@ mod scale {
         let img = gray(6, 1, &[0, 10, 20, 30, 40, 50]);
         let (out, _) = apply_scale(&img, &[], &sp(0.5, 0.5, 0.0)).unwrap();
         assert_eq!(out, gray(6, 1, &[0, 0, 5, 25, 45, 0]));
-        // round(5 · 0.5) = 3 (half away from zero; ties-to-even would give 2),
-        // and the source ratio W / cw = 5 / 3 is rounded before multiplying.
+        // round(5 · 0.5) = 3 (half away from zero; ties-to-even would give 2).
         let img = gray(5, 1, &[0, 50, 100, 150, 200]);
         let (out, _) = apply_scale(&img, &[], &sp(0.5, 0.0, 0.0)).unwrap();
         assert_eq!(out, gray(5, 1, &[17, 100, 183, 0, 0]));
@@ -442,6 +441,12 @@ mod scale {
         let boxes = [gt(0.0, 0.0, 5.0, 4.0)];
         let (_, kept) = apply_scale(&pattern(5, 4, 1), &boxes, &sp(0.5, 0.0, 0.0)).unwrap();
         assert_eq!(kept, [gt(0.0, 0.0, 3.0, 2.0)]);
+        // The ratio cw / W = 6 / 5 is rounded before multiplying: 3 · (6 / 5)
+        // is 3.5999999999999996 in F64, while 3 · 6 / 5 is 3.6. Crop d = 1,
+        // shift 1 moves the content left by 1.
+        let boxes = [gt(3.0, 0.0, 5.0, 4.0)];
+        let (_, kept) = apply_scale(&pattern(5, 4, 1), &boxes, &sp(1.2, 1.0, 0.0)).unwrap();
+        assert_eq!(kept, [gt(2.5999999999999996, 0.0, 5.0, 4.0)]);
     }
 
     #[test]

@@ -170,6 +170,28 @@ layer table is fixed in stage D before training. Operators are limited to ones
 that quantize well to INT8, and the backbone exposes its pyramid features so T3
 can reuse them.
 
+The layer table is frozen in `experiments/td2-arch` (std-only Rust, not linked
+into the library; roadmap D2b1): a stride-4 stem (two 3×3 stride-2
+convolutions, 24 and 48 channels, one block), inverted residual blocks (1×1
+expand ×2, 3×3 depthwise, 1×1 linear project, residual add) at strides 8/16/32
+with widths 96/192/320 and 2/3/2 blocks, each stage entered by a stride-2
+depthwise-separable unit; 1×1 laterals to 96 channels, top-down (nearest 2×
+upsample, add) and bottom-up (stride-2 depthwise-separable unit, add) paths
+with a depthwise-separable unit after each sum; and per level two separate
+branches of two depthwise-separable units each ending in a 1×1 linear output
+of C+1 channels (class logits, objectness) or 4 (box distances). At S=320 with
+C=120 it has 1,757,463 parameters and 1.455 GFLOPs (2 per multiply-accumulate,
+plus bias and add elements); 2.458 GFLOPs at S=416. Only 1×1/3×3 convolutions,
+3×3 depthwise convolutions, SiLU, nearest upsample and element-wise add are
+used: the stage B operator list (section 10) plus add, which stage B must
+also cover before ADR 0002. Any change to the table, including rewiring
+that keeps every shape, fails the frozen totals or the wiring fingerprint test.
+The validator also rejects kernels other than dense 1×1/3×3 and depthwise 3×3
+(even when every head shape still matches), input sizes above 1024 (the
+largest S an FYTDv002 header can carry, section 7), head strides other than
+8/16/32, head outputs that are not convolutions without activation, and any
+count that overflows, returning an error rather than panicking.
+
 **Box encoding.** Anchor-free: each feature location predicts non-negative
 distances to the left/top/right/bottom edges in stride units, as in
 [FCOS](https://arxiv.org/abs/1904.01355). Decoupled classification and
@@ -198,7 +220,7 @@ targets. GIoU returns no result when intermediate F64 geometry is not
 representable (even for finite input distances) or when the union or
 enclosing area underflows to zero, rather than propagating NaN or infinity
 into training. Loss weights, augmentation and schedule remain
-open in D2b.
+open in D2b2.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
@@ -405,10 +427,11 @@ commit), blocked (reason; owner decision needed).
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
-| D2b | Frozen layer table, loss weights, augmentation and schedule | Fixed before training | todo | — |
+| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | in progress (PR #81) | `experiments/td2-arch`: 17 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and activated or wrong-level head outputs are rejected, each test failing before its fix |
+| D2b2 | Frozen loss weights, augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
-| E1b | Native `td2` backend: layer-kind validation (after D2b), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
+| E1b | Native `td2` backend: layer-kind validation (after D2b1), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
 | E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | done (PR #76, `c42a499`) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate; verifier bypasses that wrote files through the built library (`use std::*`, `$c::fs` with `nc!(std)`, `cfg_attr(.., path = ..)`) and a custom `build =` key are now rejected with unit tests; a macro rebuilding `std::fs` from `std` and `::` tokens fails the defined-symbol check (`defines std::fs::write`) |
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |

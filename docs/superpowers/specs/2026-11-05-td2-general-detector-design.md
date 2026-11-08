@@ -279,6 +279,14 @@ category mapping and attribution procedure in `MODEL_LICENSES.md`, and the
 owner approves it. Weight-release licensing is a separate decision at release
 time; this design does not promise Apache-2.0 weights.
 
+Synthetic T2 plates come from `experiments/td2-plates`: an original stroke font
+(36 alphanumerics and a dash, defined as polylines in source, no font file),
+caller-supplied text patterns, perspective, blur, noise and cluttered
+backgrounds, with per-character and plate labels. It renders deterministically
+from a seed and takes no external input. Its patterns are not claimed to match
+any jurisdiction; AU/NZ layouts and any real plate font still need the licence
+check in the T2 row above.
+
 ## 9. T1 evaluation (pre-registered)
 
 Before the first TD2 training run, freeze and fingerprint:
@@ -426,7 +434,7 @@ commit), blocked (reason; owner decision needed).
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
-| H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (PR #73: original synthetic plate renderer; recognizer design todo) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 | X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | done (PR #77, `b64f45a`) | `xtask` workflow tests 7/7 |

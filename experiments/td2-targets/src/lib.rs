@@ -25,6 +25,8 @@
 //!    areas go to the lowest box index.
 //! 5. The regression target is `[l, t, r, b] / s` (stride units).
 
+pub mod recipe;
+
 /// Pyramid strides, finest first.
 pub const STRIDES: [u32; 3] = [8, 16, 32];
 /// Per-level `(lo, hi]` ranges in pixels for `max(l, t, r, b)`.

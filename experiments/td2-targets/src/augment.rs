@@ -271,13 +271,15 @@ pub fn sample_scale(seed: u64) -> Option<ScaleParams> {
 /// Rescales the image content by `params.scale` on a canvas of the original
 /// size, then crops or pads it.
 ///
-/// Content size `cw = max(1, round(W · scale))` (same for height). With
+/// Content size `cw = max(1, round(W · scale))`, rounding half away from
+/// zero (same for height). With
 /// `d = |W − cw|` and `k = min(d, ⌊shift_x · (d + 1)⌋)`, the content's left
 /// edge is at `−k` when it is at least as wide as the canvas (crop) and at
 /// `+k` otherwise (pad with [`PAD_RGB`]). Pixels are sampled bilinearly with
-/// half-pixel centres (`src = (x + 0.5) · W / cw − 0.5`, clamped to the image)
-/// and rounded half away from zero. Box edges map as
-/// `x · cw / W + offset`, are clipped to the canvas, and a box is dropped when
+/// half-pixel centres (`src = (x + 0.5) · fx − 0.5` with `fx = W / cw` rounded
+/// to F64 first, clamped to the image) and rounded half away from zero. Box
+/// edges map as `x · sw + offset` with `sw = cw / W` rounded first (not
+/// `scale`), are clipped to the canvas, and a box is dropped when
 /// its clipped width or height is below [`MIN_BOX_SIDE`] or its clipped area
 /// is below [`MIN_VISIBLE_FRACTION`] of its scaled area. Returned boxes keep
 /// their input order.

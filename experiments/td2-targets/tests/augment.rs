@@ -425,6 +425,34 @@ mod scale {
         assert_eq!(out, gray(3, 1, &[8, 53, 0]));
     }
 
+    // Hand cases recomputed by an independent script from the spec text; each
+    // pins a rule that the randomized validity test cannot see.
+    #[test]
+    fn offset_content_size_and_box_ratio_are_pinned() {
+        // Offset uses ⌊u · (d + 1)⌋: d = 3, u = 0.5 gives k = 2 (⌊u · d⌋ = 1).
+        let img = gray(6, 1, &[0, 10, 20, 30, 40, 50]);
+        let (out, _) = apply_scale(&img, &[], &sp(0.5, 0.5, 0.0)).unwrap();
+        assert_eq!(out, gray(6, 1, &[0, 0, 5, 25, 45, 0]));
+        // round(5 · 0.5) = 3 (half away from zero; ties-to-even would give 2),
+        // and the source ratio W / cw = 5 / 3 is rounded before multiplying.
+        let img = gray(5, 1, &[0, 50, 100, 150, 200]);
+        let (out, _) = apply_scale(&img, &[], &sp(0.5, 0.0, 0.0)).unwrap();
+        assert_eq!(out, gray(5, 1, &[17, 100, 183, 0, 0]));
+        // Box edges scale by cw / W = 3 / 5 and ch / H = 2 / 4, not by `scale`.
+        let boxes = [gt(0.0, 0.0, 5.0, 4.0)];
+        let (_, kept) = apply_scale(&pattern(5, 4, 1), &boxes, &sp(0.5, 0.0, 0.0)).unwrap();
+        assert_eq!(kept, [gt(0.0, 0.0, 3.0, 2.0)]);
+    }
+
+    #[test]
+    fn source_coordinate_is_clamped_below_zero() {
+        // Upscale 2 → 3: the first sample sits at 0.5 · 2/3 − 0.5 < 0 and must
+        // clamp to pixel 0 (unclamped extrapolation would give 105).
+        let img = gray(2, 1, &[90, 0]);
+        let (out, _) = apply_scale(&img, &[], &sp(1.5, 0.0, 0.0)).unwrap();
+        assert_eq!(out, gray(2, 1, &[90, 45]));
+    }
+
     #[test]
     fn upscale_crops_with_clamped_bilinear_samples() {
         // 2×1 → content 3×2 (round(1.5) = 2), crop offset 0.

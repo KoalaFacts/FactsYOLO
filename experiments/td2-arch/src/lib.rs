@@ -61,7 +61,7 @@ pub enum Act {
 /// One layer operation. Inputs name earlier layers (or [`INPUT`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Op {
-    /// Square convolution, zero padding `kernel / 2`, with bias.
+    /// Square convolution, zero padding `kernel / 2`, with bias; stride 1 or 2.
     Conv {
         input: &'static str,
         out: u32,
@@ -454,7 +454,7 @@ pub fn analyze(
                         kernel,
                     });
                 }
-                if stride == 0 || x.h % stride != 0 || x.w % stride != 0 {
+                if !matches!(stride, 1 | 2) || x.h % stride != 0 || x.w % stride != 0 {
                     return Err(ArchError::BadStride {
                         layer: layer.name,
                         stride,

@@ -235,6 +235,15 @@ fn rejects_malformed_tables() {
                 size: (64, 64),
             },
         ),
+        // A multiple-of-four size used to bypass the divisibility-only check.
+        (
+            vec![conv("a", INPUT, 8, 3, 4, false)],
+            ArchError::BadStride {
+                layer: "a",
+                stride: 4,
+                size: (64, 64),
+            },
+        ),
         (
             vec![conv("a", INPUT, 0, 1, 1, false)],
             ArchError::ZeroChannels("a"),

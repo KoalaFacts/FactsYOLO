@@ -264,6 +264,14 @@ category mapping and attribution procedure in `MODEL_LICENSES.md`, and the
 owner approves it. Weight-release licensing is a separate decision at release
 time; this design does not promise Apache-2.0 weights.
 
+Synthetic T2 plates come from `experiments/td2-plates`: an original stroke font
+(36 alphanumerics and a dash, defined as polylines in source, no font file),
+caller-supplied text patterns, perspective, blur, noise and cluttered
+backgrounds, with per-character and plate labels. It renders deterministically
+from a seed and takes no external input. Its patterns are not claimed to match
+any jurisdiction; AU/NZ layouts and any real plate font still need the licence
+check in the T2 row above.
+
 ## 9. T1 evaluation (pre-registered)
 
 Before the first TD2 training run, freeze and fingerprint:
@@ -400,19 +408,19 @@ commit), blocked (reason; owner decision needed).
 | B6 | Decision record selecting one framework | Unblocks stage D | todo | — |
 | C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | todo (owner approves before any download) | — |
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
-| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
+| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
 | D2b1 | Frozen layer table | Fixed before training | in progress (branch `claude/td2-d2b1-layer-table`) | — |
 | D2b2a | Frozen loss weights and per-batch normalization | Fixed before training | in progress (this PR) | `experiments/td2-targets/tests/total.rs`: 8 tests incl. closed-form zero-logit and objectness-logit sums, GIoU mean, per-batch (not per-image) normalization; 9 guard/term mutations each caught |
 | D2b2b | Frozen augmentation and schedule | Fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
-| E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | in progress (this PR) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
+| E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
 | E1b | Native `td2` backend: layer-kind validation (after D2b), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
 | E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | done (PR #76, `c42a499`) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate; verifier bypasses that wrote files through the built library (`use std::*`, `$c::fs` with `nc!(std)`, `cfg_attr(.., path = ..)`) and a custom `build =` key are now rejected with unit tests; a macro rebuilding `std::fs` from `std` and `::` tokens fails the defined-symbol check (`defines std::fs::write`) |
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
-| H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (synthetic plate renderer done in PR #73, `00ff24f`; recognizer design todo) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 | X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | done (PR #77, `b64f45a`) | `xtask` workflow tests 7/7 |

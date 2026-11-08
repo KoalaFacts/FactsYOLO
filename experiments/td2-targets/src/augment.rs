@@ -127,8 +127,13 @@ pub fn apply(
         for row in px.chunks_exact_mut(image.width) {
             row.reverse();
         }
-        for b in &mut out_boxes {
+        for (index, b) in out_boxes.iter_mut().enumerate() {
             (b.left, b.right) = (w - b.right, w - b.left);
+            // Sub-ULP boxes near an edge can collapse when mirrored in F64.
+            // Never return a zero-width training label as a successful flip.
+            if b.left >= b.right {
+                return Err(AugmentError::Box { index });
+            }
         }
     }
     if let Some(gain) = params.low_light_gain {

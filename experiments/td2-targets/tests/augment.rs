@@ -79,6 +79,22 @@ fn flip_mirrors_rows_and_boxes() {
 }
 
 #[test]
+fn flip_rejects_boxes_collapsed_by_f64_rounding() {
+    let img = image(2, 2, &[0; 12]);
+    // Representable positive width, but both reflected edges round to 2.0.
+    let boxes = [gt(0.0, 0.0, 1e-16, 1.0)];
+    assert!(apply(&img, &boxes, &Params::IDENTITY).is_ok());
+    let flipped = Params {
+        flip: true,
+        ..Params::IDENTITY
+    };
+    assert_eq!(
+        apply(&img, &boxes, &flipped),
+        Err(AugmentError::Box { index: 0 })
+    );
+}
+
+#[test]
 fn gain_and_brightness_scale_then_clamp_and_round() {
     let img = image(2, 1, &[100, 200, 3, 255, 0, 51]);
     let p = Params {
@@ -116,6 +132,55 @@ fn contrast_pivots_on_mean_luma() {
     };
     let (out, _) = apply(&img, &[], &p).unwrap();
     assert_eq!(out.rgb, [38, 38, 38, 163, 163, 163]);
+}
+
+#[test]
+fn contrast_uses_the_brightened_and_clamped_image() {
+    // Brightness 1.2 then contrast 0.75 on gray 50 and 150: 60 and 180, mean
+    // 120 → 75 and 165. A pivot taken before brightness (100) gives 70, 160.
+    let img = image(2, 1, &[50, 50, 50, 150, 150, 150]);
+    let p = Params {
+        brightness: 1.2,
+        contrast: 0.75,
+        ..Params::IDENTITY
+    };
+    let (out, _) = apply(&img, &[], &p).unwrap();
+    assert_eq!(out.rgb, [75, 75, 75, 165, 165, 165]);
+    // Brightness 1.25 on 240 is 300, clamped to 255 before contrast: mean
+    // (125 + 255) / 2 = 190, contrast 0.8 → 138 and 242. Without the clamp
+    // the mean is 212.5 and the result 143 and 255.
+    let img = image(2, 1, &[100, 100, 100, 240, 240, 240]);
+    let p = Params {
+        brightness: 1.25,
+        contrast: 0.8,
+        ..Params::IDENTITY
+    };
+    let (out, _) = apply(&img, &[], &p).unwrap();
+    assert_eq!(out.rgb, [138, 138, 138, 242, 242, 242]);
+}
+
+#[test]
+fn saturation_uses_each_pixels_clamped_luma() {
+    // Each pixel blends with its own luma: red 59.8 → [144, 24, 24], blue
+    // 22.8 → [9, 9, 129]. The image mean luma (41.3) would give red 137.
+    let img = image(2, 1, &[200, 0, 0, 0, 0, 200]);
+    let p = Params {
+        saturation: 0.6,
+        ..Params::IDENTITY
+    };
+    let (out, _) = apply(&img, &[], &p).unwrap();
+    assert_eq!(out.rgb, [144, 24, 24, 9, 9, 129]);
+    // Contrast 1.25 pushes red and blue of [250, 200, 250] past 255; they are
+    // clamped before saturation 0.6, giving [247, 228, 247]. Unclamped
+    // values would give [255, 233, 255].
+    let img = image(2, 1, &[250, 200, 250, 0, 0, 0]);
+    let p = Params {
+        contrast: 1.25,
+        saturation: 0.6,
+        ..Params::IDENTITY
+    };
+    let (out, _) = apply(&img, &[], &p).unwrap();
+    assert_eq!(out.rgb, [247, 228, 247, 0, 0, 0]);
 }
 
 #[test]
@@ -284,6 +349,8 @@ fn rejects_bad_shapes_params_and_boxes() {
         gt(-0.1, 0.0, 1.0, 1.0),
         gt(1.0, 0.0, 1.0, 1.0),
         gt(0.0, 1.5, 1.0, 1.0),
+        gt(0.0, 1.0, 1.0, 1.0),
+        gt(0.0, -0.1, 1.0, 1.0),
         gt(0.0, 0.0, f64::NAN, 1.0),
         gt(0.0, 0.0, 1.0, 2.0001),
     ]

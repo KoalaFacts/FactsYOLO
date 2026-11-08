@@ -212,6 +212,50 @@ fn randomized_parts_are_consistent() {
 }
 
 #[test]
+fn rejects_empty_image_and_zero_sized_grids() {
+    // An image with no levels previously returned an apparently perfect 0.0 loss.
+    assert_eq!(image_loss(&[], &[], 1), Err(LossError::EmptyLevels));
+
+    // A zero-area level must not silently produce a zero loss, regardless
+    // of whether the zero dimension is width, height or both.
+    let empty = out(&[], &[], &[]);
+    for (width, height) in [(0, 0), (0, 2), (3, 0)] {
+        let malformed = [LevelTargets {
+            stride: 8,
+            width,
+            height,
+            cells: vec![],
+        }];
+        assert_eq!(
+            image_loss(&malformed, &[empty], 1),
+            Err(LossError::Shape { level: 0 }),
+            "empty grid {width}x{height}"
+        );
+    }
+
+    // Reject an empty later pyramid level even if an earlier level is valid.
+    let targets = [
+        level(1, vec![None]),
+        LevelTargets {
+            stride: 16,
+            width: 0,
+            height: 0,
+            cells: vec![],
+        },
+    ];
+    assert_eq!(
+        image_loss(&targets, &[out(&[0.0], &[0.0], &[0.0; 4]), empty], 1),
+        Err(LossError::Shape { level: 1 })
+    );
+
+    // Zero positives on a genuinely nonempty grid is still a valid image.
+    let valid = [level(1, vec![None])];
+    let result = image_loss(&valid, &[out(&[0.0], &[0.0], &[0.0; 4])], 1).unwrap();
+    assert_eq!(result.positives, 0);
+    assert!(result.total > 0.0);
+}
+
+#[test]
 fn rejects_mismatched_shapes() {
     let targets = [level(2, vec![pos(0, [1.0; 4]), None])];
     let ok_cls = [0.0; 2];

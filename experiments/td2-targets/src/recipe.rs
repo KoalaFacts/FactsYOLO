@@ -71,6 +71,8 @@ pub struct LossParts {
 #[derive(Debug, PartialEq, Eq)]
 pub enum LossError {
     ClassCount,
+    /// An image must contain at least one feature-pyramid level.
+    EmptyLevels,
     LevelCount {
         targets: usize,
         outputs: usize,
@@ -117,11 +119,16 @@ pub fn image_loss(
             outputs: outputs.len(),
         });
     }
+    if targets.is_empty() {
+        return Err(LossError::EmptyLevels);
+    }
     let classes = usize::from(class_count);
     let (mut cls, mut obj, mut boxes, mut positives) = (0.0, 0.0, 0.0, 0usize);
     for (level, (t, o)) in targets.iter().zip(outputs).enumerate() {
         let cells = t.cells.len();
-        let shape_ok = t.width.checked_mul(t.height) == Some(cells)
+        let shape_ok = t.width > 0
+            && t.height > 0
+            && t.width.checked_mul(t.height) == Some(cells)
             && cells.checked_mul(classes) == Some(o.cls.len())
             && o.obj.len() == cells
             && cells.checked_mul(4) == Some(o.ltrb.len());

@@ -203,8 +203,8 @@ over positives only, divides each sum by the batch's positive count (at least
 1) and weights them 1 / 1 / 5 (class / objectness / box); a target class at or
 above the prediction's class count, a mis-sized or nonfinite prediction, or a
 positive box without a GIoU is an error, and so is a sum that overflows F64
-although every input is finite (never an infinite loss). Augmentation and schedule remain open
-in D2b2b.
+although every input is finite (never an infinite loss). Augmentation and
+schedule remain open in D2b2b.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at

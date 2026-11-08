@@ -270,6 +270,15 @@ fn rejects_finite_logits_whose_loss_sum_overflows() {
         total_loss(&[(&levels, &preds)], classes),
         Err(LossError::Overflow)
     );
+    // Each part finite (class ≈ 0.75·MAX, objectness = 0.5·MAX), weighted
+    // total not.
+    let mut preds = neutral(&levels, classes);
+    preds[0].class_logits[0] = f64::MAX;
+    preds[0].objectness[0] = f64::MAX / 2.0;
+    assert_eq!(
+        total_loss(&[(&levels, &preds)], classes),
+        Err(LossError::Overflow)
+    );
     // One huge logit alone is still a finite, valid loss.
     let mut preds = neutral(&levels, classes);
     preds[0].objectness[0] = 1e300;

@@ -25,6 +25,7 @@
 //!    areas go to the lowest box index.
 //! 5. The regression target is `[l, t, r, b] / s` (stride units).
 
+pub mod augment;
 pub mod recipe;
 
 /// Pyramid strides, finest first.

@@ -245,8 +245,13 @@ to 5% of the peak at the last step, so steps w − 1 and w are both at the peak;
 are rejected.
 
 Flip and photometric augmentation are frozen in
-`experiments/td2-targets/src/augment.rs` (roadmap D2b2b1). One draw per image
-from a 64-bit seed with SplitMix64, in a fixed order whatever is switched on:
+`experiments/td2-targets/src/augment.rs` (roadmap D2b2b1). Each image's
+parameters come from its own 64-bit seed through SplitMix64, as seven draws
+in a fixed order that never depends on what is switched on (the low-light
+probability and its gain are separate draws, and the gain is drawn even when
+low-light is off). A draw is u = (next >> 11) / 2^53; an event with
+probability p happens when u < p, and a range value is lo + (hi − lo)·u with
+the difference taken in F64. The order is:
 horizontal flip p = 0.5; low-light gain p = 0.2 with gain in [0.15, 0.5];
 brightness factor [0.75, 1.25]; contrast factor [0.75, 1.25] around the mean
 BT.601 luma of the image after gain and brightness; saturation [0.6, 1.4] as
@@ -256,7 +261,8 @@ applied in that order to RGB8 pixels in F64, clamping to [0, 255] after each
 operation and rounding half away from zero at the end; a flip maps
 box edges `[l, r]` to `[W − r, W − l]` and photometric operations never move
 boxes. Empty or mis-sized images, nonfinite or out-of-range parameters and
-nonfinite, inverted or out-of-image boxes are errors. Scale jitter, blur and
+nonfinite, inverted, empty (zero width or height) or out-of-image boxes are
+errors. Scale jitter, blur and
 JPEG-style compression remain open in D2b2b2.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates

@@ -127,8 +127,12 @@ pub fn image_loss(
     let (mut cls, mut obj, mut boxes, mut positives) = (0.0, 0.0, 0.0, 0usize);
     for (level, (t, o)) in targets.iter().zip(outputs).enumerate() {
         let cells = t.cells.len();
+        // Only the frozen T1 strides can describe an assigned pyramid level.
+        // An otherwise well-shaped tensor with stride 0/24/64 is not a
+        // representable training target and must not report a valid loss.
         let shape_ok = t.width > 0
             && t.height > 0
+            && crate::STRIDES.contains(&t.stride)
             && t.width.checked_mul(t.height) == Some(cells)
             && cells.checked_mul(classes) == Some(o.cls.len())
             && o.obj.len() == cells

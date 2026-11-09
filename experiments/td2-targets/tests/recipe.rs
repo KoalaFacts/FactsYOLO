@@ -256,6 +256,31 @@ fn rejects_empty_image_and_zero_sized_grids() {
 }
 
 #[test]
+fn loss_rejects_unsupported_target_strides() {
+    // The target oracle produces exactly 8/16/32. Previously loss accepted
+    // any stride, including zero, as long as cell/output lengths agreed.
+    let cls = [0.0];
+    let obj = [0.0];
+    let ltrb = [0.0; 4];
+    let outputs = [out(&cls, &obj, &ltrb)];
+    for stride in [0, 1, 7, 9, 24, 64, u32::MAX] {
+        let mut target = level(1, vec![None]);
+        target.stride = stride;
+        assert_eq!(
+            image_loss(&[target], &outputs, 1),
+            Err(LossError::Shape { level: 0 }),
+            "unsupported stride {stride}"
+        );
+    }
+    // Preserve partial-level oracle tests and all valid T1 strides.
+    for stride in td2_targets::STRIDES {
+        let mut target = level(1, vec![None]);
+        target.stride = stride;
+        assert!(image_loss(&[target], &outputs, 1).is_ok(), "{stride}");
+    }
+}
+
+#[test]
 fn loss_class_count_matches_t1_artifact_contract() {
     // Assignment rejects C=121; the loss oracle must not accept the same
     // model-unrepresentable head merely because its tensor is well-shaped.

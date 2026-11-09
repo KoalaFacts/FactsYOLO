@@ -281,6 +281,39 @@ fn loss_rejects_unsupported_target_strides() {
 }
 
 #[test]
+fn loss_rejects_zero_distance_positive_targets() {
+    // A positive target comes from a location strictly inside the box:
+    // all four distances must be > 0. GIoU alone still returns a finite
+    // value for these edge-touching, invalid assigned labels.
+    let cls = [0.0];
+    let obj = [0.0];
+    let ltrb = [1.0; 4];
+    let outputs = [out(&cls, &obj, &ltrb)];
+    for (index, invalid) in [
+        [0.0, 1.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [1.0, 1.0, 1.0, 0.0],
+        [-0.0, 1.0, 1.0, 1.0],
+        [0.0; 4],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let targets = [level(1, vec![pos(0, invalid)])];
+        assert_eq!(
+            image_loss(&targets, &outputs, 1),
+            Err(LossError::Box { level: 0, cell: 0 }),
+            "invalid target {index}: {invalid:?}"
+        );
+    }
+
+    // Strictly positive assigned distances remain valid.
+    let valid = [level(1, vec![pos(0, [1e-12, 1.0, 1.0, 1.0])])];
+    assert!(image_loss(&valid, &outputs, 1).is_ok());
+}
+
+#[test]
 fn loss_class_count_matches_t1_artifact_contract() {
     // Assignment rejects C=121; the loss oracle must not accept the same
     // model-unrepresentable head merely because its tensor is well-shaped.

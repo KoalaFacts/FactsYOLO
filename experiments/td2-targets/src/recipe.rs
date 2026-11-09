@@ -91,8 +91,8 @@ pub enum LossError {
         level: usize,
         cell: usize,
     },
-    /// A positive's predicted box has a negative distance or unrepresentable
-    /// geometry, so GIoU is undefined.
+    /// A positive's assigned target has a nonpositive edge distance, or
+    /// its predicted box has negative or unrepresentable geometry.
     Box {
         level: usize,
         cell: usize,
@@ -158,6 +158,13 @@ pub fn image_loss(
             }
             obj += bce_with_logits(o.obj[cell], if target.is_some() { 1.0 } else { 0.0 });
             if let Some(a) = target {
+                // Assignment uses strictly-inside cell centres, so every
+                // positive target edge distance must be strictly positive.
+                // GIoU can score edge-touching boxes, but such targets cannot
+                // come from the frozen target oracle.
+                if a.ltrb.iter().any(|&d| d <= 0.0) {
+                    return Err(LossError::Box { level, cell });
+                }
                 let pred = [distances[0], distances[1], distances[2], distances[3]];
                 boxes += giou_loss(pred, a.ltrb).ok_or(LossError::Box { level, cell })?;
                 positives += 1;

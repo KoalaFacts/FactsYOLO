@@ -256,6 +256,64 @@ fn rejects_empty_image_and_zero_sized_grids() {
 }
 
 #[test]
+fn loss_rejects_unsupported_target_strides() {
+    // The target oracle produces exactly 8/16/32. Previously loss accepted
+    // any stride, including zero, as long as cell/output lengths agreed.
+    let cls = [0.0];
+    let obj = [0.0];
+    let ltrb = [0.0; 4];
+    let outputs = [out(&cls, &obj, &ltrb)];
+    for stride in [0, 1, 7, 9, 24, 64, u32::MAX] {
+        let mut target = level(1, vec![None]);
+        target.stride = stride;
+        assert_eq!(
+            image_loss(&[target], &outputs, 1),
+            Err(LossError::Shape { level: 0 }),
+            "unsupported stride {stride}"
+        );
+    }
+    // Preserve partial-level oracle tests and all valid T1 strides.
+    for stride in td2_targets::STRIDES {
+        let mut target = level(1, vec![None]);
+        target.stride = stride;
+        assert!(image_loss(&[target], &outputs, 1).is_ok(), "{stride}");
+    }
+}
+
+#[test]
+fn loss_rejects_zero_distance_positive_targets() {
+    // A positive target comes from a location strictly inside the box:
+    // all four distances must be > 0. GIoU alone still returns a finite
+    // value for these edge-touching, invalid assigned labels.
+    let cls = [0.0];
+    let obj = [0.0];
+    let ltrb = [1.0; 4];
+    let outputs = [out(&cls, &obj, &ltrb)];
+    for (index, invalid) in [
+        [0.0, 1.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [1.0, 1.0, 1.0, 0.0],
+        [-0.0, 1.0, 1.0, 1.0],
+        [0.0; 4],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let targets = [level(1, vec![pos(0, invalid)])];
+        assert_eq!(
+            image_loss(&targets, &outputs, 1),
+            Err(LossError::Box { level: 0, cell: 0 }),
+            "invalid target {index}: {invalid:?}"
+        );
+    }
+
+    // Strictly positive assigned distances remain valid.
+    let valid = [level(1, vec![pos(0, [1e-12, 1.0, 1.0, 1.0])])];
+    assert!(image_loss(&valid, &outputs, 1).is_ok());
+}
+
+#[test]
 fn loss_class_count_matches_t1_artifact_contract() {
     // Assignment rejects C=121; the loss oracle must not accept the same
     // model-unrepresentable head merely because its tensor is well-shaped.

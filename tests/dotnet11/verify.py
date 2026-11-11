@@ -43,7 +43,7 @@ def main(feed, training, sdk, evidence):
     project = detached / 'consumer'
     consumer = prepare_project(ROOT / 'tests/sdk-install/Consumer', project, ROOT)
     ownership_project = prepare_project(ROOT / 'tests/sdk-install/Ownership', detached / 'ownership', ROOT)
-    (detached / 'global.json').write_text(json.dumps({'sdk': {'version': SETTINGS['sdk'], 'rollForward': 'disable', 'allowPrerelease': True}}, indent=2) + '\n')
+    (detached / 'global.json').write_text(json.dumps({'sdk': {'version': SETTINGS['sdk'], 'rollForward': 'disable', 'allowPrerelease': False}}, indent=2) + '\n')
     local_feed = detached / 'feed'; local_feed.mkdir()
     shutil.copyfile(package, local_feed / package.name)
     library = 'facts_yolo.dll' if rid == 'win-x64' else 'libfacts_yolo.so'
@@ -137,7 +137,7 @@ def main(feed, training, sdk, evidence):
         if mode == 'jit':
             runtime = json.loads((publish / 'Consumer.runtimeconfig.json').read_text())['runtimeOptions']
             if runtime['tfm'] != SETTINGS['framework'] or runtime['framework']['version'] != SETTINGS['runtime'] or runtime['rollForward'] != 'Disable':
-                raise ValueError('JIT runtime is not pinned to RC3')
+                raise ValueError('JIT runtime is not pinned to the configured .NET 11 runtime')
         elif 'Microsoft.DotNet.ILCompiler/' + SETTINGS['runtime'] not in restored['libraries']:
             raise ValueError('NativeAOT compiler differs')
         selections[mode] = {'managed_and_native': selected, 'libraries': sorted(restored['libraries'])}

@@ -18,11 +18,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PreviewCompatibility(unittest.TestCase):
-    def test_security_serviced_rc3_sdk_is_pinned_for_both_hosts(self):
+    def test_ga_sdk_is_pinned_for_both_hosts(self):
         from compat import SETTINGS
-        self.assertEqual(SETTINGS['sdk'], '11.0.100-rc.3.26522.148')
-        self.assertEqual(SETTINGS['runtime'], '11.0.0-rc.3.26522.148')
-        self.assertEqual(SETTINGS['release_date'], '2026-10-25')
+        self.assertEqual(SETTINGS['sdk'], '11.0.100')
+        self.assertEqual(SETTINGS['runtime'], '11.0.0')
+        self.assertEqual(SETTINGS['release_date'], '2026-11-10')
         for rid, extension in [('linux-x64', 'tar.gz'), ('win-x64', 'zip')]:
             with self.subTest(rid=rid):
                 asset = SETTINGS['assets'][rid]
@@ -107,7 +107,7 @@ class PreviewCompatibility(unittest.TestCase):
             self.assertTrue((dest / 'Consumer.csproj').is_file())
             tree = ET.parse(dest / 'Consumer.csproj')
             self.assertEqual(tree.findtext('.//TargetFramework'), 'net11.0')
-            self.assertEqual(tree.findtext('.//RuntimeFrameworkVersion'), '11.0.0-rc.3.26522.148')
+            self.assertEqual(tree.findtext('.//RuntimeFrameworkVersion'), '11.0.0')
             self.assertEqual(tree.findtext('.//RollForward'), 'Disable')
             self.assertEqual(tree.findtext('.//TreatWarningsAsErrors'), 'true')
             self.assertEqual((source / 'Program.cs').read_bytes(), (dest / 'Program.cs').read_bytes())

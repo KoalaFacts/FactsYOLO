@@ -39,8 +39,10 @@ establishing a stable SDK support promise.
 The [TD2 and CCTV vision task roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md)
 is the accepted design for the next model work: general detection (objects,
 animals, people, vehicles, faces, licence plates), then licence-plate, scene
-and face recognition, for on-premises CCTV cameras, NVRs and edge devices. It
-is a plan, not implemented functionality; TD1 is maintenance-only.
+and face recognition, for on-premises CCTV cameras, NVRs and edge devices. So
+far only unlinked TD2 experiments under `experiments/` and the FYTDv002
+container parser (`crates/fy-td2-artifact`) exist; no TD2 model or backend is
+on main. TD1 is maintenance-only.
 
 ## Build and verify
 
@@ -57,6 +59,7 @@ cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 cargo run -p xtask --locked --offline -- c
+cargo run -p xtask --locked --offline -- isolation
 cargo run -p xtask --locked --offline -- verify
 cargo run -p xtask --locked --offline -- check-docs
 ```
@@ -64,7 +67,19 @@ cargo run -p xtask --locked --offline -- check-docs
 `check-docs` fails on broken relative links or anchors, Markdown files missing
 from the [documentation index](#documentation), and paths under the repository's
 top-level source directories (`crates/`, `docs/`, `experiments/`, ...) named in
-inline code that do not exist.
+inline code that do not exist. `isolation` (Linux) checks each shipped
+feature set of the deployed library: the source of every local crate in its
+graph must not use `std::fs`, `std::net`, `std::os`, `std::process`, foreign
+`extern` blocks, `libc::`, `syscall` or `asm!`, rename `std`, or pull code
+from outside `src/` (`#[path]`, `include!`, build scripts); its dependency
+graph must hold no networking crate (registry crates are checked by name and
+by the import check, not by source); and the built `libfacts_yolo.so` must not import socket,
+name-resolution, `open`/`openat` or file-mutation symbols. The source check is
+a conservative textual deny-list (it also rejects `std::*` globs, `$name::`
+macro path roots and `path = ...` attribute arguments), not a proof, so the
+gate also reads the built library's own symbols (`nm -C --defined-only`) and
+fails on std file-write, `OpenOptions`, directory, socket, pipe or process
+code, which catches std calls hidden from the text scan by macros.
 
 With the pinned .NET SDK and native tools installed, execute the managed adapter:
 
@@ -90,9 +105,9 @@ cargo build -p facts-yolo --features td1 --locked --offline --release
 cargo test -p facts-yolo --features td1 --locked --offline
 ```
 
-TD1 requires64x64 RGB/BGR/RGBA views, reports CPU backend1/F32/one thread and
-accepts only the checked FYTDv001 artifact. The default remains backend-free;
-private contract fixtures remain separately marked TEST_ONLY. Real-artifact CI
+TD1 requires 64x64 RGB/BGR/RGBA views, reports `FY_BACKEND_TD1_CPU`, F32 and
+one thread, and accepts only the checked FYTDv001 artifact. The default remains
+backend-free; private contract fixtures remain separately marked TEST_ONLY. Real-artifact CI
 exercises C shared/static consumers on Linux x64 and C DLL consumers on Windows
 x64, plus C# JIT/AOT on both. Each host trains and consumes its own ephemeral
 artifacts; Windows static C and cross-host bitwise training identity are not claimed.
@@ -169,7 +184,7 @@ Current plan and design:
 
 Decisions and policy:
 
-- [Project and licence decision](docs/decisions/0001-project-and-license.md), [contributing](CONTRIBUTING.md), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md), [agent instructions](CLAUDE.md).
+- [Project and licence decision](docs/decisions/0001-project-and-license.md) (accepted baseline, open technical decisions), [contributing](CONTRIBUTING.md) (provenance, DCO sign-off), [model licences](MODEL_LICENSES.md), [third-party notices](THIRD_PARTY_NOTICES.md), [trademarks](TRADEMARKS.md) (project identity), [agent instructions](CLAUDE.md).
 
 M1 native foundation (complete; historical design and evidence):
 
@@ -185,10 +200,3 @@ TD1 experiment (maintenance-only; historical evidence):
 SDK packaging and testing:
 
 - [Local SDK design](docs/superpowers/specs/2026-10-15-local-dotnet-sdk-design.md), [plan](docs/superpowers/plans/2026-10-15-local-dotnet-sdk.md) and [installation gate](docs/testing/dotnet-sdk.md); [package README](sdk/dotnet/README.md); [Linux binary audit](docs/testing/linux-sdk-redistribution.md); [.NET 11 consumers](docs/testing/dotnet11-compatibility.md).
-
-## Contributing and project decisions
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for provenance requirements and DCO sign-off,
-[TRADEMARKS.md](TRADEMARKS.md) for project-identity guidance, and
-[the project and license decision](docs/decisions/0001-project-and-license.md)
-for the accepted baseline and outstanding technical decisions.

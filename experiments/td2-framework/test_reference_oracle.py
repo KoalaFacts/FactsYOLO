@@ -80,6 +80,28 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(evidence["loss"], oracle.loss(evidence["inputs"]))
         self.assertEqual(evidence["gradient_oracle"], oracle.finite_difference_gradients(evidence["inputs"]))
 
+    def test_supported_frozen_reference_interpreter_contract(self):
+        # Verified byte-equivalent oracle generation is narrower than Python 3.
+        for minor in (12, 13, 14):
+            oracle.require_supported_python((3, minor), "cpython")
+        for minor in (10, 11, 15):
+            with self.subTest(minor=minor):
+                with self.assertRaisesRegex(RuntimeError, "CPython 3.12-3.14"):
+                    oracle.require_supported_python((3, minor), "cpython")
+        with self.assertRaisesRegex(RuntimeError, "CPython 3.12-3.14"):
+            oracle.require_supported_python((3, 13), "pypy")
+
+    def test_current_runtime_emits_pinned_frozen_bytes(self):
+        import hashlib
+        import json
+
+        oracle.require_supported_python()
+        payload = json.dumps(oracle.evidence(), sort_keys=True, indent=2,
+                             allow_nan=False) + "\n"
+        self.assertEqual(
+            hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+            "0fb5ef34f70be76cd498090b40a91b69b566c1b50bb08156512a7df14d4adbea",
+        )
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ mod docs;
 mod dotnet;
 mod evidence;
 mod gates;
+mod isolation;
 mod native;
 mod resources;
 mod safety;
@@ -15,13 +16,14 @@ fn main() -> std::process::ExitCode {
     let result = match args.as_slice() {
         [command] if command == "help" => {
             println!(
-                "cargo run -p xtask -- c|exports|check-docs|resources|manifest|verify|miri|layout32|dotnet --mode jit|aot [--rid RID]"
+                "cargo run -p xtask -- c|exports|isolation|check-docs|resources|manifest|verify|miri|layout32|dotnet --mode jit|aot [--rid RID]"
             );
             Ok(())
         }
         [command] if command == "c" => native::run(false),
         [command] if command == "exports" => native::run(true),
         [command] if command == "check-docs" => docs::run(),
+        [command] if command == "isolation" => isolation::run(),
         [command] if command == "resources" => resources::run(),
         [command] if command == "miri" => safety::miri(),
         [command] if command == "layout32" => safety::layout32(),
@@ -35,7 +37,7 @@ fn main() -> std::process::ExitCode {
         [command, flag] if command == "verify" && flag == "--preflight" => gates::preflight(),
         [command, rest @ ..] if command == "dotnet" => dotnet::run(rest),
         _ => Err(
-            "expected c, exports, check-docs, dotnet, resources, manifest, verify, or help"
+            "expected c, exports, isolation, check-docs, dotnet, resources, manifest, verify, or help"
                 .to_owned(),
         ),
     };

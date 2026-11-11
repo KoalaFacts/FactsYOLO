@@ -56,6 +56,15 @@ and the workflow uploads only commands, scalar metrics and loss histories. This
 is not a public dataset/weight release or a blanket model artifact license.
 Any later publication requires its own reviewed provenance/license record.
 
+## Original TD2 synthetic plates
+
+`experiments/td2-plates/src/lib.rs` renders licence plates from an original
+stroke font defined in that file, random colours and random clutter. Its source
+is Apache-2.0; no font file, photograph, dataset or external image is an input.
+Rendered pixels are not committed, and its text patterns are not claimed to
+match any jurisdiction. Real plate fonts, layouts or photographs need their own
+record here before use.
+
 ## TD2 T1 dataset terms (stage C1, awaiting owner approval)
 
 Status: recorded 2026-11-06 for the owner's decision. Nothing listed here has

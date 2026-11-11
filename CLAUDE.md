@@ -1,3 +1,3 @@
 # Agent instructions
 
-Before claiming a change works, use `.claude/skills/verification-first/SKILL.md` and `.claude/skills/verify-factsyolo/SKILL.md`.
+Before claiming a change works, use `.claude/skills/verification-first/SKILL.md` and `.claude/skills/verify-factsyolo/SKILL.md`. The scheduled development task follows `.claude/skills/advance-factsyolo/SKILL.md`.

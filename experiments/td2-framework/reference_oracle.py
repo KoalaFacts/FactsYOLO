@@ -19,6 +19,24 @@ SHAPES = {"x": 32, "conv": 36, "depthwise": 18,
           "gamma": 2, "beta": 2, "target": 32}
 TRAINABLE = ("x", "conv", "depthwise", "gamma", "beta")
 
+# The exact reference JSON digest is reproducible with these tested CPython
+# runtimes. Python 3.10/3.11 have different low-order f64 rounding here;
+# do not misclassify their valid computation as fixture tampering.
+SUPPORTED_CPYTHON = {(3, 12), (3, 13), (3, 14)}
+
+
+def require_supported_python(version=None, implementation=None):
+    """Fail clearly before producing bytes for the frozen digest contract."""
+    if version is None:
+        version = sys.version_info[:2]
+    if implementation is None:
+        implementation = sys.implementation.name
+    if tuple(version[:2]) not in SUPPORTED_CPYTHON or implementation != "cpython":
+        raise RuntimeError(
+            "TD2 frozen reference requires CPython 3.12-3.14; "
+            f"got {implementation} {tuple(version[:2])}"
+        )
+
 
 def fixture():
     """Produce deterministic, framework-independent input and parameters."""
@@ -123,6 +141,7 @@ def finite_difference_gradients(data, h=STEP):
 
 
 def evidence():
+    require_supported_python()
     f = fixture()
     return {
         "version": 1,

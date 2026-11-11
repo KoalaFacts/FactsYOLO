@@ -48,9 +48,14 @@ telemetry, and sends nothing off the device.
 **Data stays under the customer's control.** No frame, crop, embedding, plate
 text, result or diagnostic is ever written or sent anywhere the customer does
 not control. The deployed library contains no networking code and opens no
-files beyond the artifact bytes the host passes in. Stage E adds a CI gate that
-fails if a deployed build gains a networking dependency or imports socket/HTTP
-symbols. Training-side tooling likewise never uploads customer data; customers
+files beyond the artifact bytes the host passes in. The CI gate
+`cargo run -p xtask -- isolation` (roadmap E2a, run in the Linux C conformance
+job) fails if a deployed feature set gains networking or file-mutation source,
+a networking dependency, foreign `extern` blocks or raw system calls, or
+socket, name-resolution, `open` or file-mutation imports. Its source check is a
+conservative textual deny-list, backed by a check of the std symbols the
+built library defines (file writes, sockets, processes); code review still
+owns new macros and attributes in the deployed crates. Training-side tooling likewise never uploads customer data; customers
 fine-tuning on their own footage do so locally. The host owns video decoding
 (RTSP/H.264/H.265), storage, retention, face galleries, plate watch-lists and
 all business logic; the core receives decoded frames and returns results.
@@ -165,6 +170,31 @@ layer table is fixed in stage D before training. Operators are limited to ones
 that quantize well to INT8, and the backbone exposes its pyramid features so T3
 can reuse them.
 
+The layer table is frozen in `experiments/td2-arch` (std-only Rust, not linked
+into the library; roadmap D2b1): a stride-4 stem (two 3×3 stride-2
+convolutions, 24 and 48 channels, one block), inverted residual blocks (1×1
+expand ×2, 3×3 depthwise, 1×1 linear project, residual add) at strides 8/16/32
+with widths 96/192/320 and 2/3/2 blocks, each stage entered by a stride-2
+depthwise-separable unit; 1×1 laterals to 96 channels, top-down (nearest 2×
+upsample, add) and bottom-up (stride-2 depthwise-separable unit, add) paths
+with a depthwise-separable unit after each sum; and per level two separate
+branches of two depthwise-separable units each ending in a 1×1 linear output
+of C+1 channels (class logits, objectness) or 4 (box distances). At S=320 with
+C=120 it has 1,757,463 parameters and 1.455 GFLOPs (2 per multiply-accumulate,
+plus bias and add elements); 2.458 GFLOPs at S=416. Only 1×1/3×3 convolutions,
+3×3 depthwise convolutions, SiLU, nearest upsample and element-wise add are
+used: the stage B operator list (section 10) plus add, which stage B must
+also cover before ADR 0002. Any change to the table, including rewiring
+that keeps every shape, fails the frozen totals or the wiring fingerprint test.
+The validator also rejects kernels other than dense 1×1/3×3 and depthwise 3×3
+(even when every head shape still matches), input sizes above 1024 (the
+largest S an FYTDv002 header can carry, section 7), convolution strides other
+than 1 or 2, head sets other than exactly one head per stride 8/16/32 (finest
+first) with six distinct output layers, head outputs that are not
+convolutions without activation, layers that are neither consumed nor a head
+output, head outputs that a later layer consumes, and any count that
+overflows, returning an error rather than panicking.
+
 **Box encoding.** Anchor-free: each feature location predicts non-negative
 distances to the left/top/right/bottom edges in stride units, as in
 [FCOS](https://arxiv.org/abs/1904.01355). Decoupled classification and
@@ -177,6 +207,64 @@ horizontal flip, scale jitter, colour jitter, random grayscale, blur, JPEG-style
 compression and low-light gain. The exact assignment rule, loss weights,
 augmentation and schedule are fixed in stage D and recorded, not tuned against
 the holdout.
+
+The assignment rule and the loss terms are frozen in `experiments/td2-targets`
+(std-only Rust F64 oracle, not linked into the library; roadmap D2a): strides
+8/16/32 on an S/s grid of cell centres; a location is a candidate when it lies
+strictly inside the box and strictly within 2.5 strides of its centre on both
+axes; it is kept on a level when the largest of its four edge distances is in
+(0, 64], (64, 128] or (128, ∞) pixels respectively; a location kept for
+several boxes goes to the smallest area, then the lowest box index; regression
+targets are the four distances in stride units. Focal loss uses α = 0.25,
+γ = 2. The chosen training framework must reproduce these targets and loss
+values. Boxes whose finite endpoints yield nonfinite F64 spans or area
+are rejected as invalid input rather than silently losing their training
+targets. GIoU returns no result when intermediate F64 geometry is not
+representable (even for finite input distances) or when the union or
+enclosing area underflows to zero, rather than propagating NaN or infinity
+into training.
+
+Loss weighting, optimizer and schedule are frozen in
+`experiments/td2-targets/src/recipe.rs` (roadmap D2b2a). Per image, with
+n = max(1, positive locations over all levels): focal loss summed over every
+location and class (one-hot at positives), BCE objectness summed over every
+location, and `1 − GIoU` summed over positives, each divided by n; total =
+1·cls + 1·obj + 5·box; a batch loss (`batch_loss`) is the mean of image
+totals, and an empty batch or an overflowing sum is an error. Nonfinite
+outputs anywhere in a level, a positive's class outside the class count, a
+positive whose predicted box makes GIoU undefined, an image with no pyramid
+levels or a level with zero width or height, and a total that overflows F64
+are errors, never silently skipped. AdamW (β 0.9/0.999, ε 1e-8, decoupled
+weight decay 0.05 on convolution weights only: biases and batch-norm scales
+and shifts get none; the decay acts on the weights in the step and is never
+added to the gradient), global L2 clip at norm 10 of the raw loss gradient over
+all parameters before the AdamW update,
+peak learning rate 2e-3: linear warmup over w = max(1, ⌊total/20⌋) steps
+(step k at (k + 1)/w of the peak), then cosine decay from the peak at step w
+to 5% of the peak at the last step, so steps w − 1 and w are both at the peak; runs shorter than 20 steps
+are rejected.
+
+Flip and photometric augmentation are frozen in
+`experiments/td2-targets/src/augment.rs` (roadmap D2b2b1). Each image's
+parameters come from its own 64-bit seed through SplitMix64, as seven draws
+in a fixed order that never depends on what is switched on (the low-light
+probability and its gain are separate draws, and the gain is drawn even when
+low-light is off). A draw is u = (next >> 11) / 2^53; an event with
+probability p happens when u < p, and a range value is lo + (hi − lo)·u with
+the difference taken in F64. The order is:
+horizontal flip p = 0.5; low-light gain p = 0.2 with gain in [0.15, 0.5];
+brightness factor [0.75, 1.25]; contrast factor [0.75, 1.25] around the mean
+BT.601 luma of the image after gain and brightness; saturation [0.6, 1.4] as
+a blend of each pixel with its luma; grayscale p = 0.1, which replaces the
+saturation step with factor 0 (it is not applied after saturation). They are
+applied in that order to RGB8 pixels in F64, clamping to [0, 255] after each
+operation and rounding half away from zero at the end; a flip maps
+box edges `[l, r]` to `[W − r, W − l]` and photometric operations never move
+boxes. Empty or mis-sized images, nonfinite or out-of-range parameters and
+nonfinite, inverted, empty (zero width or height) or out-of-image boxes are
+errors. If reflection rounds a positive-width box to zero width in F64,
+augmentation rejects it instead of returning a broken target. Scale jitter, blur and
+JPEG-style compression remain open in D2b2b2.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
@@ -199,6 +287,22 @@ A new, separate format; FYTDv001 is unchanged and stays TD1-only.
 The task-kind field lets T2–T4 models reuse the container with their own
 layer kinds, each defined in its stage.
 
+**Byte layout (fixed in stage E1a, `crates/fy-td2-artifact`).** All integers
+little-endian. Header, 64 bytes: magic `FYTDv002` (0..8), format version `u32` = 2
+(8), task kind `u32` (12; 1 = T1, others rejected until their stage), input size S
+`u32` (16; 32..=1024, multiple of 32), class count `u32` (20; 1..=120 for T1),
+layer count `u32` (24; 1..=1024), reserved `u32` = 0 (28), parameter count `u64`
+in F32 elements (32), total byte length `u64` (40), reserved zero (48..64). Then
+one 64-byte record per layer: kind `u32` (non-zero), activation `u32`, ten
+kind-specific `u32` fields (shapes, strides, padding, groups, inputs; meanings
+fixed in D2b), parameter offset `u64` and parameter count `u64` in F32 elements.
+Layer ranges are contiguous, in table order, starting at 0 and covering every
+parameter. The parameter region starts right after the table (always 64-byte
+aligned) and is followed by a 32-byte SHA-256 of every preceding byte, which is
+the `model_id`. The total length must equal the slice length and the layout sum;
+limits and header fields are checked before any allocation or hashing, and
+allocations are fallible. Layer-kind semantics are checked by the backend (E1b).
+
 ## 8. Data and licensing (gate C, then per task)
 
 Training data must allow the project to publish weights for commercial use.
@@ -220,6 +324,14 @@ excluded, not worked around. Before any download, the stage records the terms,
 category mapping and attribution procedure in `MODEL_LICENSES.md`, and the
 owner approves it. Weight-release licensing is a separate decision at release
 time; this design does not promise Apache-2.0 weights.
+
+Synthetic T2 plates come from `experiments/td2-plates`: an original stroke font
+(36 alphanumerics and a dash, defined as polylines in source, no font file),
+caller-supplied text patterns, perspective, blur, noise and cluttered
+backgrounds, with per-character and plate labels. It renders deterministically
+from a seed and takes no external input. Its patterns are not claimed to match
+any jurisdiction; AU/NZ layouts and any real plate font still need the licence
+check in the T2 row above.
 
 ## 9. T1 evaluation (pre-registered)
 
@@ -357,14 +469,20 @@ commit), blocked (reason; owner decision needed).
 | B6 | Decision record selecting one framework | Unblocks stage D | todo | — |
 | C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | in progress (PR #74; owner approves the recorded terms before any download) | `MODEL_LICENSES.md` T1 dataset record: Open Images terms checked against the sources, COCO marked unverified; owner decisions (a)–(c) listed there |
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
-| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
-| D2 | Frozen layer table, targets and losses | Fixed before training | todo | — |
+| D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
+| D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
+| D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | done (PR #81, `42db22c`); D2b1d head-set and dead-layer checks done (PR #82, `d4873f8`) | `experiments/td2-arch`: 19 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and stride-4 convolutions, empty, partial, repeated or out-of-order head sets, one layer used as two head outputs, dead layers, consumed head outputs, and activated or wrong-level head outputs are rejected, each test failing before its fix |
+| D2b2a | Frozen loss weighting and normalization, optimizer settings, learning-rate schedule | Training recipe fixed before any training, so results cannot be tuned against the holdout | done (PR #83, `81422f6`) | `td2-targets` recipe tests 16/16: closed-form zero-logit and GIoU cases, per-level sums, perfect outputs for `assign` targets give zero box loss, 200 randomized images recounted from the D2a primitives, overflowing sums, empty batches, empty pyramids and zero-area levels rejected; mutations (no max(1) normalizer, unchecked distances, warmup off by one, warmup 1/10, class bound, decay end, overflow guard, box weight) each caught; batch loss is the mean of image totals |
+| D2b2b1 | Frozen flip and photometric augmentation (low-light gain, brightness, contrast, saturation, grayscale) | Robustness to night, glare and colour shifts on customer cameras, fixed before training | in progress (PR #85) | `td2-targets` augment tests 13/13: hand-computed pixel cases incl. clamping after every operation and half-away rounding, double flip restores input, photometric ops never move boxes over 200 seeds, 20,000-seed frequencies within 4.5 σ, sampled parameters for seeds 0 and 14 matched bit-for-bit by an independent Python SplitMix64; mutations (flip box edges, contrast pivot, skipped or reordered draws, truncation instead of rounding, open range check, grayscale ignored, box bound, luma weights, contrast pivot taken before brightness, saturation blended with the image mean instead of each pixel's luma, no clamp after gain/brightness or after contrast, zero-height or negative-top boxes accepted) each caught |
+| D2b2b2 | Frozen scale jitter, blur and JPEG-style compression | Robustness to distance, focus and codec artefacts, fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
-| E1 | Native `td2` backend: FYTDv002 parser, decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
-| E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, no-networking gate, section 9 budgets | Camera-native input at edge latency | todo | — |
+| E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
+| E1b | Native `td2` backend: layer-kind validation (after D2b1), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |
+| E2a | No-networking / no-file-write isolation gate for every deployed feature set | Proves on-prem data control in CI, not only in prose | done (PR #76, `c42a499`) | `xtask isolation`: 18 (default) / 23 (td1) local source files, 52 / 53 imports, 0 forbidden; negative controls fail it: `TcpStream` (source + `socket`/`connect`/`getaddrinfo`), grouped `use std::{fs as f}`, an `extern` `open` block (+ `open` import), `std::fs` in the td1 model crate; verifier bypasses that wrote files through the built library (`use std::*`, `$c::fs` with `nc!(std)`, `cfg_attr(.., path = ..)`) and a custom `build =` key are now rejected with unit tests; a macro rebuilding `std::fs` from `std` and `::` tokens fails the defined-symbol check (`defines std::fs::write`) |
+| E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
-| H1 | T2 plate recognition design and synthetic plate data | Required capability | todo | — |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (synthetic plate renderer done in PR #73, `00ff24f`; recognizer design todo) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 | X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | done (PR #77, `b64f45a`) | `xtask` workflow tests 7/7 |

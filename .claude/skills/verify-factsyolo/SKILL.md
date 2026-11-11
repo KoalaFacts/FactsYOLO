@@ -23,6 +23,11 @@ command output into the PR and say which runs were local and which were CI.
 - `xtask dotnet`: .NET SDK exactly 10.0.403 (`sdk/dotnet/global.json`,
   `tests/dotnet/global.json`, `rollForward: disable`) plus nuget.org access for
   restore and the Native AOT ILCompiler package.
+  If `dotnet` is missing, install it into a scratch folder (outside the repo):
+  `curl -sSL -o dotnet-install.sh https://dot.net/v1/dotnet-install.sh`, then
+  `bash dotnet-install.sh --version 10.0.403 --install-dir <scratch>/sdk` and
+  `export PATH=<scratch>/sdk:$PATH DOTNET_ROOT=<scratch>/sdk`. With it,
+  `xtask verify` runs in about two minutes on 2 CPUs (verified 2026-11-07).
 - `xtask miri`: `rustup toolchain install nightly-2026-10-13 --profile minimal --component miri`.
 - `xtask layout32`: `rustup target add i686-unknown-linux-gnu --toolchain 1.99.0`,
   multilib C headers (Ubuntu `gcc-multilib`, or `CC_I686`) and `objcopy`.
@@ -53,12 +58,17 @@ Bare `src/`, `examples/` and `tests/<name>.rs` paths below are relative to
 | C# binding JIT/AOT | `tests/dotnet/FactsYOLO.Smoke` (consumer used by xtask); `sdk/dotnet/FactsYOLO` (package, exercised by `sdk-install.yml`) | `cargo run -p xtask --locked --offline -- dotnet --mode jit`, then `--mode aot` (verified here) | "normal jit: 6 passed", "fixture jit: 14 passed", same for aot, ".NET aot linux-x64: normal and fixture executables passed" | layout records, export sets, SafeHandle/dispose semantics, `tests/sdk-install`, `tests/dotnet11` |
 | Resources sampling | `examples/resource_probe.rs` (fixture-only), `xtask/src/resources.rs` | `cargo run -p xtask --locked --offline -- resources` (verified here) | rss/private first vs last median within 16 MiB budget, "live objects and Rust allocation bytes returned to baseline", evidence dir in `target/m1-evidence/resources-*` | ownership/result lifetimes, fixture counters |
 | Safety | `xtask/src/safety.rs`, `tests/layout32/` | `cargo run -p xtask --locked --offline -- miri`; `-- layout32` (verified here). TD1 Miri: CI job `miri-td1` | Miri pass line + `outcome.txt`; "123 scalars (113 records) agree for current/frozen C and Rust" | any `unsafe`, descriptor/record layout, pointer width |
+| Deployed-library isolation (TD2 E2a) | `xtask/src/isolation.rs`; CI step in `.github/workflows/c-conformance.yml` (Linux) | `cargo run -p xtask --locked --offline -- isolation` (verified here, Linux) | per feature set: "N local source files scanned", "N imports checked, 0 forbidden", "N std symbols checked, 0 forbidden", final "isolation gate passed" | any new dependency or `std::fs`/`net`/`process`/`extern` use in `crates/facts-yolo` or `experiments/cpu-detector/model` fails it; `nm` must be on PATH; a `strip` release profile makes it fail (no std symbols) |
 | Docs gate | `xtask/src/docs.rs`; README documentation index | `cargo run -p xtask --locked --offline -- check-docs` (verified here) | "docs check passed" | new Markdown must be indexed from README; inline-code paths under `crates/`, `docs/`, `experiments/` ... must exist; hidden dirs (this one) are skipped |
 | TD1 experiment | `experiments/cpu-detector/` (`verify.py`, `verify_native.py`, `paired_trained_native.py`, `model`, `evaluate`) | `python3 experiments/cpu-detector/verify.py experiments/cpu-detector/target/evidence` (new dir), then `verify_native.py <evidence>/burn target/td1-evidence-burn` and the same for `candle`; Python gate unit tests: `python3 -m unittest discover -s experiments/cpu-detector -p 'test_*.py'` (verified here) | the JSON reports and `commands.json` in the evidence dir, `target/td1-evidence-*/summary.json`; CI job `train-save-reload` uploads them | native TD1 loader, artifact format, C/C# TD1 consumers |
 | TD2 Stage B oracle | `experiments/td2-framework/reference_oracle.py` | as `.github/workflows/td2-framework-oracle.yml` job `independent-reference`: `python3 -m unittest discover -s experiments/td2-framework -p 'test_reference_oracle.py' -v`, `python3 experiments/td2-framework/reference_oracle.py --output td2-b-oracle.json`, then assert `framework_selected` and `training_executed` are false and `outputs` has 32 values (verified here) | the JSON itself (inputs, loss, finite-difference gradients) | any future Burn/Candle comparison that uses this reference |
 | TD2 D1 evaluator | `experiments/td2-eval/src/lib.rs` (`evaluate`), frozen cases `experiments/td2-eval/tests/data/pycocotools-crosscheck.txt` | `cargo test -p td2-eval --locked --offline` (verified here, 10/10); for a real cross-check re-score the frozen cases with pycocotools in a scratch venv (never in the repo) and compare every summary and per-class number | test counts; max difference vs pycocotools (0.0 at merge, PR #72) | Stage D reports against spec section 9 floors |
-
-`experiments/td2-plates` (synthetic plates, PR #73) is not on main yet; add its row when it merges.
+| TD2 D2a targets and losses | `experiments/td2-targets/src/lib.rs`; spec section on target assignment | `cargo test -p td2-targets --locked --offline` (previous head: 48/48 (targets 18, recipe 17, augment 13); latest head with stride regression pending CI) | test count; for a changed rule, the mutation it must catch (PR #78 lists 7 boundary/tie-break mutations) | D2b layer table and loss weights, D3 training targets |
+| TD2 D2b2a loss recipe and schedule | `experiments/td2-targets/src/recipe.rs` (`image_loss`, `batch_loss`, `lr_at`, `warmup_steps`); spec section 6 | `cargo test -p td2-targets --locked --offline --test recipe` (previous head: 17/17 (2026-11-09); latest head has 18 expected, pending CI); for a real check recount two hand cases with an independent script from the spec formulas and compare every part, and probe rejection inputs (shapes, nonfinite, overflowing sums) | test count; recount differences; mutation caught | D3 training loop, the framework port in stage B/D |
+| TD2 D2b2b1 flip and photometric augmentation | `experiments/td2-targets/src/augment.rs` (`sample`, `apply`, `Params`, `Image`) | `cargo test -p td2-targets --locked --offline --test augment` (13 cases after the flip-rounding regression; latest-head CI required); for a real check re-derive `sample(seed)` with an independent SplitMix64 script (Python, scratch dir; compute `lo + (hi − lo)·u` with the F64 difference, or saturation differs by 1 ULP) and recompute a few pixels by hand from the spec formulas | test count; bit-equal parameters for the probed seeds; hand pixel values | D3 training input pipeline, D2b2b2 scale jitter (box transforms), the framework port |
+| TD2 E1a artifact container | `crates/fy-td2-artifact/src/lib.rs` (`parse`, `encode`, `Limits`, `MAGIC` `FYTDv002`); spec section 7 byte layout | `cargo test -p fy-td2-artifact --locked --offline` (verified here, 12/12); for a real check encode a sample with an independent encoder written from the spec (Python `struct` + `hashlib` in a scratch dir) and compare bytes and digest, then fuzz `parse` with random and resealed inputs from a scratch crate | test counts; golden digest equality; fuzz input count with 0 panics and every accepted input re-encoding byte-identically | E1b backend wiring, `fy_model_open` artifact checks, isolation gate once linked |
+| TD2 D2b1 layer table | `experiments/td2-arch/src/lib.rs` (`table`, `analyze`, `HEADS`) | `cargo test -p td2-arch --locked --offline` (verified here, 19/19, 2026-11-08); also clean under `cargo +1.85.0 clippy -p td2-arch --all-targets -- -D warnings` (the 1.85 job in CI runs clippy too) | frozen totals 1,757,463 parameters / 1,454,700,900 FLOPs at S=320, C=120 vs budgets 3.0 M / 2.5 G | FYTDv002 layer kinds (E1b), D3 training, spec section 6 numbers |
+| TD2 H1 synthetic plates | `experiments/td2-plates/src/lib.rs` (`render`, `Scene`, `Sample`, `RenderError`; stroke font defined as polylines in source) | `cargo test -p td2-plates --locked --offline` (debug and release; frozen render hashes); for a real check render a seed grid from a scratch crate (path dependency, outside the repo) over frame sizes, perspective, blur, noise and contrast, and assert every label coordinate is finite and inside the frame, the plate quad is convex, and bad parameters return `Err` without panicking | test counts; grid/fuzz counts with 0 bad renders | future T2 recognizer training data; Cargo.lock must gain no dependency |
 
 ## Gate
 
@@ -74,6 +84,7 @@ cargo build -p facts-yolo --locked --offline --release
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo fmt --all -- --check
 cargo run -p xtask --locked --offline -- c
+cargo run -p xtask --locked --offline -- isolation
 cargo run -p xtask --locked --offline -- verify
 cargo run -p xtask --locked --offline -- check-docs
 ```
@@ -101,6 +112,11 @@ Add the rows above that your change touches (TD1, Miri, layout32, experiments).
   evidence directories must be new.
 - Never use dataset pixels or external/pretrained weights as verification
   inputs. Use original synthetic frames and artifacts trained in the same job.
+- A clean clippy on the pinned 1.99.0 does not mean the CI lane
+  `rust (ubuntu-24.04, 1.85.0)` passes: older clippy fires lints that 1.99
+  no longer does (e.g. `format_collect`, PR #79). Also run
+  `RUSTUP_TOOLCHAIN=1.85.0 cargo clippy --workspace --all-targets --locked --offline --target-dir target/msrv -- -D warnings`
+  (`rustup toolchain install 1.85.0 --profile minimal --component clippy`).
 - Unit tests of a Rust function do not show that the shipped library, header
   and C# consumer agree; run `xtask c` and `xtask dotnet` for that.
 

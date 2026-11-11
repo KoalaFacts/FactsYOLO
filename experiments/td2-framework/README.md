@@ -71,8 +71,8 @@ operator check, not a bitwise reproduction. GitHub Actions records the
 actual Linux/Windows results; a green Python test alone **does not** mean
 either Rust backend compiled or passed.
 
-**Not yet delivered:** framework-internal matched-seed SGD/Adam training, CPU
-throughput and peak-memory baselines, GPU viability, licensing decision
+**Not yet delivered:** training through each framework's optimizer API
+(SGD with momentum/Adam), CPU throughput and peak-memory baselines, GPU viability, licensing decision
 for any distributed binary, and ADR 0002 framework selection. The oracle
 contains no licensed datasets or pre-trained weights.
 
@@ -92,3 +92,31 @@ This is **external SGD**, not framework-internal optimizer training. Reported
 walltime includes subprocess starts and the Python numerical oracle and MUST
 NOT be called framework training throughput. No CPU peak-memory, GPU, framework
 selection or production accuracy claim follows from this gate.
+
+## Matched in-process SGD on framework tensors (stage B3a)
+
+`td2_proxy <burn|candle> <oracle.json> --sgd 20 0.002` trains the frozen proxy
+inside one Rust process: each step runs the forward, the framework's own
+autodiff, and the plain-SGD update `w <- w - lr * grad` on the framework's
+tensors (Candle `Var::set`; Burn inner-backend tensors re-attached with
+`require_grad`). Image and target stay frozen; the 58 convolution, depthwise
+and BN affine values train. Seeds, initialization, learning rate and step count
+are identical for both backends. The report holds all 21 losses, the final
+parameters and the wall time of the training loop alone.
+
+```sh
+for name in burn candle; do
+  RAYON_NUM_THREADS=1 cargo run --manifest-path experiments/cpu-detector/Cargo.toml \
+    --bin td2_proxy --release --locked --offline -- "$name" /tmp/td2-b-oracle.json \
+    --sgd 20 0.002 > "/tmp/td2-$name-sgd.json"
+  python3 experiments/td2-framework/verify_training.py "$name" "/tmp/td2-$name-sgd.json"
+done
+```
+
+`verify_training.py` replays the same 20 steps with the pure-Python f64
+forward and central-difference gradients, then requires every loss within
+2e-4 and every final parameter within 2e-5, and a lower final loss. Its tests
+reject wrong identity or plan, non-finite values, loss or parameter drift,
+skipped updates and gradient ascent. Steps are capped at 100 and the learning
+rate must be in (0, 1]. This is not the frameworks' optimizer API, and the
+loop time on a 4×4 proxy is not a throughput figure (stage B4).

@@ -100,8 +100,8 @@ inside one Rust process: each step runs the forward, the framework's own
 autodiff, and the plain-SGD update `w <- w - lr * grad` on the framework's
 tensors (Candle `Var::set`; Burn inner-backend tensors re-attached with
 `require_grad`). Image and target stay frozen; the 58 convolution, depthwise
-and BN affine values train. Seeds, initialization, learning rate and step count
-are identical for both backends. The report holds all 21 losses, the final
+and BN affine values train. The fixed oracle fixture (initialization), learning rate and step count are
+identical for both backends; nothing in B3a is randomly sampled. The report holds all 21 losses, the final
 parameters and the wall time of the training loop alone.
 
 ```sh

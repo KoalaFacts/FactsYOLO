@@ -56,6 +56,15 @@ class TestVerifyTraining(unittest.TestCase):
         with self.assertRaises(AssertionError):
             vt.validate(report, "burn", REFERENCE)
 
+    def test_scaled_learning_rate_is_caught(self):
+        # A backend that applies 1.5x the declared step size must not pass.
+        losses, finals = vt.reference_trajectory(learning_rate=1.5 * vt.LEARNING_RATE)
+        report = oracle_report()
+        report["losses"] = losses
+        report["final_parameters"] = finals
+        with self.assertRaises(AssertionError):
+            vt.validate(report, "burn", REFERENCE)
+
     def test_wrong_sign_update_is_caught(self):
         # Gradient ascent with the same step size must not pass as training.
         state = {k: [vt.replay.f32(v) for v in arr] for k, arr in vt.oracle.fixture().items()}

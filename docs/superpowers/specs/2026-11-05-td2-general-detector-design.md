@@ -266,6 +266,33 @@ errors. If reflection rounds a positive-width box to zero width in F64,
 augmentation rejects it instead of returning a broken target. Scale jitter, blur and
 JPEG-style compression remain open in D2b2b2.
 
+**D2b2b2 candidate numerical contract (proposed, not yet accepted).**
+This paragraph is a review gate, not an implemented augmentation or permission
+to train. Keep the seven existing D2b2b1 SplitMix64 draws and their outputs
+bit-identical. Use a separately domain-separated RNG stream for geometric and
+degradation parameters so that adding an operation cannot change the existing
+photometric sampling. For each image, draw all D2b2b2 parameters regardless
+of whether a particular operation is enabled; record the precise domain
+separation, draw order and all seeds in the executable oracle before merging
+the implementation. Proposed operation order: scale and box transform,
+existing D2b2b1 flip and photometric operations, then blur, then JPEG-style
+compression. The final transform must leave the output canvas at the input
+dimensions and must never return nonfinite, inverted or zero-area boxes.
+
+The implementation PR must freeze and test, with hand-recounted examples:
+(1) the scale distribution, interpolation, pixel-centre mapping, crop/pad
+position, pad colour, clipping, minimum visible-box policy and rounding;
+(2) the blur probability, kernel, radius, border handling and channel
+arithmetic; (3) whether JPEG-style compression is an actual codec round trip
+or a fully specified deterministic approximation, including block edges,
+quantization, colour conversion and clipping; (4) how zero-sized inputs,
+arithmetic overflow and extremely thin boxes fail; (5) RNG vectors for
+multiple seeds, identity cases, exact pixel and box vectors, repeatability
+and a regression proving every pre-existing D2b2b1 vector remains unchanged.
+No external codec or dependency is approved by this proposal; any such
+dependency needs its own review. Do not call the D2b2b2 contract frozen
+until those numerical choices and executable vectors have been reviewed.
+
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
 IoU 0.65, then apply the existing ABI sort and cap. Nonfinite or inverted

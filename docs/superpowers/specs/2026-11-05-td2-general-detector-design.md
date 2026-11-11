@@ -232,8 +232,9 @@ location, and `1 − GIoU` summed over positives, each divided by n; total =
 1·cls + 1·obj + 5·box; a batch loss (`batch_loss`) is the mean of image
 totals, and an empty batch or an overflowing sum is an error. Nonfinite
 outputs anywhere in a level, a positive's class outside the class count, a
-positive whose predicted box makes GIoU undefined, and a total that overflows
-F64 are errors, never silently skipped. AdamW (β 0.9/0.999, ε 1e-8, decoupled
+positive whose predicted box makes GIoU undefined, an image with no pyramid
+levels or a level with zero width or height, and a total that overflows F64
+are errors, never silently skipped. AdamW (β 0.9/0.999, ε 1e-8, decoupled
 weight decay 0.05 on convolution weights only: biases and batch-norm scales
 and shifts get none; the decay acts on the weights in the step and is never
 added to the gradient), global L2 clip at norm 10 of the raw loss gradient over
@@ -241,7 +242,29 @@ all parameters before the AdamW update,
 peak learning rate 2e-3: linear warmup over w = max(1, ⌊total/20⌋) steps
 (step k at (k + 1)/w of the peak), then cosine decay from the peak at step w
 to 5% of the peak at the last step, so steps w − 1 and w are both at the peak; runs shorter than 20 steps
-are rejected. Augmentation remains open in D2b2b.
+are rejected.
+
+Flip and photometric augmentation are frozen in
+`experiments/td2-targets/src/augment.rs` (roadmap D2b2b1). Each image's
+parameters come from its own 64-bit seed through SplitMix64, as seven draws
+in a fixed order that never depends on what is switched on (the low-light
+probability and its gain are separate draws, and the gain is drawn even when
+low-light is off). A draw is u = (next >> 11) / 2^53; an event with
+probability p happens when u < p, and a range value is lo + (hi − lo)·u with
+the difference taken in F64. The order is:
+horizontal flip p = 0.5; low-light gain p = 0.2 with gain in [0.15, 0.5];
+brightness factor [0.75, 1.25]; contrast factor [0.75, 1.25] around the mean
+BT.601 luma of the image after gain and brightness; saturation [0.6, 1.4] as
+a blend of each pixel with its luma; grayscale p = 0.1, which replaces the
+saturation step with factor 0 (it is not applied after saturation). They are
+applied in that order to RGB8 pixels in F64, clamping to [0, 255] after each
+operation and rounding half away from zero at the end; a flip maps
+box edges `[l, r]` to `[W − r, W − l]` and photometric operations never move
+boxes. Empty or mis-sized images, nonfinite or out-of-range parameters and
+nonfinite, inverted, empty (zero width or height) or out-of-image boxes are
+errors. If reflection rounds a positive-width box to zero width in F64,
+augmentation rejects it instead of returning a broken target. Scale jitter, blur and
+JPEG-style compression remain open in D2b2b2.
 
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
@@ -449,8 +472,9 @@ commit), blocked (reason; owner decision needed).
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |
 | D2b1 | Frozen layer table with shape, parameter and FLOP accounting | Model fits the edge budgets before any training cost is spent | done (PR #81, `42db22c`); D2b1d head-set and dead-layer checks done (PR #82, `d4873f8`) | `experiments/td2-arch`: 19 tests; 1,757,463 parameters and 1.455 GFLOPs at S=320, C=120 (budgets 3.0 M, 2.5 G) for every class count 1–120; hand-computed layer checks, recounted by an independent script in review; frozen wiring fingerprint; 9 mutations (dropped block, depthwise/kernel/add/head checks, bias FLOPs, shape-preserving rewiring, non-32-multiple input size such as 336) each caught; malformed tables return errors instead of panicking or wrapping (zero head stride, u64 count overflow, sizes above the FYTDv002 maximum of 1024, upsample chains past u32) and stride-4 convolutions, empty, partial, repeated or out-of-order head sets, one layer used as two head outputs, dead layers, consumed head outputs, and activated or wrong-level head outputs are rejected, each test failing before its fix |
-| D2b2a | Frozen loss weighting and normalization, optimizer settings, learning-rate schedule | Training recipe fixed before any training, so results cannot be tuned against the holdout | in progress (PR #83) | `td2-targets` recipe tests 15/15: closed-form zero-logit and GIoU cases, per-level sums, perfect outputs for `assign` targets give zero box loss, 200 randomized images recounted from the D2a primitives, overflowing sums and empty batches rejected; mutations (no max(1) normalizer, unchecked distances, warmup off by one, warmup 1/10, class bound, decay end, overflow guard, box weight) each caught; batch loss is the mean of image totals |
-| D2b2b | Frozen augmentation reference (flip, scale and colour jitter, grayscale, blur, JPEG-style compression, low-light gain) | Robustness to camera conditions, fixed before training | todo | — |
+| D2b2a | Frozen loss weighting and normalization, optimizer settings, learning-rate schedule | Training recipe fixed before any training, so results cannot be tuned against the holdout | done (PR #83, `81422f6`) | `td2-targets` recipe tests 16/16: closed-form zero-logit and GIoU cases, per-level sums, perfect outputs for `assign` targets give zero box loss, 200 randomized images recounted from the D2a primitives, overflowing sums, empty batches, empty pyramids and zero-area levels rejected; mutations (no max(1) normalizer, unchecked distances, warmup off by one, warmup 1/10, class bound, decay end, overflow guard, box weight) each caught; batch loss is the mean of image totals |
+| D2b2b1 | Frozen flip and photometric augmentation (low-light gain, brightness, contrast, saturation, grayscale) | Robustness to night, glare and colour shifts on customer cameras, fixed before training | in progress (PR #85) | `td2-targets` augment tests 13/13: hand-computed pixel cases incl. clamping after every operation and half-away rounding, double flip restores input, photometric ops never move boxes over 200 seeds, 20,000-seed frequencies within 4.5 σ, sampled parameters for seeds 0 and 14 matched bit-for-bit by an independent Python SplitMix64; mutations (flip box edges, contrast pivot, skipped or reordered draws, truncation instead of rounding, open range check, grayscale ignored, box bound, luma weights, contrast pivot taken before brightness, saturation blended with the image mean instead of each pixel's luma, no clamp after gain/brightness or after contrast, zero-height or negative-top boxes accepted) each caught |
+| D2b2b2 | Frozen scale jitter, blur and JPEG-style compression | Robustness to distance, focus and codec artefacts, fixed before training | todo | — |
 | D3 | Reduced-scale training on free runners, resumable | First real TD2 weights | todo (after B6, C2) | — |
 | E1a | FYTDv002 container: byte layout and bounded parser | Customer devices reject malformed or tampered models before use | done (PR #79, `93570f8`) | `crates/fy-td2-artifact`: 12 tests incl. every single-bit flip of a sample rejected; golden digest matched by an independent Python encoder |
 | E1b | Native `td2` backend: layer-kind validation (after D2b1), decoding, portable inference matching training within tolerance | Runs on customer devices | todo | — |

@@ -25,6 +25,7 @@
 //!    areas go to the lowest box index.
 //! 5. The regression target is `[l, t, r, b] / s` (stride units).
 
+pub mod augment;
 pub mod recipe;
 
 /// Pyramid strides, finest first.
@@ -69,9 +70,9 @@ pub struct LevelTargets {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TargetError {
-    /// The input size is zero or not a multiple of the coarsest stride.
+    /// The input size is outside the T1 artifact's 32..=1024 range or is not stride-aligned.
     InputSize(u32),
-    /// The class count is zero.
+    /// The class count is outside the T1 artifact's 1..=120 range.
     ClassCount,
     /// The box has nonfinite coordinates, nonpositive spans, or an unrepresentable F64 span/area.
     InvalidBox(usize),
@@ -88,10 +89,12 @@ pub fn assign(
     boxes: &[GtBox],
 ) -> Result<Vec<LevelTargets>, TargetError> {
     let coarsest = STRIDES[STRIDES.len() - 1];
-    if input_size == 0 || input_size % coarsest != 0 {
+    // Match the frozen FYTDv002 T1 header and layer-table validator before
+    // building target grids; an unsupported S must not allocate memory.
+    if input_size == 0 || input_size > 1024 || input_size % coarsest != 0 {
         return Err(TargetError::InputSize(input_size));
     }
-    if class_count == 0 {
+    if class_count == 0 || class_count > 120 {
         return Err(TargetError::ClassCount);
     }
     for (index, b) in boxes.iter().enumerate() {

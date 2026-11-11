@@ -467,7 +467,7 @@ commit), blocked (reason; owner decision needed).
 | B4 | CPU throughput and peak memory, x64 and arm64 runners | Training cost on free hardware | todo | — |
 | B5 | Dependency, licence and GPU-path review | Keeps the core redistributable | todo | — |
 | B6 | Decision record selecting one framework | Unblocks stage D | todo | — |
-| C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | todo (owner approves before any download) | — |
+| C1 | T1 dataset terms, category mapping and attribution in `MODEL_LICENSES.md` | Lawful training data | in progress (PR #74; owner approves the recorded terms before any download) | `MODEL_LICENSES.md` T1 dataset record: Open Images terms checked against the sources, COCO marked unverified; owner decisions (a)–(c) listed there |
 | C2 | Frozen class set and fingerprinted subset manifests | Reproducible training | todo (after C1) | — |
 | D1 | Independent COCO-style detection evaluator | Honest accuracy numbers for section 9 | done (PR #72, `08c37c8`) | `experiments/td2-eval`: 13 frozen pycocotools 2.0.11 cases, ~13,500 randomized scenes with 0 mismatches in review |
 | D2a | Frozen target assignment, focal/BCE/GIoU loss reference | Training targets fixed before any training | done (PR #78, `cb5174c`) | `experiments/td2-targets`: 17 tests incl. 300 randomized scenes checked for completeness and smallest-box choice; 7 boundary and tie-break mutations each caught; span/area and GIoU intermediate-overflow regressions (incl. enclosure-only overflow) each fail when their guard is removed |

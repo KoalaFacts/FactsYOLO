@@ -44,7 +44,7 @@ def validate(report, backend, reference, steps=STEPS, learning_rate=LEARNING_RAT
     if report.get("steps") != steps or type(report.get("steps")) is not int:
         raise ValueError("step count differs from the matched plan")
     rate = report.get("learning_rate")
-    if type(rate) not in (int, float) or abs(rate - learning_rate) > 1e-9:
+    if type(rate) not in (int, float) or not math.isfinite(rate) or abs(rate - learning_rate) > 1e-9:
         raise ValueError("learning rate differs from the matched plan")
     losses = replay.valid_numbers(report.get("losses"), steps + 1, "losses")
     finals = report.get("final_parameters")

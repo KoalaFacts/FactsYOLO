@@ -482,10 +482,73 @@ commit), blocked (reason; owner decision needed).
 | E2 | GRAY8/YUV input decision, NEON/AVX2, aarch64 CI with real execution, section 9 budgets | Camera-native input at edge latency | todo | — |
 | F1 | First detection SDK release candidate (identically hashed C# package, model card, deployer docs) | Customers can integrate | todo (release needs owner approval) | — |
 | G1 | INT8 post-training quantization with measured accuracy delta | Faster on edge boards | todo | — |
-| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (synthetic plate renderer done in PR #73, `00ff24f`; recognizer design todo) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
+| H1 | T2 plate recognition design and synthetic plate data | Required capability | in progress (synthetic plate renderer done in PR #73, `00ff24f`; recognizer design proposed in section 14, under review) | `td2-plates` tests 12/12 debug and release; verifier grid 6,000 Ok / 9,600 Err / 0 bad, fuzz 25,392 Ok / 0 bad (PR #73 comments) |
 | I1 | T3 scene recognition design | Very important capability | todo | — |
 | J1 | T4 face recognition design | Required; training blocked until a budget exists | todo | — |
 | X1 | CI: pull-request workflows cancel superseded runs | Free runner pool is not exhausted by stale heads, so reviews and merges are not delayed for hours | done (PR #77, `b64f45a`) | `xtask` workflow tests 7/7 |
+
+## 14. T2 plate recognition (stage H design)
+
+Status: proposal for review (ledger H1). Numbers marked *proposed* are frozen
+by H2 before any T2 training run, the same way D2 froze T1's recipe; until
+then they are not commitments.
+
+**Scope.** Input: the caller's frame and one axis-aligned plate box (from T1
+or from the host). Output: the plate's characters in reading order, each with
+a confidence. Single-row plates first; two-row and stacked layouts are a later
+decision. The core applies no jurisdiction rules: it emits raw characters and
+the host validates formats and owns any watch-list (section 4).
+
+**Recognizer.** The box is expanded by a fixed margin (proposed 10% per side),
+clipped to the frame, converted to luma and resized bilinearly to a fixed
+32 × 128 input (proposed), so plates of any size and aspect share one shape.
+A small convolutional backbone reuses T1's layer kinds (dense 1×1/3×3 and
+depthwise 3×3 convolutions with folded batch norm, SiLU, element-wise add;
+section 6) and adds one thing T1 lacks: stride 2 in height with stride 1 in
+width. Two square stride-2 stages and three height-only ones take 32 × 128 to
+a 1 × 32 sequence of T = 32 columns; a pointwise head gives each column a score over
+the 37 glyphs of `experiments/td2-plates` (`0`–`9`, `A`–`Z`, `-`, in that
+label order) plus a blank. Training uses connectionist temporal classification
+(CTC; Graves et al., ICML 2006), as in sequence recognizers such as CRNN (Shi,
+Bai and Yao, 2015); ideas are cited, no code or weights are reused
+(CONTRIBUTING). Decoding is greedy: take each column's best class, merge repeats,
+drop blanks. It is deterministic, needs no language model, and is cheap on edge
+CPUs. A character's confidence is the highest probability among the columns
+that emitted it. At most 12 characters (proposed); T = 32 leaves room for a
+blank between every repeated pair. Spaces are layout, not characters, and are
+not emitted.
+
+**Data.** H2–H3 train and evaluate only on synthetic plates from
+`experiments/td2-plates`, which takes no external input, so no dataset licence
+gate applies to them. Splits are by seed and by text pattern, so the holdout
+contains patterns never seen in training. AU/NZ layouts, any real plate font
+and any real plate images need their own record in `MODEL_LICENSES.md` and the
+owner's approval before use (section 8, T2 row).
+
+**Gates (proposed, pre-registered before the first T2 training run).**
+Synthetic holdout: exact-plate accuracy ≥ 0.95 and character error rate
+reported, at character heights ≥ 16 px. Recognizer ≤ 1 M parameters; per plate
+≤ 5 ms on one x64 AVX2 core and ≤ 15 ms on one Raspberry Pi 5 class core;
+zero heap growth over 10,000 consecutive calls. No accuracy claim on real
+plates until a licensed real-plate evaluation set exists.
+
+**Contract.** T2 ships behind its own opt-in cargo feature, absent from the
+default build and reported through capabilities; the isolation gate (E2a)
+covers that feature set. The model is an FYTDv002 artifact with its own task
+kind and layer kinds (section 7). Following section 5, it adds one operation
+that takes a session, a frame and one plate box and returns an owned text
+result, with describe/copy/release functions in the style of `fy_result`; the
+copied element holds one character and its confidence. The host loops over
+boxes. A session whose model is not a T2 model rejects the call. The exact
+header text, element layout and status codes are a separate written decision
+before implementation (CONTRIBUTING). Results own their data and nothing is
+retained after release.
+
+**Sub-steps.** H1 this design. H2 frozen reference: CTC loss and greedy decoder
+in an experiment crate with hand-computed cases, plus the frozen layer table and
+budget accounting. H3 synthetic training on free runners, after B6. H4 the ABI
+decision record, then the native operation and C/C# consumers. H5 the AU/NZ
+layout and font record (owner gate for any external input).
 
 AI-assisted draft; no human certification or DCO sign-off is asserted on another
 person's behalf. Section 4 is a product-design summary, not legal advice.

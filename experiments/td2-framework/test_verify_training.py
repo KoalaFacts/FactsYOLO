@@ -29,6 +29,8 @@ class TestVerifyTraining(unittest.TestCase):
                        lambda r: r.update(steps=19),
                        lambda r: r.update(steps=20.0),
                        lambda r: r.update(learning_rate=0.003),
+                       lambda r: r.update(learning_rate=float("nan")),
+                       lambda r: r.update(learning_rate=float("inf")),
                        lambda r: r["losses"].pop(),
                        lambda r: r["losses"].__setitem__(3, float("nan")),
                        lambda r: r["final_parameters"].pop("beta"),

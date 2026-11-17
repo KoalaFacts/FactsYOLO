@@ -2,8 +2,8 @@
 //! Frozen TD2 flip and photometric augmentation reference (stage D2b2b1).
 //!
 //! Fixed before any training so augmentation is not tuned against the
-//! holdout (design section 6). Scale jitter, blur and JPEG-style compression
-//! follow in D2b2b2. Ideas only: random horizontal flip and colour jitter as
+//! holdout (design section 6). Blur is D2b2b2a ([`sample_blur`], [`blur`]);
+//! scale jitter and JPEG-style compression follow in D2b2b2. Ideas only: random horizontal flip and colour jitter as
 //! widely used since [AlexNet](https://papers.nips.cc/paper/4824) and
 //! [SSD](https://arxiv.org/abs/1512.02325); BT.601 luma weights. No code was
 //! ported.
@@ -241,4 +241,93 @@ impl Rng {
     fn range(&mut self, (lo, hi): (f64, f64)) -> f64 {
         lo + (hi - lo) * self.unit()
     }
+}
+
+/// Probability that the D2b2b2a blur is applied (stage D2b2b2a).
+pub const BLUR_PROBABILITY: f64 = 0.1;
+/// Probability that an applied blur uses the 5-tap kernel instead of 3-tap.
+pub const BLUR_WIDE_PROBABILITY: f64 = 0.5;
+/// Domain separator for the blur stream: the blur draws use SplitMix64
+/// seeded with `seed ^ BLUR_DOMAIN`, so they never shift the seven D2b2b1
+/// draws of [`sample`] and later D2b2b2 operations get streams of their own.
+pub const BLUR_DOMAIN: u64 = 0x7464_3262_3262_6c72;
+
+/// A separable binomial blur kernel (a discrete Gaussian approximation).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlurKernel {
+    /// `[1, 2, 1] / 4` per axis (σ ≈ 0.71 px).
+    Binomial3,
+    /// `[1, 4, 6, 4, 1] / 16` per axis (σ = 1 px).
+    Binomial5,
+}
+
+impl BlurKernel {
+    /// Integer taps of one axis; they sum to a power of two.
+    pub fn taps(self) -> &'static [u32] {
+        match self {
+            Self::Binomial3 => &[1, 2, 1],
+            Self::Binomial5 => &[1, 4, 6, 4, 1],
+        }
+    }
+}
+
+/// Draws the blur of one image from `seed`: two draws in a fixed order
+/// (on/off, then kernel width), both made even when the blur is off.
+pub fn sample_blur(seed: u64) -> Option<BlurKernel> {
+    let mut rng = Rng(seed ^ BLUR_DOMAIN);
+    let on = rng.unit() < BLUR_PROBABILITY;
+    let wide = rng.unit() < BLUR_WIDE_PROBABILITY;
+    on.then_some(if wide {
+        BlurKernel::Binomial5
+    } else {
+        BlurKernel::Binomial3
+    })
+}
+
+/// Blurs the RGB8 output of [`apply`] (blur runs after flip and photometric
+/// operations). Each channel is convolved with the 2-D outer product of the
+/// kernel taps; border pixels are replicated. The weighted sum is exact in
+/// integers and divided once by the tap total squared, rounding halves up
+/// (half away from zero, as every value is non-negative). Boxes are not
+/// moved by blur, so this takes no boxes. `None` returns the image unchanged.
+pub fn blur(image: &Image, kernel: Option<BlurKernel>) -> Result<Image, AugmentError> {
+    let pixels = image
+        .width
+        .checked_mul(image.height)
+        .filter(|&n| n > 0)
+        .ok_or(AugmentError::Shape)?;
+    if pixels.checked_mul(3) != Some(image.rgb.len()) {
+        return Err(AugmentError::Shape);
+    }
+    let Some(kernel) = kernel else {
+        return Ok(image.clone());
+    };
+    let taps = kernel.taps();
+    let radius = taps.len() / 2;
+    let total: u32 = taps.iter().sum();
+    let denominator = u64::from(total) * u64::from(total);
+    let (w, h) = (image.width, image.height);
+    let at = |x: usize, y: usize, c: usize| u64::from(image.rgb[(y * w + x) * 3 + c]);
+    let mut rgb = Vec::with_capacity(image.rgb.len());
+    for y in 0..h {
+        for x in 0..w {
+            for c in 0..3 {
+                let mut sum = 0u64;
+                for (j, &ty) in taps.iter().enumerate() {
+                    let yy = (y + j).saturating_sub(radius).min(h - 1);
+                    for (i, &tx) in taps.iter().enumerate() {
+                        let xx = (x + i).saturating_sub(radius).min(w - 1);
+                        sum += u64::from(ty) * u64::from(tx) * at(xx, yy, c);
+                    }
+                }
+                // sum ≤ 255 · denominator, so the quotient fits in u8.
+                rgb.push(((sum + denominator / 2) / denominator) as u8);
+            }
+        }
+    }
+    Ok(Image {
+        width: w,
+        height: h,
+        rgb,
+    })
 }

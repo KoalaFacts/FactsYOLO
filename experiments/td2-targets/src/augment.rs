@@ -2,8 +2,8 @@
 //! Frozen TD2 flip and photometric augmentation reference (stage D2b2b1).
 //!
 //! Fixed before any training so augmentation is not tuned against the
-//! holdout (design section 6). Blur is D2b2b2a ([`sample_blur`], [`blur`]);
-//! scale jitter and JPEG-style compression follow in D2b2b2. Ideas only: random horizontal flip and colour jitter as
+//! holdout (design section 6). Blur is D2b2b2a ([`sample_blur`],
+//! [`blur`]); scale jitter and JPEG-style compression follow in D2b2b2. Ideas only: random horizontal flip and colour jitter as
 //! widely used since [AlexNet](https://papers.nips.cc/paper/4824) and
 //! [SSD](https://arxiv.org/abs/1512.02325); BT.601 luma weights. No code was
 //! ported.

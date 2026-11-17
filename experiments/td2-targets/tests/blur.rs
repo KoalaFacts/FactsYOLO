@@ -68,6 +68,35 @@ fn border_is_replicated_and_halves_round_up() {
 }
 
 #[test]
+fn two_dimensional_vectors_cross_checked_independently() {
+    // 4x3 image; 5-tap values recomputed by an independent Python convolution
+    // with replicated borders and half-up rounding. Pins the 5-tap vertical axis.
+    let img = gray(4, 3, &[10, 200, 30, 255, 0, 90, 128, 64, 7, 250, 3, 100]);
+    let out = blur(&img, Some(BlurKernel::Binomial5)).unwrap();
+    assert_eq!(
+        channel0(&out),
+        vec![52, 94, 126, 160, 51, 90, 108, 118, 58, 95, 97, 91]
+    );
+    // One column impulse, 5-tap vertical only: (6, 4, 1)·255/16 by distance.
+    let col = gray(1, 5, &[0, 0, 255, 0, 0]);
+    let out = blur(&col, Some(BlurKernel::Binomial5)).unwrap();
+    assert_eq!(channel0(&out), vec![16, 64, 96, 64, 16]);
+}
+
+#[test]
+fn rejects_overflowing_dimensions() {
+    let huge = Image {
+        width: usize::MAX,
+        height: 2,
+        rgb: vec![],
+    };
+    assert_eq!(
+        blur(&huge, Some(BlurKernel::Binomial3)),
+        Err(AugmentError::Shape)
+    );
+}
+
+#[test]
 fn rejects_bad_shapes() {
     let bad = Image {
         width: 2,
@@ -102,10 +131,9 @@ fn sampled_vectors_match_an_independent_splitmix64() {
 
 #[test]
 fn blur_stream_leaves_d2b2b1_draws_unchanged_and_frequencies_match() {
-    // The D2b2b1 sampler is untouched by the blur stream.
-    for seed in [0, 14, 10, 15] {
-        assert_eq!(sample(seed), sample(seed));
-    }
+    // The D2b2b1 draws are pinned by the frozen vectors in tests/augment.rs;
+    // here the blur stream must also differ from the D2b2b1 stream.
+    let _ = sample(10);
     let n = 20_000u64;
     let mut on = 0u64;
     let mut wide = 0u64;

@@ -293,6 +293,17 @@ No external codec or dependency is approved by this proposal; any such
 dependency needs its own review. Do not call the D2b2b2 contract frozen
 until those numerical choices and executable vectors have been reviewed.
 
+**D2b2b2a blur (frozen in `experiments/td2-targets/src/augment.rs`).** Each
+D2b2b2 operation gets its own SplitMix64 stream, seeded with
+`seed ^ <operation domain>`, so adding one never shifts another's draws; blur
+uses domain `0x7464_3262_3262_6c72` and two draws in order: on with
+probability 0.1, then the 5-tap kernel with probability 0.5 (else 3-tap).
+Both draws are made even when blur is off. Blur runs on the RGB8 output of
+the D2b2b1 operations: separable binomial `[1, 2, 1]/4` or
+`[1, 4, 6, 4, 1]/16` per axis, replicated borders, one exact integer
+division by the squared tap total with halves rounded up; boxes do not move.
+Scale jitter and JPEG-style compression remain open.
+
 **Decoding.** Score = sqrt(objectness × class probability). Drop candidates
 below the caller's threshold, keep the pre-NMS top 1,000, run per-class NMS at
 IoU 0.65, then apply the existing ABI sort and cap. Nonfinite or inverted

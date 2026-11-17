@@ -112,6 +112,13 @@ jobs:
           for backend in burn candle; do
             "${{ matrix.python }}" experiments/td2-framework/td2_native_sgd_replay.py --binary "$bin" --backend "$backend" --output "td2-$backend-20step-sgd.json"
           done
+      - name: Check matched 20-step in-process framework SGD (stage B3a)
+        shell: bash
+        run: |
+          for backend in burn candle; do
+            cargo run --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --quiet --bin td2_proxy -- "$backend" td2-b-oracle.json --sgd 20 0.002 > "td2-$backend-inprocess-sgd.json"
+            "${{ matrix.python }}" experiments/td2-framework/verify_training.py "$backend" "td2-$backend-inprocess-sgd.json" --output "td2-$backend-inprocess-sgd-comparison.json"
+          done
       - name: Preserve exact numerical evidence (no weights or pixels)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -126,4 +133,8 @@ jobs:
             td2-candle-comparison.json
             td2-burn-20step-sgd.json
             td2-candle-20step-sgd.json
+            td2-burn-inprocess-sgd.json
+            td2-candle-inprocess-sgd.json
+            td2-burn-inprocess-sgd-comparison.json
+            td2-candle-inprocess-sgd-comparison.json
           if-no-files-found: ignore

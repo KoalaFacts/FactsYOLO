@@ -50,6 +50,9 @@ EPSILON = 1e-8
 WEIGHT_DECAY = 0.05
 GRAD_CLIP_NORM = 10.0
 DECAYED = {"conv": True, "depthwise": True, "gamma": False, "beta": False}
+# Tighter than B3a so that decay applied after, instead of in, the Adam step
+# (a 1.8e-6 shift on this proxy) is caught; observed error is about 2e-7.
+ATOL_PARAMETER_ADAMW = 1e-6
 
 
 def recipe_lr(step, total):
@@ -106,14 +109,16 @@ def validate_adamw(report, backend, reference, steps=STEPS):
     if norm_error > ATOL_PARAMETER:
         raise AssertionError(f"gradient norm mismatch: {norm_error}")
     result = validate(dict(report, mode="in-process-tensor-sgd", learning_rate=LEARNING_RATE),
-                      backend, (reference_losses, reference_finals), steps)
+                      backend, (reference_losses, reference_finals), steps,
+                      atol_parameter=ATOL_PARAMETER_ADAMW, optimizer="AdamW recipe")
     result.update({"optimizer": "adamw-d2b2a-recipe", "learning_rate": None,
                    "max_gradient_norm": max(norms), "clip_active": max(norms) > GRAD_CLIP_NORM,
                    "max_gradient_norm_relative_error": norm_error})
     return result
 
 
-def validate(report, backend, reference, steps=STEPS, learning_rate=LEARNING_RATE):
+def validate(report, backend, reference, steps=STEPS, learning_rate=LEARNING_RATE,
+             atol_parameter=ATOL_PARAMETER, optimizer="SGD"):
     if not isinstance(report, dict) or report.get("backend") != BACKENDS[backend]:
         raise ValueError("wrong backend identity")
     if report.get("mode") != "in-process-tensor-sgd":
@@ -136,14 +141,14 @@ def validate(report, backend, reference, steps=STEPS, learning_rate=LEARNING_RAT
         actual = replay.valid_numbers(finals[key], oracle.SHAPES[key], key)
         delta = max(abs(a - b) for a, b in zip(actual, reference_finals[key]))
         parameter_error = max(parameter_error, delta)
-        if delta > ATOL_PARAMETER:
+        if delta > atol_parameter:
             raise AssertionError(f"{key} final parameter mismatch: {delta}")
     if losses[-1] >= losses[0]:
-        raise AssertionError("in-process SGD did not lower loss")
+        raise AssertionError(f"in-process {optimizer} did not lower loss")
     return {"backend": BACKENDS[backend], "steps": steps, "learning_rate": learning_rate,
             "initial_loss": losses[0], "final_loss": losses[-1],
             "max_loss_error": loss_error, "max_final_parameter_error": parameter_error,
-            "atol_loss": ATOL_LOSS, "atol_parameter": ATOL_PARAMETER,
+            "atol_loss": ATOL_LOSS, "atol_parameter": atol_parameter,
             "sgd_location": "in-process-framework-tensors",
             "framework_optimizer_api": False, "framework_selected": False,
             "framework_throughput": None, "peak_rss_bytes": None, "model_accuracy": None}

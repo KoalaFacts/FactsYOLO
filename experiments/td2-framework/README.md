@@ -141,8 +141,9 @@ done
 
 `verify_training.py --adamw-recipe` re-implements the recipe in f64 from the
 spec text with central-difference gradients and requires the schedule to match
-within 1e-15, every gradient norm within 2e-5 (relative), and the same loss and
-final-parameter tolerances as B3a. On this proxy the largest gradient norm is
+within 1e-15, every gradient norm within 2e-5 (relative), every loss within
+2e-4 and every final parameter within 1e-6 (tighter than B3a, so that decay
+applied after instead of in the Adam step, a 1.8e-6 shift here, is caught). On this proxy the largest gradient norm is
 about 0.90, so the clip at 10 never activates here; the report says so
 (`clip_active`). The update is hand-written on framework tensors, not the
 frameworks' optimizer API (`burn::optim`, `candle-nn`), which would add a

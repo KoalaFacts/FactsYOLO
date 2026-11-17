@@ -442,15 +442,13 @@ fn adamw_report(
     losses: Vec<f32>,
     finals: [(&str, Vec<f32>); 4],
     gradient_norms: Vec<f64>,
+    rates: Vec<f64>,
     seconds: f64,
 ) -> Value {
     let mut parameters = serde_json::Map::new();
     for (name, values) in finals {
         parameters.insert(name.to_owned(), json!(values));
     }
-    let rates: Vec<f64> = (0..adamw.steps)
-        .map(|k| recipe::lr_at(k, adamw.steps))
-        .collect();
     json!({
         "backend": backend,
         "mode": "in-process-tensor-adamw-recipe",
@@ -487,6 +485,7 @@ fn candle_adamw(f: &Inputs, adamw: AdamW) -> candle_core::Result<Value> {
     let mut v = m.clone();
     let mut losses = Vec::with_capacity(adamw.steps + 1);
     let mut norms = Vec::with_capacity(adamw.steps);
+    let mut rates = Vec::with_capacity(adamw.steps);
     let start = std::time::Instant::now();
     for step in 0..=adamw.steps {
         let [conv, dw, gamma, beta] = &params;
@@ -510,6 +509,7 @@ fn candle_adamw(f: &Inputs, adamw: AdamW) -> candle_core::Result<Value> {
         norms.push(norm);
         let scale = recipe::clip_scale(norm);
         let lr = recipe::lr_at(step, adamw.steps);
+        rates.push(lr);
         let (c1, c2) = recipe::bias_corrections(step + 1);
         for (i, parameter) in params.iter().enumerate() {
             let g = raw[i].affine(scale, 0.0)?;
@@ -544,6 +544,7 @@ fn candle_adamw(f: &Inputs, adamw: AdamW) -> candle_core::Result<Value> {
             ("beta", flat(&params[3])?),
         ],
         norms,
+        rates,
         seconds,
     ))
 }
@@ -574,6 +575,7 @@ fn burn_adamw(f: &Inputs, adamw: AdamW) -> Result<Value, String> {
     let mut v = m.clone();
     let mut losses = Vec::with_capacity(adamw.steps + 1);
     let mut norms = Vec::with_capacity(adamw.steps);
+    let mut rates = Vec::with_capacity(adamw.steps);
     let start = std::time::Instant::now();
     for step in 0..=adamw.steps {
         let [conv, dw, gamma, beta] = &params;
@@ -596,6 +598,7 @@ fn burn_adamw(f: &Inputs, adamw: AdamW) -> Result<Value, String> {
         norms.push(norm);
         let scale = recipe::clip_scale(norm) as f32;
         let lr = recipe::lr_at(step, adamw.steps);
+        rates.push(lr);
         let (c1, c2) = recipe::bias_corrections(step + 1);
         let mut next = Vec::with_capacity(4);
         for (i, parameter) in params.iter().enumerate() {
@@ -632,6 +635,7 @@ fn burn_adamw(f: &Inputs, adamw: AdamW) -> Result<Value, String> {
             ("beta", flat(&params[3])?),
         ],
         norms,
+        rates,
         seconds,
     ))
 }

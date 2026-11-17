@@ -1,6 +1,7 @@
 ---
 name: advance-factsyolo
 description: How the scheduled task advances FactsYOLO — goal, headline metric, gate, work order, scope and project rules. Read with agent-harness/autonomous-dev at the start of every run.
+ledger: docs/superpowers/specs/2026-11-05-td2-general-detector-design.md
 ---
 
 # Advance FactsYOLO
@@ -39,7 +40,7 @@ cargo run -p xtask --locked --offline -- verify   # needs dotnet 10.0.403
 Also run the `experiments/cpu-detector` checks (`verify.py`, including the Rust 1.85.0 portable step) when that experiment is touched. For an experiment crate pinned to an older floor, run its `cargo +<floor> clippy` as well.
 
 ## Ledger
-Section 13 "Roadmap" of the TD2 spec. `docs/plans/td2-roadmap.md` does not exist, so it must not be created. Every PR updates its row. Run notes live in PR bodies.
+Section 13 "Roadmap" of the TD2 spec (declared as `ledger:` in the frontmatter for the owner's progress tracker; its table has `Item` and `Status` columns and every status cell starts with `todo`, `in progress`, `done` or `blocked`). `docs/plans/td2-roadmap.md` does not exist, so it must not be created. Every PR updates its row. Run notes live in PR bodies.
 
 ## Work order
 Take the first row that is not done or blocked, in this order:

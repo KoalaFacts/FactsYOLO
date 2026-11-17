@@ -1,4 +1,4 @@
-"""Offline negative controls for the B3a in-process training check (no Rust claims)."""
+"""Offline negative controls for the B3a/B3b in-process training checks (no Rust claims)."""
 import copy
 import unittest
 
@@ -82,6 +82,74 @@ class TestVerifyTraining(unittest.TestCase):
         report["final_parameters"] = {k: state[k] for k in vt.FIELDS}
         with self.assertRaises(AssertionError):
             vt.validate(report, "burn", REFERENCE)
+
+
+
+ADAMW = vt.adamw_trajectory()
+
+
+def adamw_report(backend="candle"):
+    losses, finals, rates, norms = ADAMW
+    return {"backend": vt.BACKENDS[backend], "mode": "in-process-tensor-adamw-recipe",
+            "steps": vt.STEPS, "learning_rates": list(rates), "gradient_norms": list(norms),
+            "losses": list(losses), "final_parameters": copy.deepcopy(finals)}
+
+
+class TestVerifyAdamWRecipe(unittest.TestCase):
+    def test_schedule_is_the_frozen_d2b2a_one(self):
+        self.assertEqual(vt.recipe_lr(0, 20), 2e-3)
+        self.assertEqual(vt.recipe_lr(1, 20), 2e-3)
+        self.assertAlmostEqual(vt.recipe_lr(19, 20), 1e-4, places=18)
+        self.assertEqual(vt.recipe_lr(0, 40), 1e-3)
+        for step, total in ((0, 19), (20, 20), (-1, 20)):
+            with self.assertRaises(ValueError):
+                vt.recipe_lr(step, total)
+
+    def test_reference_descends_and_differs_from_sgd(self):
+        losses, finals, _, norms = ADAMW
+        self.assertLess(losses[-1], losses[0])
+        self.assertLess(max(norms), vt.GRAD_CLIP_NORM)
+        sgd_finals = REFERENCE[1]
+        self.assertGreater(abs(finals["conv"][0] - sgd_finals["conv"][0]), 1e-4)
+        result = vt.validate_adamw(adamw_report("burn"), "burn", ADAMW)
+        self.assertEqual(result["max_loss_error"], 0.0)
+        self.assertFalse(result["clip_active"])
+
+    def test_plan_mismatches_rejected(self):
+        for mutate in (lambda r: r.update(mode="in-process-tensor-sgd"),
+                       lambda r: r.update(backend="burn-flex-0.22.0"),
+                       lambda r: r.update(steps=21),
+                       lambda r: r["learning_rates"].pop(),
+                       lambda r: r["gradient_norms"].__setitem__(0, float("nan"))):
+            report = adamw_report("candle")
+            mutate(report)
+            with self.assertRaises(ValueError):
+                vt.validate_adamw(report, "candle", ADAMW)
+
+    def test_recipe_drift_rejected(self):
+        for mutate in (lambda r: r["learning_rates"].__setitem__(0, 1e-3),
+                       lambda r: r["gradient_norms"].__setitem__(5, r["gradient_norms"][5] * 1.01),
+                       lambda r: r["losses"].__setitem__(10, r["losses"][10] + 1e-3),
+                       lambda r: r["final_parameters"]["gamma"].__setitem__(0, r["final_parameters"]["gamma"][0] + 1e-4)):
+            report = adamw_report("candle")
+            mutate(report)
+            with self.assertRaises(AssertionError):
+                vt.validate_adamw(report, "candle", ADAMW)
+
+    def test_decay_on_batch_norm_scale_is_caught(self):
+        wrong = dict(vt.DECAYED, gamma=True)
+        original = vt.DECAYED
+        try:
+            vt.DECAYED = wrong
+            mutated = vt.adamw_trajectory()
+        finally:
+            vt.DECAYED = original
+        losses, finals, rates, norms = mutated
+        report = {"backend": vt.BACKENDS["burn"], "mode": "in-process-tensor-adamw-recipe",
+                  "steps": vt.STEPS, "learning_rates": rates, "gradient_norms": norms,
+                  "losses": losses, "final_parameters": finals}
+        with self.assertRaises(AssertionError):
+            vt.validate_adamw(report, "burn", ADAMW)
 
 
 if __name__ == "__main__":

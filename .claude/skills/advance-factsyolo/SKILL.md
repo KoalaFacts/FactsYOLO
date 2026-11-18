@@ -1,6 +1,7 @@
 ---
 name: advance-factsyolo
 description: How the scheduled task advances FactsYOLO — goal, headline metric, gate, work order, scope and project rules. Read with agent-harness/autonomous-dev at the start of every run.
+ledger: docs/superpowers/specs/2026-11-05-td2-general-detector-design.md
 ---
 
 # Advance FactsYOLO
@@ -39,13 +40,13 @@ cargo run -p xtask --locked --offline -- verify   # needs dotnet 10.0.403
 Also run the `experiments/cpu-detector` checks (`verify.py`, including the Rust 1.85.0 portable step) when that experiment is touched. For an experiment crate pinned to an older floor, run its `cargo +<floor> clippy` as well.
 
 ## Ledger
-Section 13 "Roadmap" of the TD2 spec. `docs/plans/td2-roadmap.md` does not exist, so it must not be created. Every PR updates its row. Run notes live in PR bodies.
+Section 13 "Roadmap" of the TD2 spec (declared as `ledger:` in the frontmatter for the owner's progress tracker; its table has `Item` and `Status` columns and every status cell starts with `todo`, `in progress`, `done` or `blocked`). `docs/plans/td2-roadmap.md` does not exist, so it must not be created. Every PR updates its row. Run notes live in PR bodies.
 
 ## Work order
 Take the first row that is not done or blocked, in this order:
-1. Stage B: the framework comparison (B2–B5) and then ADR 0002 (B6), which selects Burn or Candle. The comparison is predeclared and uses a fixed CPU proxy: same seeds, initialization and steps, a small conv+BN+SiLU+upsample net on original synthetic data, trained with each framework. It measures gradient agreement against the independent reference forward, plus throughput and peak memory on x64 and arm64 runners, and includes a dependency and licence review. PR #70 is on a `feat/` branch the task did not open, so it is not the task's to merge or push.
-2. Stage C: research and record the dataset terms, category mapping and attribution in `MODEL_LICENSES.md`. The owner must approve before any download (PR #74 waits on that).
-3. Stage D: the harness (D1, D2a, D2b1 and D2b2a are done; D2b2b augmentation is next, with D2b2b1 flip and photometric prepared on `claude/td2-d2b2b1-flip-photometric`), then reduced-scale training on free runners (D3, after B6 and C2).
+1. Stage B: the framework comparison (B3b–B5) and then ADR 0002 (B6), which selects Burn or Candle. The comparison is predeclared and uses a fixed CPU proxy: same seeds, initialization and steps, a small conv+BN+SiLU+upsample net on original synthetic data, trained with each framework. It measures gradient agreement against the independent reference forward, plus throughput and peak memory on x64 and arm64 runners, and includes a dependency and licence review. B2 (#70) and B3a (#88) are done.
+2. Stage C: the dataset terms, category mapping and attribution are recorded in `MODEL_LICENSES.md` (#74). The owner must approve them before any download; that approval is owner-reserved (licence of external material).
+3. Stage D: the harness (D1, D2a, D2b1, D2b2a and D2b2b1 are done; D2b2b2 scale jitter, blur and JPEG-style compression is next, against the contract proposal merged in #87), then reduced-scale training on free runners (D3, after B6 and C2).
 4. Stage E: the native td2 backend, NEON/AVX2, aarch64 CI with real execution, and the no-networking CI gate (E2a is done). Then stage F onward.
 - Keep implementation WIP at one open PR: finish existing work before opening another. While an item waits on owner approval, CI or external review, do non-conflicting reproduction, measurements or preparation on the next unblocked item without stacking implementation PRs (for example T2–T4 design work).
 - T4 training stays blocked until a budget exists. TD1 is maintenance-only.

@@ -54,17 +54,15 @@ Take the first row that is not done or blocked, in this order:
 
 ## Authority
 - Branch prefix `claude/`; housekeeping branch `claude/docs-hygiene-YYYY-MM-DD`; harness install branch `claude/verify-skills`. Squash merge pinned to the head SHA.
-- Open-PR triage (autonomous-dev §3 step 0) covers every open PR, whoever opened it (Codex, Dependabot, other sessions, the owner's): merge when the merge conditions hold, continue when unfinished, close when superseded. Never overwrite someone else's commits, and leave alone anything someone else pushed in the last 90 minutes.
-- Merge conditions are autonomous-dev §5 plus this file's extra conditions:
-  - the full local gate passes on the final source (main merged in, or a local merge of main into the head);
-  - every hosted check that ran on the head passed, hosted CodeQL included when it ran. A hosted check that never started (billing) does not block; the local gate and independent review stand in, and the PR says so;
-  - review: Codex on the head when it reviews within 45 minutes of the PR opening or the last push (across runs); otherwise one independent agent that did not write the change reviews and gives the verification verdict in one PR comment. A small PR (§5 definition) needs only the author's self-review;
-  - all findings fixed or answered, threads resolved, no evidence threshold weakened.
-- A formal GitHub `APPROVED` review is **not** a merge condition: the owner's decision policy of 2026-11-17 (autonomous-dev §0.1) lets the task decide everything outside the owner-reserved list and the owner vetoes after the fact. (Until then this file required one; PRs #87, #88 and #89 sat blocked for six days on it because the authoring account cannot approve its own PRs.) Never self-approve and never bypass branch protection.
+- Never merge `codex/` branches or Dependabot PRs. Never push to or merge a branch this task did not open (for example `feat/…`).
+- A PR may be merged only after:
+  - every applicable hosted check on the **latest head** has completed and passed, hosted CodeQL included;
+  - all review bots have finished and all blocking findings/review threads are resolved;
+  - a qualified **non-author** reviewer has submitted a formal GitHub `APPROVED` review covering the latest head. `COMMENTED`, an agent's read-only PASS, an older-head review, or the author's own review do not satisfy this gate. Never bypass protection or self-approve.
+- If Codex reviews this repo and has not reviewed the head, wait while the PR is younger than 12 hours: up to about 30 minutes in-run, otherwise until the next run. If Codex cannot review (failed review or usage limit), a genuinely independent agent can supply additional technical findings, but **cannot replace the formal GitHub non-author approval**. Do not repeatedly request a quota-blocked review; keep the PR open and work on non-conflicting preparation.
 - First line of every PR body: "Opened by the FactsYOLO scheduled task."
 - Merging deploys nothing. Releases, tags, packages and weights are owner-only.
 - This recurring task must remain enabled at its existing frequency with no end date unless the owner explicitly authorizes a change. CI failures, network/tool issues, review limits, no progress and suppression of repeated notifications are not authorization to stop or slow it.
-- Remote branch deletion is refused for this task (HTTP 403, 2026-11-17); note it once in the report instead of retrying.
 
 ## Project rules
 - The deployed library has no networking code, no telemetry and no file writes. It stores nothing. The host owns decoding, storage, galleries and watch-lists.

@@ -369,17 +369,320 @@ fn burn_train(f: &Inputs, sgd: Sgd) -> Result<Value, String> {
     ))
 }
 
+/// The frozen D2b2a optimizer recipe (`experiments/td2-targets/src/recipe.rs`,
+/// spec section 6), copied as constants: AdamW with decoupled weight decay on
+/// convolution weights only, global L2 gradient clip, warmup then cosine.
+mod recipe {
+    pub const BASE_LR: f64 = 2e-3;
+    pub const MIN_LR_FRACTION: f64 = 0.05;
+    pub const MIN_TOTAL_STEPS: usize = 20;
+    pub const BETA1: f64 = 0.9;
+    pub const BETA2: f64 = 0.999;
+    pub const EPSILON: f64 = 1e-8;
+    pub const WEIGHT_DECAY: f64 = 0.05;
+    pub const GRAD_CLIP_NORM: f64 = 10.0;
+    /// Parameters that are convolution weights (decayed); the batch-norm
+    /// scale and shift (`gamma`, `beta`) get no decay.
+    pub const DECAYED: [bool; 4] = [true, true, false, false];
+
+    /// Learning rate of zero-based step `step` in a run of `total` steps,
+    /// the same formula as `td2_targets::recipe::lr_at`.
+    pub fn lr_at(step: usize, total: usize) -> f64 {
+        let w = (total / 20).max(1);
+        if step < w {
+            return BASE_LR * (step + 1) as f64 / w as f64;
+        }
+        let progress = (step - w) as f64 / (total - 1 - w) as f64;
+        let floor = BASE_LR * MIN_LR_FRACTION;
+        floor + (BASE_LR - floor) * 0.5 * (1.0 + (std::f64::consts::PI * progress).cos())
+    }
+
+    /// Factor applied to every gradient so the global L2 norm is at most
+    /// `clip_norm` (the frozen recipe uses `GRAD_CLIP_NORM`); 1 when the norm
+    /// is already within it.
+    pub fn clip_scale(norm: f64, clip_norm: f64) -> f64 {
+        if norm > clip_norm {
+            clip_norm / norm
+        } else {
+            1.0
+        }
+    }
+
+    /// Bias corrections `1 - beta^t` for one-based step `t`.
+    pub fn bias_corrections(t: usize) -> (f64, f64) {
+        let t = i32::try_from(t).unwrap_or(i32::MAX);
+        (1.0 - BETA1.powi(t), 1.0 - BETA2.powi(t))
+    }
+}
+
+/// Validated settings for the in-process AdamW recipe run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AdamW {
+    steps: usize,
+    /// Global gradient-norm clip threshold. `GRAD_CLIP_NORM` (the frozen
+    /// recipe) unless a lower probe value is given to exercise the active
+    /// clip path, which the frozen threshold never reaches on this proxy.
+    clip_norm: f64,
+}
+
+impl AdamW {
+    fn parse(steps: &str, clip_norm: Option<&str>) -> Result<Self, String> {
+        let steps: usize = steps
+            .parse()
+            .map_err(|_| "steps must be an integer".to_owned())?;
+        if !(recipe::MIN_TOTAL_STEPS..=Sgd::MAX_STEPS).contains(&steps) {
+            return Err(format!(
+                "AdamW steps must be in {}..={}",
+                recipe::MIN_TOTAL_STEPS,
+                Sgd::MAX_STEPS
+            ));
+        }
+        let clip_norm = match clip_norm {
+            None => recipe::GRAD_CLIP_NORM,
+            Some(text) => {
+                let value: f64 = text
+                    .parse()
+                    .map_err(|_| "clip norm must be a number".to_owned())?;
+                if !(value.is_finite() && value > 0.0 && value <= recipe::GRAD_CLIP_NORM) {
+                    return Err(format!(
+                        "clip norm must be in (0, {}]",
+                        recipe::GRAD_CLIP_NORM
+                    ));
+                }
+                value
+            }
+        };
+        Ok(Self { steps, clip_norm })
+    }
+}
+
+fn adamw_report(
+    backend: &str,
+    adamw: AdamW,
+    losses: Vec<f32>,
+    finals: [(&str, Vec<f32>); 4],
+    gradient_norms: Vec<f64>,
+    rates: Vec<f64>,
+    seconds: f64,
+) -> Value {
+    let mut parameters = serde_json::Map::new();
+    for (name, values) in finals {
+        parameters.insert(name.to_owned(), json!(values));
+    }
+    json!({
+        "backend": backend,
+        "mode": "in-process-tensor-adamw-recipe",
+        "steps": adamw.steps,
+        "grad_clip_norm": adamw.clip_norm,
+        "learning_rates": rates,
+        "gradient_norms": gradient_norms,
+        "losses": losses,
+        "final_parameters": parameters,
+        "train_loop_seconds": seconds,
+        "framework_optimizer_api": false,
+        "framework_throughput": Value::Null,
+        "peak_rss_bytes": Value::Null
+    })
+}
+
+/// Runs the frozen AdamW recipe for `adamw.steps` steps on Candle tensors:
+/// forward, autodiff, global clip, decoupled decay and the AdamW moments all
+/// stay on Candle tensors. Image and target stay frozen.
+fn candle_adamw(f: &Inputs, adamw: AdamW) -> candle_core::Result<Value> {
+    use candle_core::{Device, Tensor, Var};
+    let device = Device::Cpu;
+    let x = Tensor::from_slice(&f.f32("x"), (1, 2, 4, 4), &device)?;
+    let target = Tensor::from_slice(&f.f32("target"), (1, 2, 4, 4), &device)?;
+    let params = [
+        Var::from_slice(&f.f32("conv"), (2, 2, 3, 3), &device)?,
+        Var::from_slice(&f.f32("depthwise"), (2, 1, 3, 3), &device)?,
+        Var::from_slice(&f.f32("gamma"), (1, 2, 1, 1), &device)?,
+        Var::from_slice(&f.f32("beta"), (1, 2, 1, 1), &device)?,
+    ];
+    let mut m: Vec<Tensor> = params
+        .iter()
+        .map(|p| p.as_tensor().zeros_like())
+        .collect::<candle_core::Result<_>>()?;
+    let mut v = m.clone();
+    let mut losses = Vec::with_capacity(adamw.steps + 1);
+    let mut norms = Vec::with_capacity(adamw.steps);
+    let mut rates = Vec::with_capacity(adamw.steps);
+    let start = std::time::Instant::now();
+    for step in 0..=adamw.steps {
+        let [conv, dw, gamma, beta] = &params;
+        let (_, loss) = candle_forward(&x, conv, dw, gamma, beta, &target)?;
+        losses.push(loss.to_scalar::<f32>()?);
+        if step == adamw.steps {
+            break;
+        }
+        let grads = loss.backward()?;
+        let mut raw = Vec::with_capacity(4);
+        let mut sum_sq = 0.0f64;
+        for parameter in &params {
+            let grad = grads
+                .get(parameter)
+                .ok_or_else(|| candle_core::Error::Msg("missing Candle gradient".into()))?
+                .clone();
+            sum_sq += f64::from(grad.sqr()?.sum_all()?.to_scalar::<f32>()?);
+            raw.push(grad);
+        }
+        let norm = sum_sq.sqrt();
+        norms.push(norm);
+        let scale = recipe::clip_scale(norm, adamw.clip_norm);
+        let lr = recipe::lr_at(step, adamw.steps);
+        rates.push(lr);
+        let (c1, c2) = recipe::bias_corrections(step + 1);
+        for (i, parameter) in params.iter().enumerate() {
+            let g = raw[i].affine(scale, 0.0)?;
+            m[i] = m[i]
+                .affine(recipe::BETA1, 0.0)?
+                .add(&g.affine(1.0 - recipe::BETA1, 0.0)?)?;
+            v[i] = v[i]
+                .affine(recipe::BETA2, 0.0)?
+                .add(&g.sqr()?.affine(1.0 - recipe::BETA2, 0.0)?)?;
+            let mut w = parameter.as_tensor().clone();
+            if recipe::DECAYED[i] {
+                w = w.affine(1.0 - lr * recipe::WEIGHT_DECAY, 0.0)?;
+            }
+            let denom = v[i]
+                .affine(1.0 / c2, 0.0)?
+                .sqrt()?
+                .affine(1.0, recipe::EPSILON)?;
+            let update = m[i].affine(lr / c1, 0.0)?.div(&denom)?;
+            parameter.set(&w.sub(&update)?)?;
+        }
+    }
+    let seconds = start.elapsed().as_secs_f64();
+    let flat = |v: &Var| v.as_tensor().flatten_all()?.to_vec1::<f32>();
+    Ok(adamw_report(
+        "candle-cpu-0.11.0",
+        adamw,
+        losses,
+        [
+            ("conv", flat(&params[0])?),
+            ("depthwise", flat(&params[1])?),
+            ("gamma", flat(&params[2])?),
+            ("beta", flat(&params[3])?),
+        ],
+        norms,
+        rates,
+        seconds,
+    ))
+}
+
+/// Runs the frozen AdamW recipe for `adamw.steps` steps on Burn tensors:
+/// autodiff on the autodiff backend, clip, decay and moments on the inner
+/// backend. Image and target stay frozen.
+fn burn_adamw(f: &Inputs, adamw: AdamW) -> Result<Value, String> {
+    use burn::tensor::{Device, Tensor, TensorData};
+    let device = Device::flex().autodiff();
+    let constant =
+        |field: &str| Tensor::<4>::from_data(TensorData::new(f.f32(field), [1, 2, 4, 4]), &device);
+    let variable = |field: &str, shape: [usize; 4]| {
+        Tensor::<4>::from_data(TensorData::new(f.f32(field), shape), &device).require_grad()
+    };
+    let x = constant("x");
+    let target = constant("target");
+    let mut params = [
+        variable("conv", [2, 2, 3, 3]),
+        variable("depthwise", [2, 1, 3, 3]),
+        variable("gamma", [1, 2, 1, 1]),
+        variable("beta", [1, 2, 1, 1]),
+    ];
+    let mut m: Vec<_> = params
+        .iter()
+        .map(|p| p.clone().inner().zeros_like())
+        .collect();
+    let mut v = m.clone();
+    let mut losses = Vec::with_capacity(adamw.steps + 1);
+    let mut norms = Vec::with_capacity(adamw.steps);
+    let mut rates = Vec::with_capacity(adamw.steps);
+    let start = std::time::Instant::now();
+    for step in 0..=adamw.steps {
+        let [conv, dw, gamma, beta] = &params;
+        let (_, loss) = burn_forward(&x, conv, dw, gamma, beta, &target);
+        losses.push(loss.clone().into_scalar::<f32>());
+        if step == adamw.steps {
+            break;
+        }
+        let grads = loss.backward();
+        let mut raw = Vec::with_capacity(4);
+        let mut sum_sq = 0.0f64;
+        for parameter in &params {
+            let grad = parameter
+                .grad(&grads)
+                .ok_or_else(|| "missing Burn gradient".to_owned())?;
+            sum_sq += f64::from(grad.clone().powi_scalar(2).sum().into_scalar::<f32>());
+            raw.push(grad);
+        }
+        let norm = sum_sq.sqrt();
+        norms.push(norm);
+        let scale = recipe::clip_scale(norm, adamw.clip_norm) as f32;
+        let lr = recipe::lr_at(step, adamw.steps);
+        rates.push(lr);
+        let (c1, c2) = recipe::bias_corrections(step + 1);
+        let mut next = Vec::with_capacity(4);
+        for (i, parameter) in params.iter().enumerate() {
+            let g = raw[i].clone() * scale;
+            m[i] = m[i].clone() * recipe::BETA1 as f32 + g.clone() * (1.0 - recipe::BETA1) as f32;
+            v[i] = v[i].clone() * recipe::BETA2 as f32
+                + g.powi_scalar(2) * (1.0 - recipe::BETA2) as f32;
+            let mut w = parameter.clone().inner();
+            if recipe::DECAYED[i] {
+                w = w * (1.0 - lr * recipe::WEIGHT_DECAY) as f32;
+            }
+            let denom = (v[i].clone() * (1.0 / c2) as f32).sqrt() + recipe::EPSILON as f32;
+            let update = m[i].clone() * (lr / c1) as f32 / denom;
+            next.push(Tensor::from_inner(w - update).require_grad());
+        }
+        params = next
+            .try_into()
+            .map_err(|_| "Burn parameter count changed".to_owned())?;
+    }
+    let seconds = start.elapsed().as_secs_f64();
+    let flat = |t: &Tensor<4>| -> Result<Vec<f32>, String> {
+        t.to_data()
+            .try_to_vec::<f32>()
+            .map_err(|e| format!("Burn parameter conversion: {e:?}"))
+    };
+    Ok(adamw_report(
+        "burn-flex-0.22.0",
+        adamw,
+        losses,
+        [
+            ("conv", flat(&params[0])?),
+            ("depthwise", flat(&params[1])?),
+            ("gamma", flat(&params[2])?),
+            ("beta", flat(&params[3])?),
+        ],
+        norms,
+        rates,
+        seconds,
+    ))
+}
+
 fn run() -> Result<(), String> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    let (backend, oracle_path, sgd) = match args.as_slice() {
-        [backend, path] => (backend, path, None),
+    enum Mode {
+        Gradients,
+        Sgd(Sgd),
+        AdamW(AdamW),
+    }
+    let (backend, oracle_path, mode) = match args.as_slice() {
+        [backend, path] => (backend, path, Mode::Gradients),
         [backend, path, flag, steps, lr] if flag == "--sgd" => {
-            (backend, path, Some(Sgd::parse(steps, lr)?))
+            (backend, path, Mode::Sgd(Sgd::parse(steps, lr)?))
+        }
+        [backend, path, flag, steps] if flag == "--adamw-recipe" => {
+            (backend, path, Mode::AdamW(AdamW::parse(steps, None)?))
+        }
+        [backend, path, flag, steps, clip] if flag == "--adamw-recipe" => {
+            (backend, path, Mode::AdamW(AdamW::parse(steps, Some(clip))?))
         }
         _ => {
-            return Err(
-                "usage: td2-proxy <burn|candle> <frozen-oracle.json> [--sgd <steps> <lr>]".into(),
-            )
+            return Err("usage: td2-proxy <burn|candle> <frozen-oracle.json> \
+                 [--sgd <steps> <lr> | --adamw-recipe <steps> [<clip-norm>]]"
+                .into())
         }
     };
     let payload =
@@ -387,11 +690,17 @@ fn run() -> Result<(), String> {
     let fixture: Oracle =
         serde_json::from_str(&payload).map_err(|e| format!("parse frozen reference: {e}"))?;
     fixture.inputs.verify()?;
-    let result = match (backend.as_str(), sgd) {
-        ("burn", None) => burn(&fixture.inputs)?,
-        ("candle", None) => candle(&fixture.inputs).map_err(|e| e.to_string())?,
-        ("burn", Some(sgd)) => burn_train(&fixture.inputs, sgd)?,
-        ("candle", Some(sgd)) => candle_train(&fixture.inputs, sgd).map_err(|e| e.to_string())?,
+    let result = match (backend.as_str(), mode) {
+        ("burn", Mode::Gradients) => burn(&fixture.inputs)?,
+        ("candle", Mode::Gradients) => candle(&fixture.inputs).map_err(|e| e.to_string())?,
+        ("burn", Mode::Sgd(sgd)) => burn_train(&fixture.inputs, sgd)?,
+        ("candle", Mode::Sgd(sgd)) => {
+            candle_train(&fixture.inputs, sgd).map_err(|e| e.to_string())?
+        }
+        ("burn", Mode::AdamW(adamw)) => burn_adamw(&fixture.inputs, adamw)?,
+        ("candle", Mode::AdamW(adamw)) => {
+            candle_adamw(&fixture.inputs, adamw).map_err(|e| e.to_string())?
+        }
         _ => return Err("backend must be burn or candle".into()),
     };
     println!(
@@ -410,7 +719,41 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Inputs, Sgd};
+    use super::{recipe, AdamW, Inputs, Sgd};
+
+    #[test]
+    fn adamw_recipe_schedule_matches_d2b2a() {
+        assert_eq!(
+            AdamW::parse("20", None),
+            Ok(AdamW {
+                steps: 20,
+                clip_norm: 10.0
+            })
+        );
+        assert_eq!(
+            AdamW::parse("20", Some("0.5")).map(|a| a.clip_norm),
+            Ok(0.5)
+        );
+        for steps in ["19", "0", "101", "x", "-20"] {
+            assert!(AdamW::parse(steps, None).is_err(), "{steps}");
+        }
+        for clip in ["0", "-1", "10.5", "NaN", "inf", "x"] {
+            assert!(AdamW::parse("20", Some(clip)).is_err(), "{clip}");
+        }
+        // total 20: warmup w = 1, so step 0 and step 1 are both at the peak
+        // and the last step is at 5% of it (spec section 6).
+        assert_eq!(recipe::lr_at(0, 20), 2e-3);
+        assert_eq!(recipe::lr_at(1, 20), 2e-3);
+        assert!((recipe::lr_at(19, 20) - 1e-4).abs() < 1e-18);
+        // total 40: w = 2, step 0 at half the peak.
+        assert_eq!(recipe::lr_at(0, 40), 1e-3);
+        assert_eq!(recipe::lr_at(2, 40), 2e-3);
+        assert_eq!(recipe::clip_scale(5.0, recipe::GRAD_CLIP_NORM), 1.0);
+        assert_eq!(recipe::clip_scale(20.0, recipe::GRAD_CLIP_NORM), 0.5);
+        assert_eq!(recipe::clip_scale(0.9, 0.5), 0.5 / 0.9);
+        let (c1, c2) = recipe::bias_corrections(1);
+        assert!((c1 - 0.1).abs() < 1e-15 && (c2 - 0.001).abs() < 1e-15);
+    }
 
     #[test]
     fn sgd_settings_are_bounded() {

@@ -58,8 +58,13 @@ Take the first row that is not done or blocked, in this order:
 - A PR may be merged only after:
   - every applicable hosted check on the **latest head** has completed and passed, hosted CodeQL included;
   - all review bots have finished and all blocking findings/review threads are resolved;
-  - a qualified **non-author** reviewer has submitted a formal GitHub `APPROVED` review covering the latest head. `COMMENTED`, an agent's read-only PASS, an older-head review, or the author's own review do not satisfy this gate. Never bypass protection or self-approve.
-- If Codex reviews this repo and has not reviewed the head, wait while the PR is younger than 12 hours: up to about 30 minutes in-run, otherwise until the next run. If Codex cannot review (failed review or usage limit), a genuinely independent agent can supply additional technical findings, but **cannot replace the formal GitHub non-author approval**. Do not repeatedly request a quota-blocked review; keep the PR open and work on non-conflicting preparation.
+  - the review gate below is met on the latest head.
+- Review gate (owner decision, issue #92, 2026-11-22). Every PR this task opens is authored by the owner's account, which GitHub does not let approve its own PR. For a **PR opened by this task**, the formal non-author `APPROVED` review is replaced by all of the following on the latest head:
+  - a verdict of `PASS` posted as a PR comment by an independent review agent that did not write the change, with every finding it raised fixed or answered with a traced reason;
+  - the full local gate (section "Gate") passing on the final source, with any reused result named;
+  - every hosted check that ran on that head completed and passed, hosted CodeQL included.
+  A `FAIL` verdict, a failed hosted check or a CodeQL check that did not pass still blocks. The small-PR exemption from the independent agent does not apply here: every task PR gets one. PRs the task did not open (owner, other people, Codex, Dependabot) still need a formal non-author `APPROVED` review. Never bypass protection or self-approve.
+- If Codex reviews this repo and has not reviewed the head, wait while the PR is younger than 12 hours: up to about 30 minutes in-run, otherwise until the next run. If Codex cannot review (failed review or usage limit), the independent agent's verdict covers the review gate. Do not repeatedly request a quota-blocked review.
 - First line of every PR body: "Opened by the FactsYOLO scheduled task."
 - Merging deploys nothing. Releases, tags, packages and weights are owner-only.
 - This recurring task must remain enabled at its existing frequency with no end date unless the owner explicitly authorizes a change. CI failures, network/tool issues, review limits, no progress and suppression of repeated notifications are not authorization to stop or slow it.

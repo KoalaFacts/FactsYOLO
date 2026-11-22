@@ -88,11 +88,21 @@ class TestVerifyTraining(unittest.TestCase):
 ADAMW = vt.adamw_trajectory()
 
 
-def adamw_report(backend="candle"):
-    losses, finals, rates, norms = ADAMW
+def adamw_report(backend="candle", trajectory=None, clip_norm=vt.GRAD_CLIP_NORM):
+    losses, finals, rates, norms = ADAMW if trajectory is None else trajectory
     return {"backend": vt.BACKENDS[backend], "mode": "in-process-tensor-adamw-recipe",
-            "steps": vt.STEPS, "learning_rates": list(rates), "gradient_norms": list(norms),
-            "losses": list(losses), "final_parameters": copy.deepcopy(finals)}
+            "steps": vt.STEPS, "grad_clip_norm": clip_norm, "learning_rates": list(rates),
+            "gradient_norms": list(norms), "losses": list(losses),
+            "final_parameters": copy.deepcopy(finals)}
+
+
+# Probe threshold inside the proxy's gradient norms (0.905 falling to 0.704):
+# the clip is active on the first three steps and inactive after, so both
+# branches and the threshold itself are compared. Adam cancels a constant
+# gradient scale, so a threshold below every norm would hide a wrong value.
+# The frozen threshold of 10 is never reached on this proxy.
+CLIP_PROBE = 0.8
+ADAMW_CLIPPED = vt.adamw_trajectory(clip_norm=CLIP_PROBE)
 
 
 class TestVerifyAdamWRecipe(unittest.TestCase):
@@ -120,6 +130,8 @@ class TestVerifyAdamWRecipe(unittest.TestCase):
                        lambda r: r.update(backend="burn-flex-0.22.0"),
                        lambda r: r.update(steps=21),
                        lambda r: r["learning_rates"].pop(),
+                       lambda r: r.update(grad_clip_norm=0.5),
+                       lambda r: r.pop("grad_clip_norm"),
                        lambda r: r["gradient_norms"].__setitem__(0, float("nan"))):
             report = adamw_report("candle")
             mutate(report)
@@ -146,9 +158,28 @@ class TestVerifyAdamWRecipe(unittest.TestCase):
             vt.DECAYED = original
         losses, finals, rates, norms = mutated
         report = {"backend": vt.BACKENDS["burn"], "mode": "in-process-tensor-adamw-recipe",
-                  "steps": vt.STEPS, "learning_rates": rates, "gradient_norms": norms,
+                  "steps": vt.STEPS, "grad_clip_norm": vt.GRAD_CLIP_NORM, "learning_rates": rates, "gradient_norms": norms,
                   "losses": losses, "final_parameters": finals}
         with self.assertRaises(AssertionError):
+            vt.validate_adamw(report, "burn", ADAMW)
+
+    def test_active_clip_path_is_compared(self):
+        _, clipped_finals, _, clipped_norms = ADAMW_CLIPPED
+        self.assertGreater(max(clipped_norms), CLIP_PROBE)
+        report = adamw_report("burn", ADAMW_CLIPPED, CLIP_PROBE)
+        result = vt.validate_adamw(report, "burn", ADAMW_CLIPPED, clip_norm=CLIP_PROBE)
+        self.assertTrue(result["clip_active"])
+        self.assertGreater(abs(clipped_finals["conv"][0] - ADAMW[1]["conv"][0]), 1e-6)
+        # An unclipped run reported as a clip probe, a clip applied with the
+        # wrong threshold, and a clip probe checked as the frozen recipe all fail.
+        with self.assertRaises(AssertionError):
+            vt.validate_adamw(adamw_report("burn", ADAMW, CLIP_PROBE), "burn",
+                              ADAMW_CLIPPED, clip_norm=CLIP_PROBE)
+        wrong = vt.adamw_trajectory(clip_norm=0.75)
+        with self.assertRaises(AssertionError):
+            vt.validate_adamw(adamw_report("burn", wrong, CLIP_PROBE), "burn",
+                              ADAMW_CLIPPED, clip_norm=CLIP_PROBE)
+        with self.assertRaises(ValueError):
             vt.validate_adamw(report, "burn", ADAMW)
 
 

@@ -53,6 +53,9 @@ DECAYED = {"conv": True, "depthwise": True, "gamma": False, "beta": False}
 # Tighter than B3a so that decay applied after, instead of in, the Adam step
 # (a 1.8e-6 shift on this proxy) is caught; observed error is about 2e-7.
 ATOL_PARAMETER_ADAMW = 1e-6
+# Relative tolerance of the reported global gradient norms (kept separate from
+# the B3a parameter tolerance so that changing one never loosens the other).
+RTOL_GRADIENT_NORM = 2e-5
 
 
 def recipe_lr(step, total):
@@ -66,7 +69,7 @@ def recipe_lr(step, total):
     return floor + (BASE_LR - floor) * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
-def adamw_trajectory(steps=STEPS):
+def adamw_trajectory(steps=STEPS, clip_norm=GRAD_CLIP_NORM):
     """Independent f64 AdamW-recipe losses, final parameters, rates and norms."""
     state = {k: [replay.f32(v) for v in arr] for k, arr in oracle.fixture().items()}
     m = {k: [0.0] * len(state[k]) for k in FIELDS}
@@ -78,7 +81,7 @@ def adamw_trajectory(steps=STEPS):
             break
         grads = oracle.finite_difference_gradients(state)
         norm = math.sqrt(sum(g * g for k in FIELDS for g in grads[k]))
-        scale = GRAD_CLIP_NORM / norm if norm > GRAD_CLIP_NORM else 1.0
+        scale = clip_norm / norm if norm > clip_norm else 1.0
         lr = recipe_lr(step, steps)
         c1, c2 = 1.0 - BETA1 ** (step + 1), 1.0 - BETA2 ** (step + 1)
         for k in FIELDS:
@@ -93,26 +96,30 @@ def adamw_trajectory(steps=STEPS):
     return losses, {k: state[k] for k in FIELDS}, rates, norms
 
 
-def validate_adamw(report, backend, reference, steps=STEPS):
+def validate_adamw(report, backend, reference, steps=STEPS, clip_norm=GRAD_CLIP_NORM):
     if not isinstance(report, dict) or report.get("backend") != BACKENDS[backend]:
         raise ValueError("wrong backend identity")
     if report.get("mode") != "in-process-tensor-adamw-recipe":
         raise ValueError("report is not the in-process AdamW recipe")
     if report.get("steps") != steps or type(report.get("steps")) is not int:
         raise ValueError("step count differs from the matched plan")
+    clip = report.get("grad_clip_norm")
+    if type(clip) not in (int, float) or clip != clip_norm:
+        raise ValueError("gradient clip threshold differs from the checked plan")
     reference_losses, reference_finals, reference_rates, reference_norms = reference
     rates = replay.valid_numbers(report.get("learning_rates"), steps, "learning_rates")
     if max(abs(a - b) for a, b in zip(rates, reference_rates)) > 1e-15:
         raise AssertionError("learning-rate schedule differs from the frozen recipe")
     norms = replay.valid_numbers(report.get("gradient_norms"), steps, "gradient_norms")
     norm_error = max(abs(a - b) / max(1.0, b) for a, b in zip(norms, reference_norms))
-    if norm_error > ATOL_PARAMETER:
+    if norm_error > RTOL_GRADIENT_NORM:
         raise AssertionError(f"gradient norm mismatch: {norm_error}")
     result = validate(dict(report, mode="in-process-tensor-sgd", learning_rate=LEARNING_RATE),
                       backend, (reference_losses, reference_finals), steps,
                       atol_parameter=ATOL_PARAMETER_ADAMW, optimizer="AdamW recipe")
     result.update({"optimizer": "adamw-d2b2a-recipe", "learning_rate": None,
-                   "max_gradient_norm": max(norms), "clip_active": max(norms) > GRAD_CLIP_NORM,
+                   "max_gradient_norm": max(norms), "grad_clip_norm": clip_norm,
+                   "clip_active": max(norms) > clip_norm,
                    "max_gradient_norm_relative_error": norm_error})
     return result
 
@@ -161,11 +168,19 @@ def main():
     p.add_argument("--output", type=Path)
     p.add_argument("--adamw-recipe", action="store_true",
                    help="check a --adamw-recipe report (stage B3b)")
+    p.add_argument("--clip-norm", type=float,
+                   help="clip threshold of a clip-probe report (default: frozen 10)")
     args = p.parse_args()
     report = json.loads(args.report.read_text(encoding="utf-8"),
                         parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
     if args.adamw_recipe:
-        result = validate_adamw(report, args.backend, adamw_trajectory())
+        clip = GRAD_CLIP_NORM if args.clip_norm is None else args.clip_norm
+        if not 0.0 < clip <= GRAD_CLIP_NORM:
+            p.error(f"--clip-norm must be in (0, {GRAD_CLIP_NORM}]")
+        result = validate_adamw(report, args.backend, adamw_trajectory(clip_norm=clip),
+                                clip_norm=clip)
+        if args.clip_norm is not None and not result["clip_active"]:
+            raise AssertionError("clip probe never activated the clip")
     else:
         result = validate(report, args.backend, reference_trajectory())
     text = json.dumps(result, sort_keys=True, indent=2, allow_nan=False) + "\n"

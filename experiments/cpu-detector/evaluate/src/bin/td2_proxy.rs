@@ -398,10 +398,11 @@ mod recipe {
     }
 
     /// Factor applied to every gradient so the global L2 norm is at most
-    /// `GRAD_CLIP_NORM`; 1 when the norm is already within it.
-    pub fn clip_scale(norm: f64) -> f64 {
-        if norm > GRAD_CLIP_NORM {
-            GRAD_CLIP_NORM / norm
+    /// `clip_norm` (the frozen recipe uses `GRAD_CLIP_NORM`); 1 when the norm
+    /// is already within it.
+    pub fn clip_scale(norm: f64, clip_norm: f64) -> f64 {
+        if norm > clip_norm {
+            clip_norm / norm
         } else {
             1.0
         }
@@ -418,10 +419,14 @@ mod recipe {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct AdamW {
     steps: usize,
+    /// Global gradient-norm clip threshold. `GRAD_CLIP_NORM` (the frozen
+    /// recipe) unless a lower probe value is given to exercise the active
+    /// clip path, which the frozen threshold never reaches on this proxy.
+    clip_norm: f64,
 }
 
 impl AdamW {
-    fn parse(steps: &str) -> Result<Self, String> {
+    fn parse(steps: &str, clip_norm: Option<&str>) -> Result<Self, String> {
         let steps: usize = steps
             .parse()
             .map_err(|_| "steps must be an integer".to_owned())?;
@@ -432,7 +437,22 @@ impl AdamW {
                 Sgd::MAX_STEPS
             ));
         }
-        Ok(Self { steps })
+        let clip_norm = match clip_norm {
+            None => recipe::GRAD_CLIP_NORM,
+            Some(text) => {
+                let value: f64 = text
+                    .parse()
+                    .map_err(|_| "clip norm must be a number".to_owned())?;
+                if !(value.is_finite() && value > 0.0 && value <= recipe::GRAD_CLIP_NORM) {
+                    return Err(format!(
+                        "clip norm must be in (0, {}]",
+                        recipe::GRAD_CLIP_NORM
+                    ));
+                }
+                value
+            }
+        };
+        Ok(Self { steps, clip_norm })
     }
 }
 
@@ -453,6 +473,7 @@ fn adamw_report(
         "backend": backend,
         "mode": "in-process-tensor-adamw-recipe",
         "steps": adamw.steps,
+        "grad_clip_norm": adamw.clip_norm,
         "learning_rates": rates,
         "gradient_norms": gradient_norms,
         "losses": losses,
@@ -507,7 +528,7 @@ fn candle_adamw(f: &Inputs, adamw: AdamW) -> candle_core::Result<Value> {
         }
         let norm = sum_sq.sqrt();
         norms.push(norm);
-        let scale = recipe::clip_scale(norm);
+        let scale = recipe::clip_scale(norm, adamw.clip_norm);
         let lr = recipe::lr_at(step, adamw.steps);
         rates.push(lr);
         let (c1, c2) = recipe::bias_corrections(step + 1);
@@ -596,7 +617,7 @@ fn burn_adamw(f: &Inputs, adamw: AdamW) -> Result<Value, String> {
         }
         let norm = sum_sq.sqrt();
         norms.push(norm);
-        let scale = recipe::clip_scale(norm) as f32;
+        let scale = recipe::clip_scale(norm, adamw.clip_norm) as f32;
         let lr = recipe::lr_at(step, adamw.steps);
         rates.push(lr);
         let (c1, c2) = recipe::bias_corrections(step + 1);
@@ -653,11 +674,14 @@ fn run() -> Result<(), String> {
             (backend, path, Mode::Sgd(Sgd::parse(steps, lr)?))
         }
         [backend, path, flag, steps] if flag == "--adamw-recipe" => {
-            (backend, path, Mode::AdamW(AdamW::parse(steps)?))
+            (backend, path, Mode::AdamW(AdamW::parse(steps, None)?))
+        }
+        [backend, path, flag, steps, clip] if flag == "--adamw-recipe" => {
+            (backend, path, Mode::AdamW(AdamW::parse(steps, Some(clip))?))
         }
         _ => {
             return Err("usage: td2-proxy <burn|candle> <frozen-oracle.json> \
-                 [--sgd <steps> <lr> | --adamw-recipe <steps>]"
+                 [--sgd <steps> <lr> | --adamw-recipe <steps> [<clip-norm>]]"
                 .into())
         }
     };
@@ -699,9 +723,22 @@ mod tests {
 
     #[test]
     fn adamw_recipe_schedule_matches_d2b2a() {
-        assert_eq!(AdamW::parse("20"), Ok(AdamW { steps: 20 }));
+        assert_eq!(
+            AdamW::parse("20", None),
+            Ok(AdamW {
+                steps: 20,
+                clip_norm: 10.0
+            })
+        );
+        assert_eq!(
+            AdamW::parse("20", Some("0.5")).map(|a| a.clip_norm),
+            Ok(0.5)
+        );
         for steps in ["19", "0", "101", "x", "-20"] {
-            assert!(AdamW::parse(steps).is_err(), "{steps}");
+            assert!(AdamW::parse(steps, None).is_err(), "{steps}");
+        }
+        for clip in ["0", "-1", "10.5", "NaN", "inf", "x"] {
+            assert!(AdamW::parse("20", Some(clip)).is_err(), "{clip}");
         }
         // total 20: warmup w = 1, so step 0 and step 1 are both at the peak
         // and the last step is at 5% of it (spec section 6).
@@ -711,8 +748,9 @@ mod tests {
         // total 40: w = 2, step 0 at half the peak.
         assert_eq!(recipe::lr_at(0, 40), 1e-3);
         assert_eq!(recipe::lr_at(2, 40), 2e-3);
-        assert_eq!(recipe::clip_scale(5.0), 1.0);
-        assert_eq!(recipe::clip_scale(20.0), 0.5);
+        assert_eq!(recipe::clip_scale(5.0, recipe::GRAD_CLIP_NORM), 1.0);
+        assert_eq!(recipe::clip_scale(20.0, recipe::GRAD_CLIP_NORM), 0.5);
+        assert_eq!(recipe::clip_scale(0.9, 0.5), 0.5 / 0.9);
         let (c1, c2) = recipe::bias_corrections(1);
         assert!((c1 - 0.1).abs() < 1e-15 && (c2 - 0.001).abs() < 1e-15);
     }

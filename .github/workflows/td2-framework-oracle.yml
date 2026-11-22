@@ -125,6 +125,8 @@ jobs:
           for backend in burn candle; do
             cargo run --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --quiet --bin td2_proxy -- "$backend" td2-b-oracle.json --adamw-recipe 20 > "td2-$backend-inprocess-adamw.json"
             "${{ matrix.python }}" experiments/td2-framework/verify_training.py "$backend" "td2-$backend-inprocess-adamw.json" --adamw-recipe --output "td2-$backend-inprocess-adamw-comparison.json"
+            cargo run --manifest-path experiments/cpu-detector/Cargo.toml --locked --offline --release --quiet --bin td2_proxy -- "$backend" td2-b-oracle.json --adamw-recipe 20 0.8 > "td2-$backend-inprocess-adamw-clip.json"
+            "${{ matrix.python }}" experiments/td2-framework/verify_training.py "$backend" "td2-$backend-inprocess-adamw-clip.json" --adamw-recipe --clip-norm 0.8 --output "td2-$backend-inprocess-adamw-clip-comparison.json"
           done
       - name: Preserve exact numerical evidence (no weights or pixels)
         if: always()
@@ -148,4 +150,8 @@ jobs:
             td2-candle-inprocess-adamw.json
             td2-burn-inprocess-adamw-comparison.json
             td2-candle-inprocess-adamw-comparison.json
+            td2-burn-inprocess-adamw-clip.json
+            td2-candle-inprocess-adamw-clip.json
+            td2-burn-inprocess-adamw-clip-comparison.json
+            td2-candle-inprocess-adamw-clip-comparison.json
           if-no-files-found: ignore

@@ -180,7 +180,7 @@ see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 Current plan and design:
 
 - [TD2 design and roadmap](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md): accepted CCTV task family, first detector, stages; [section 13](docs/superpowers/specs/2026-11-05-td2-general-detector-design.md#13-roadmap) is the work ledger.
-- [TD2 Stage B oracle](experiments/td2-framework/README.md): independent numerical reference for the framework comparison.
+- [TD2 Stage B framework comparison](experiments/td2-framework/README.md): independent numerical reference and the Burn/Candle gradient (B2) and in-process training (B3) checks against it.
 
 Decisions and policy:
 

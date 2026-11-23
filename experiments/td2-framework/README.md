@@ -120,3 +120,36 @@ reject wrong identity or plan, non-finite values, loss or parameter drift,
 skipped updates and gradient ascent. Steps are capped at 100 and the learning
 rate must be in (0, 1]. This is not the frameworks' optimizer API, and the
 loop time on a 4×4 proxy is not a throughput figure (stage B4).
+
+## Matched in-process frozen AdamW recipe (stage B3b)
+
+`td2_proxy <burn|candle> <oracle.json> --adamw-recipe 20` runs the optimizer
+recipe frozen in D2b2a (spec section 6) on each framework's tensors: AdamW
+(β 0.9/0.999, ε 1e-8), decoupled weight decay 0.05 on the convolution and
+depthwise weights only, global L2 gradient clip at 10, and the warmup-then-cosine
+schedule from 2e-3 to 5% of it (steps 20..=100). The report adds the per-step
+learning rates and raw gradient norms.
+
+```sh
+for name in burn candle; do
+  RAYON_NUM_THREADS=1 cargo run --manifest-path experiments/cpu-detector/Cargo.toml \
+    --bin td2_proxy --release --locked --offline -- "$name" /tmp/td2-b-oracle.json \
+    --adamw-recipe 20 > "/tmp/td2-$name-adamw.json"
+  python3 experiments/td2-framework/verify_training.py "$name" "/tmp/td2-$name-adamw.json" --adamw-recipe
+done
+```
+
+`verify_training.py --adamw-recipe` re-implements the recipe in f64 from the
+spec text with central-difference gradients and requires the schedule to match
+within 1e-15, every gradient norm within 2e-5 (relative), every loss within
+2e-4 and every final parameter within 1e-6 (tighter than B3a, so that decay
+applied after instead of in the Adam step, a 1.8e-6 shift here, is caught). On this proxy the largest gradient norm is
+about 0.90, so the clip at 10 never activates here; the report says so
+(`clip_active`). To compare the active clip path, a probe threshold can follow
+the step count (`--adamw-recipe 20 0.8`, any value in (0, 10]) and is checked
+with `verify_training.py ... --adamw-recipe --clip-norm 0.8`, which also fails
+if the clip never activated. At 0.8 the clip is active on the first three steps
+and inactive after; a threshold below every norm would not do, because Adam
+cancels a constant gradient scale. The update is hand-written on framework tensors, not the
+frameworks' optimizer API (`burn::optim`, `candle-nn`), which would add a
+dependency and is left to B5's dependency review.

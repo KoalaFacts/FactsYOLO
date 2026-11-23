@@ -3,7 +3,7 @@
 
 use td2_targets::augment::{
     AugmentError, BLUR_DOMAIN, BLUR_PROBABILITY, BLUR_WIDE_PROBABILITY, BlurKernel, Image, blur,
-    sample, sample_blur,
+    sample_blur,
 };
 
 fn gray(width: usize, height: usize, values: &[u8]) -> Image {
@@ -130,10 +130,9 @@ fn sampled_vectors_match_an_independent_splitmix64() {
 }
 
 #[test]
-fn blur_stream_leaves_d2b2b1_draws_unchanged_and_frequencies_match() {
-    // The D2b2b1 draws are pinned by the frozen vectors in tests/augment.rs;
-    // here the blur stream must also differ from the D2b2b1 stream.
-    let _ = sample(10);
+fn blur_draw_frequencies_match() {
+    // The D2b2b1 draws are pinned by the frozen vectors in tests/augment.rs,
+    // which this change leaves untouched and which still pass.
     let n = 20_000u64;
     let mut on = 0u64;
     let mut wide = 0u64;

@@ -153,3 +153,22 @@ and inactive after; a threshold below every norm would not do, because Adam
 cancels a constant gradient scale. The update is hand-written on framework tensors, not the
 frameworks' optimizer API (`burn::optim`, `candle-nn`), which would add a
 dependency and is left to B5's dependency review.
+
+## CPU throughput and peak memory (stage B4)
+
+`td2_proxy <burn|candle> --bench <steps>` trains the same graph as the frozen
+proxy (unpadded 3×3 convolution, depthwise 3×3, train-mode batch norm, SiLU,
+nearest 2× upsample, MSE) at a fixed, predeclared size: batch 8, 16 channels,
+66×66 input, 128×128 output. Inputs, target and initialization come from one
+SplitMix64 stream, so both backends start from identical values; each step is
+forward, the framework's autodiff and an in-process SGD update (lr 0.01). Two
+warmup steps are excluded from `steps_per_second`; the report also keeps every
+step time, the losses (which must stay finite and fall, or the run fails) and
+the process's peak resident set (`VmHWM`, Linux only). The
+`cpu-throughput` job runs 20 steps per backend with one thread and with all
+threads on `ubuntu-24.04` and `ubuntu-24.04-arm` and keeps the JSON.
+
+This workspace (x64, 2 CPUs, one thread, 5 steps, 2026-11-23): Burn 15.4
+steps/s (123 images/s), peak RSS 55 MB; Candle 3.7 steps/s (29 images/s),
+peak RSS 150 MB; both start at loss 0.439037 and reach 0.435254. A first,
+single-machine figure: the runner numbers decide B6.

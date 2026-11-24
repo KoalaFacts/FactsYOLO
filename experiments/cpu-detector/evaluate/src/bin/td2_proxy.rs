@@ -820,7 +820,9 @@ fn candle_bench(steps: usize) -> candle_core::Result<Value> {
             .broadcast_add(&beta)?;
         let silu = bn.mul(&candle_nn_free_sigmoid(&bn)?)?;
         let out = silu.upsample_nearest2d(2 * bench::SIZE, 2 * bench::SIZE)?;
-        let loss = out.sub(&target)?.sqr()?.mean_all()?;
+        // Two-level mean (per image and channel, then overall): a flat f32
+        // mean over 2 M elements loses ~1e-3 relative on some kernels.
+        let loss = out.sub(&target)?.sqr()?.mean_keepdim((2, 3))?.mean_all()?;
         let grads = loss.backward()?;
         for parameter in [&conv, &dw, &gamma, &beta] {
             let grad = grads
@@ -891,7 +893,8 @@ fn burn_bench(steps: usize) -> Result<Value, String> {
                 .with_output_size([2 * bench::SIZE, 2 * bench::SIZE]),
         );
         let residual = out - target.clone();
-        let loss = (residual.clone() * residual).mean();
+        // Two-level mean, as in `candle_bench`.
+        let loss = (residual.clone() * residual).mean_dim(3).mean_dim(2).mean();
         let grads = loss.backward();
         let mut next = Vec::with_capacity(4);
         for parameter in &params {

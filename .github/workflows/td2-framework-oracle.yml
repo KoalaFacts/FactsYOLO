@@ -68,6 +68,8 @@ jobs:
         include:
           - os: ubuntu-24.04
             python: python3
+          - os: ubuntu-24.04-arm
+            python: python3
           - os: windows-2022
             python: python
     runs-on: ${{ matrix.os }}

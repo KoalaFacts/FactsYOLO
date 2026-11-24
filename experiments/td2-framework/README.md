@@ -166,7 +166,9 @@ warmup steps are excluded from `steps_per_second`; the report also keeps every
 step time, the losses (which must stay finite and fall, or the run fails) and
 the process's peak resident set (`VmHWM`, Linux only). The
 `cpu-throughput` job runs 20 steps per backend with one thread and with all
-threads on `ubuntu-24.04` and `ubuntu-24.04-arm` and keeps the JSON.
+threads on `ubuntu-24.04` and `ubuntu-24.04-arm`, keeps the JSON, and fails
+unless Burn's and Candle's losses agree at every step within 1e-4 and both
+report a peak resident set (this workspace: largest difference 1.1e-6).
 
 This workspace (x64, 2 CPUs, one thread, 5 steps, 2026-11-23): Burn 15.4
 steps/s (123 images/s), peak RSS 55 MB; Candle 3.7 steps/s (29 images/s),

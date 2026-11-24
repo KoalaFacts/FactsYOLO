@@ -754,7 +754,12 @@ mod bench {
                 "bench loss must stay finite and fall: {first} -> {last}"
             ));
         }
-        let mut sorted = step_seconds.clone();
+        // Warmup steps are excluded from the median as from the rate.
+        let mut sorted = step_seconds
+            .iter()
+            .skip(WARMUP_STEPS)
+            .copied()
+            .collect::<Vec<_>>();
         sorted.sort_by(f64::total_cmp);
         let measured: f64 = step_seconds.iter().skip(WARMUP_STEPS).sum();
         let timed = step_seconds.len().saturating_sub(WARMUP_STEPS);
@@ -1031,8 +1036,9 @@ mod tests {
         let bound = 1.0 / 144f32.sqrt();
         assert!(a.conv.iter().all(|v| v.abs() <= bound));
         assert_ne!(a.x[0], a.x[1]);
-        let ok = bench::report("t", 1, vec![0.5, 0.4, 0.3], vec![1.0; 3]).unwrap();
+        let ok = bench::report("t", 1, vec![0.5, 0.4, 0.3], vec![9.0, 9.0, 1.0]).unwrap();
         assert_eq!(ok["steps_per_second"], 1.0);
+        assert_eq!(ok["median_step_seconds"], 1.0);
         assert!(bench::report("t", 1, vec![0.5, 0.5, 0.5], vec![1.0; 3]).is_err());
         assert!(bench::report("t", 1, vec![0.5, f32::NAN, 0.3], vec![1.0; 3]).is_err());
         assert!(bench::report("t", 1, vec![], vec![]).is_err());

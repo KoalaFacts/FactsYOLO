@@ -170,7 +170,9 @@ threads on `ubuntu-24.04` and `ubuntu-24.04-arm`, keeps the JSON, and fails
 unless Burn's and Candle's losses agree at every step within 1e-4 and both
 report a peak resident set (this workspace: largest difference 1.1e-6).
 
-This workspace (x64, 2 CPUs, one thread, 5 steps, 2026-11-23): Burn 15.4
-steps/s (123 images/s), peak RSS 55 MB; Candle 3.7 steps/s (29 images/s),
-peak RSS 150 MB; both start at loss 0.439037 and reach 0.435254. A first,
-single-machine figure: the runner numbers decide B6.
+This workspace (x64, 2 CPUs, one thread, 5 steps, three runs 2026-11-23/24):
+Burn 14.3–15.4 steps/s (114–123 images/s), peak RSS 55 MB; Candle 3.3–3.7
+steps/s (27–29 images/s), peak RSS 150 MB; both start at loss 0.439037 and
+reach 0.435254. A first, single-machine figure: the runner numbers decide B6.
+B4 measures cost only; correctness is B2/B3's comparison with the independent
+oracle, which the cross-backend agreement check here does not replace.

@@ -197,7 +197,8 @@ jobs:
           command -v jq >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q jq; }
           for threads in 1thread allthreads; do
             jq -e -n --slurpfile a "td2-b4-burn-$threads.json" --slurpfile b "td2-b4-candle-$threads.json" '
-              ($a[0].losses | length) == ($b[0].losses | length)
+              ($a[0].losses | length) > 0
+              and ($a[0].losses | length) == ($b[0].losses | length)
               and ([range(0; $a[0].losses | length) as $i
                     | ($a[0].losses[$i] - $b[0].losses[$i]) | fabs] | max) < 1e-4
               and ($a[0].peak_rss_bytes > 0) and ($b[0].peak_rss_bytes > 0)'

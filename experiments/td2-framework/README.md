@@ -174,5 +174,14 @@ This workspace (x64, 2 CPUs, one thread, 5 steps, three runs 2026-11-23/24):
 Burn 14.3–15.4 steps/s (114–123 images/s), peak RSS 55 MB; Candle 3.3–3.7
 steps/s (27–29 images/s), peak RSS 150 MB; both start at loss 0.439037 and
 reach 0.435254. A first, single-machine figure: the runner numbers decide B6.
+Runners (4 vCPUs, 20 steps, 1 thread / all threads, run 45464547582): x64
+Burn 19.1 / 19.2 steps/s, peak RSS 55 MB, Candle 5.0 / 5.3, 142–145 MB; arm64
+Burn 17.1 / 16.5, 54 MB, Candle 4.3 / 6.2, 140–145 MB. Open finding: Burn's
+losses are bit-identical on both architectures and match Candle on x64 within
+1.1e-6, but Candle on arm64 starts at 0.43982068 instead of 0.43903649, so the
+arm64 agreement check fails; on the 4×4 proxy Candle on arm64 matches the B1
+oracle within 2.3e-7. Which backend is wrong at this size needs an independent
+forward at the bench size before B4 is done.
+
 B4 measures cost only; correctness is B2/B3's comparison with the independent
 oracle, which the cross-backend agreement check here does not replace.

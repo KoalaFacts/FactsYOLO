@@ -153,3 +153,39 @@ and inactive after; a threshold below every norm would not do, because Adam
 cancels a constant gradient scale. The update is hand-written on framework tensors, not the
 frameworks' optimizer API (`burn::optim`, `candle-nn`), which would add a
 dependency and is left to B5's dependency review.
+
+## CPU throughput and peak memory (stage B4)
+
+`td2_proxy <burn|candle> --bench <steps>` trains the same graph as the frozen
+proxy (unpadded 3×3 convolution, depthwise 3×3, train-mode batch norm, SiLU,
+nearest 2× upsample, MSE) at a fixed, predeclared size: batch 8, 16 channels,
+66×66 input, 128×128 output. Inputs, target and initialization come from one
+SplitMix64 stream, so both backends start from identical values; each step is
+forward, the framework's autodiff and an in-process SGD update (lr 0.01). Two
+warmup steps are excluded from `steps_per_second`; the report also keeps every
+step time, the losses (which must stay finite and fall, or the run fails) and
+the process's peak resident set (`VmHWM`, Linux only). The
+`cpu-throughput` job runs 20 steps per backend with one thread and with all
+threads on `ubuntu-24.04` and `ubuntu-24.04-arm`, keeps the JSON, and fails
+unless Burn's and Candle's losses agree at every step within 1e-4 and both
+report a peak resident set (this workspace: largest difference 5.7e-7).
+
+The loss is a two-level mean (per image and channel, then overall). A flat
+f32 mean over the 2,097,152 output elements is not accurate enough to compare:
+with it, Burn on both architectures and Candle on x64 reported 0.43903649,
+Candle on arm64 0.43982068, and an independent f64 forward of the same graph
+and draws gives 0.43982389. Every intermediate tensor (convolution, depthwise,
+BN, SiLU, upsample) matched that forward on Candle x64, so the 7.9e-4 gap was
+the flat f32 reduction, not the graph. The gradient of a mean does not depend
+on how it is summed, so training is unchanged; with the two-level mean both
+backends start at 0.439824 in this workspace (Burn 1.1e-7, Candle 3.9e-7 from
+the f64 value).
+
+This workspace (x64, 2 CPUs, one thread, 5 steps, 2026-11-23/24): Burn
+14.3–15.5 steps/s (114–124 images/s), peak RSS 55 MB; Candle 3.3–3.7 steps/s
+(27–29 images/s), peak RSS 150 MB. Runners (4 vCPUs, 20 steps, 1 thread / all
+threads, run 45464547582, flat-mean loss): x64 Burn 19.1 / 19.2 steps/s, peak
+RSS 55 MB, Candle 5.0 / 5.3, 142–145 MB; arm64 Burn 17.1 / 16.5, 54 MB, Candle
+4.3 / 6.2, 140–145 MB. These are first figures: B6 uses the runner numbers.
+B4 measures cost only; correctness is B2/B3's comparison with the independent
+oracle, which the cross-backend agreement check here does not replace.

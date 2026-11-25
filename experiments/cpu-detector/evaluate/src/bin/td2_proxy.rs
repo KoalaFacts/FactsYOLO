@@ -661,12 +661,279 @@ fn burn_adamw(f: &Inputs, adamw: AdamW) -> Result<Value, String> {
     ))
 }
 
+/// Stage B4: CPU throughput and peak memory of the same graph (3×3 conv,
+/// depthwise 3×3, train-mode BN, SiLU, nearest 2× upsample, MSE) at a fixed,
+/// predeclared size, trained with in-process tensor SGD on each framework.
+/// Inputs, target and initialization come from one SplitMix64 stream, so both
+/// backends start from identical values.
+mod bench {
+    pub const BATCH: usize = 8;
+    pub const CHANNELS: usize = 16;
+    /// Spatial size after the unpadded 3×3 convolution; the input is S + 2.
+    pub const SIZE: usize = 64;
+    pub const WARMUP_STEPS: usize = 2;
+    pub const LEARNING_RATE: f32 = 0.01;
+    pub const MAX_STEPS: usize = 200;
+    const SEED: u64 = 0x7464_3262_3462_656e;
+
+    pub fn parse(steps: &str) -> Result<usize, String> {
+        let steps: usize = steps
+            .parse()
+            .map_err(|_| "bench steps must be an integer".to_owned())?;
+        if !(1..=MAX_STEPS).contains(&steps) {
+            return Err(format!("bench steps must be in 1..={MAX_STEPS}"));
+        }
+        Ok(steps)
+    }
+
+    pub struct Data {
+        pub x: Vec<f32>,
+        pub target: Vec<f32>,
+        pub conv: Vec<f32>,
+        pub depthwise: Vec<f32>,
+        pub gamma: Vec<f32>,
+        pub beta: Vec<f32>,
+    }
+
+    pub fn input_shape() -> [usize; 4] {
+        [BATCH, CHANNELS, SIZE + 2, SIZE + 2]
+    }
+
+    pub fn output_shape() -> [usize; 4] {
+        [BATCH, CHANNELS, 2 * SIZE, 2 * SIZE]
+    }
+
+    fn uniform(state: &mut u64, n: usize, scale: f32) -> Vec<f32> {
+        (0..n)
+            .map(|_| {
+                *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+                let mut z = *state;
+                z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+                z ^= z >> 31;
+                let u = (z >> 40) as f32 / (1u64 << 24) as f32;
+                (2.0 * u - 1.0) * scale
+            })
+            .collect()
+    }
+
+    pub fn data() -> Data {
+        let mut state = SEED;
+        let count = |s: [usize; 4]| s.iter().product::<usize>();
+        let fan_in = (9 * CHANNELS) as f32;
+        Data {
+            x: uniform(&mut state, count(input_shape()), 1.0),
+            target: uniform(&mut state, count(output_shape()), 0.5),
+            conv: uniform(&mut state, CHANNELS * CHANNELS * 9, 1.0 / fan_in.sqrt()),
+            depthwise: uniform(&mut state, CHANNELS * 9, 1.0 / 3.0),
+            gamma: vec![1.0; CHANNELS],
+            beta: vec![0.0; CHANNELS],
+        }
+    }
+
+    /// Peak resident set size of this process (Linux `VmHWM`), or `None`
+    /// where the kernel does not report it.
+    pub fn peak_rss_bytes() -> Option<u64> {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        let line = status.lines().find(|l| l.starts_with("VmHWM:"))?;
+        let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+        kib.checked_mul(1024)
+    }
+
+    pub fn report(
+        backend: &str,
+        steps: usize,
+        losses: Vec<f32>,
+        step_seconds: Vec<f64>,
+    ) -> Result<serde_json::Value, String> {
+        let (Some(first), Some(last)) = (losses.first(), losses.last()) else {
+            return Err("bench recorded no loss".into());
+        };
+        if losses.iter().any(|l| !l.is_finite()) || last >= first {
+            return Err(format!(
+                "bench loss must stay finite and fall: {first} -> {last}"
+            ));
+        }
+        // Warmup steps are excluded from the median as from the rate.
+        let mut sorted = step_seconds
+            .iter()
+            .skip(WARMUP_STEPS)
+            .copied()
+            .collect::<Vec<_>>();
+        sorted.sort_by(f64::total_cmp);
+        let measured: f64 = step_seconds.iter().skip(WARMUP_STEPS).sum();
+        let timed = step_seconds.len().saturating_sub(WARMUP_STEPS);
+        let per_second = if measured > 0.0 {
+            timed as f64 / measured
+        } else {
+            0.0
+        };
+        Ok(serde_json::json!({
+            "backend": backend,
+            "mode": "b4-cpu-throughput",
+            "shape": {
+                "batch": BATCH,
+                "channels": CHANNELS,
+                "input": input_shape(),
+                "output": output_shape()
+            },
+            "steps": steps,
+            "warmup_steps": WARMUP_STEPS,
+            "learning_rate": LEARNING_RATE,
+            "losses": losses,
+            "step_seconds": step_seconds,
+            "median_step_seconds": sorted.get(sorted.len() / 2).copied(),
+            "steps_per_second": per_second,
+            "images_per_second": per_second * BATCH as f64,
+            "rayon_num_threads": std::env::var("RAYON_NUM_THREADS").ok(),
+            "peak_rss_bytes": peak_rss_bytes(),
+            "framework_selected": false
+        }))
+    }
+}
+
+fn candle_bench(steps: usize) -> candle_core::Result<Value> {
+    use candle_core::{DType, Device, Tensor, Var};
+    let device = Device::Cpu;
+    let d = bench::data();
+    let c = bench::CHANNELS;
+    let x = Tensor::from_slice(&d.x, bench::input_shape().to_vec(), &device)?;
+    let target = Tensor::from_slice(&d.target, bench::output_shape().to_vec(), &device)?;
+    let conv = Var::from_slice(&d.conv, (c, c, 3, 3), &device)?;
+    let dw = Var::from_slice(&d.depthwise, (c, 1, 3, 3), &device)?;
+    let gamma = Var::from_slice(&d.gamma, (1, c, 1, 1), &device)?;
+    let beta = Var::from_slice(&d.beta, (1, c, 1, 1), &device)?;
+    let lr = f64::from(bench::LEARNING_RATE);
+    let total = steps + bench::WARMUP_STEPS;
+    let mut losses = Vec::with_capacity(total);
+    let mut times = Vec::with_capacity(total);
+    for _ in 0..total {
+        let start = std::time::Instant::now();
+        let y = x.conv2d(&conv, 0, 1, 1, 1)?;
+        let z = y.conv2d(&dw, 1, 1, 1, c)?;
+        let mean = z.mean_keepdim((0, 2, 3))?;
+        let centered = z.broadcast_sub(&mean)?;
+        let var = centered.sqr()?.mean_keepdim((0, 2, 3))?;
+        let bn = centered
+            .broadcast_div(&(var + 1e-5)?.sqrt()?)?
+            .broadcast_mul(&gamma)?
+            .broadcast_add(&beta)?;
+        let silu = bn.mul(&candle_nn_free_sigmoid(&bn)?)?;
+        let out = silu.upsample_nearest2d(2 * bench::SIZE, 2 * bench::SIZE)?;
+        // Two-level mean (per image and channel, then overall): a flat f32
+        // mean over 2 M elements loses ~1e-3 relative on some kernels.
+        let loss = out.sub(&target)?.sqr()?.mean_keepdim((2, 3))?.mean_all()?;
+        let grads = loss.backward()?;
+        for parameter in [&conv, &dw, &gamma, &beta] {
+            let grad = grads
+                .get(parameter)
+                .ok_or_else(|| candle_core::Error::Msg("missing Candle gradient".into()))?;
+            parameter.set(&parameter.as_tensor().sub(&grad.affine(lr, 0.0)?)?)?;
+        }
+        losses.push(loss.to_dtype(DType::F32)?.to_scalar::<f32>()?);
+        times.push(start.elapsed().as_secs_f64());
+    }
+    bench::report("candle-cpu-0.11.0", steps, losses, times).map_err(candle_core::Error::Msg)
+}
+
+/// Sigmoid from core ops only (as in `candle_forward`), so no `candle-nn`.
+fn candle_nn_free_sigmoid(t: &candle_core::Tensor) -> candle_core::Result<candle_core::Tensor> {
+    ((t * -1.0)?.exp()? + 1.0)?.recip()
+}
+
+fn burn_bench(steps: usize) -> Result<Value, String> {
+    use burn::tensor::{
+        activation::silu,
+        module::{conv2d, interpolate},
+        ops::{ConvOptions, InterpolateMode, InterpolateOptions},
+        Device, Tensor, TensorData,
+    };
+    let device = Device::flex().autodiff();
+    let d = bench::data();
+    let c = bench::CHANNELS;
+    let x = Tensor::<4>::from_data(TensorData::new(d.x, bench::input_shape()), &device);
+    let target = Tensor::<4>::from_data(TensorData::new(d.target, bench::output_shape()), &device);
+    let variable = |v: Vec<f32>, shape: [usize; 4]| {
+        Tensor::<4>::from_data(TensorData::new(v, shape), &device).require_grad()
+    };
+    let mut params = [
+        variable(d.conv, [c, c, 3, 3]),
+        variable(d.depthwise, [c, 1, 3, 3]),
+        variable(d.gamma, [1, c, 1, 1]),
+        variable(d.beta, [1, c, 1, 1]),
+    ];
+    let total = steps + bench::WARMUP_STEPS;
+    let mut losses = Vec::with_capacity(total);
+    let mut times = Vec::with_capacity(total);
+    for _ in 0..total {
+        let start = std::time::Instant::now();
+        let [conv, dw, gamma, beta] = &params;
+        let y = conv2d(
+            x.clone(),
+            conv.clone(),
+            None,
+            ConvOptions::new([1, 1], [0, 0], [1, 1], 1),
+        );
+        let z = conv2d(
+            y,
+            dw.clone(),
+            None,
+            ConvOptions::new([1, 1], [1, 1], [1, 1], c),
+        );
+        let mean = z.clone().mean_dim(3).mean_dim(2).mean_dim(0);
+        let centered = z - mean;
+        let var = (centered.clone() * centered.clone())
+            .mean_dim(3)
+            .mean_dim(2)
+            .mean_dim(0);
+        let bn = centered / (var + 1e-5).sqrt() * gamma.clone() + beta.clone();
+        let out = interpolate(
+            silu(bn),
+            InterpolateOptions::new(InterpolateMode::Nearest)
+                .with_output_size([2 * bench::SIZE, 2 * bench::SIZE]),
+        );
+        let residual = out - target.clone();
+        // Two-level mean, as in `candle_bench`.
+        let loss = (residual.clone() * residual).mean_dim(3).mean_dim(2).mean();
+        let grads = loss.backward();
+        let mut next = Vec::with_capacity(4);
+        for parameter in &params {
+            let grad = parameter
+                .grad(&grads)
+                .ok_or_else(|| "missing Burn gradient".to_owned())?;
+            let updated = parameter.clone().inner() - grad * bench::LEARNING_RATE;
+            next.push(Tensor::from_inner(updated).require_grad());
+        }
+        params = next
+            .try_into()
+            .map_err(|_| "Burn parameter count changed".to_owned())?;
+        losses.push(loss.into_scalar::<f32>());
+        times.push(start.elapsed().as_secs_f64());
+    }
+    bench::report("burn-flex-0.22.0", steps, losses, times)
+}
+
 fn run() -> Result<(), String> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     enum Mode {
         Gradients,
         Sgd(Sgd),
         AdamW(AdamW),
+    }
+    if let [backend, flag, steps] = args.as_slice() {
+        if flag == "--bench" {
+            let steps = bench::parse(steps)?;
+            let result = match backend.as_str() {
+                "burn" => burn_bench(steps)?,
+                "candle" => candle_bench(steps).map_err(|e| e.to_string())?,
+                _ => return Err("backend must be burn or candle".into()),
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+            );
+            return Ok(());
+        }
     }
     let (backend, oracle_path, mode) = match args.as_slice() {
         [backend, path] => (backend, path, Mode::Gradients),
@@ -681,7 +948,8 @@ fn run() -> Result<(), String> {
         }
         _ => {
             return Err("usage: td2-proxy <burn|candle> <frozen-oracle.json> \
-                 [--sgd <steps> <lr> | --adamw-recipe <steps> [<clip-norm>]]"
+                 [--sgd <steps> <lr> | --adamw-recipe <steps> [<clip-norm>]] | \
+                 td2-proxy <burn|candle> --bench <steps>"
                 .into())
         }
     };
@@ -719,7 +987,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{recipe, AdamW, Inputs, Sgd};
+    use super::{bench, recipe, AdamW, Inputs, Sgd};
 
     #[test]
     fn adamw_recipe_schedule_matches_d2b2a() {
@@ -753,6 +1021,30 @@ mod tests {
         assert_eq!(recipe::clip_scale(0.9, 0.5), 0.5 / 0.9);
         let (c1, c2) = recipe::bias_corrections(1);
         assert!((c1 - 0.1).abs() < 1e-15 && (c2 - 0.001).abs() < 1e-15);
+    }
+
+    #[test]
+    fn bench_settings_and_data_are_fixed() {
+        assert_eq!(bench::parse("20"), Ok(20));
+        for steps in ["0", "201", "-1", "x", "2.5"] {
+            assert!(bench::parse(steps).is_err(), "{steps}");
+        }
+        let (a, b) = (bench::data(), bench::data());
+        assert_eq!(a.x, b.x);
+        assert_eq!(a.conv, b.conv);
+        assert_eq!(a.x.len(), 8 * 16 * 66 * 66);
+        assert_eq!(a.target.len(), 8 * 16 * 128 * 128);
+        assert_eq!(a.conv.len(), 16 * 16 * 9);
+        assert!(a.x.iter().all(|v| (-1.0..1.0).contains(v)));
+        let bound = 1.0 / 144f32.sqrt();
+        assert!(a.conv.iter().all(|v| v.abs() <= bound));
+        assert_ne!(a.x[0], a.x[1]);
+        let ok = bench::report("t", 1, vec![0.5, 0.4, 0.3], vec![9.0, 9.0, 1.0]).unwrap();
+        assert_eq!(ok["steps_per_second"], 1.0);
+        assert_eq!(ok["median_step_seconds"], 1.0);
+        assert!(bench::report("t", 1, vec![0.5, 0.5, 0.5], vec![1.0; 3]).is_err());
+        assert!(bench::report("t", 1, vec![0.5, f32::NAN, 0.3], vec![1.0; 3]).is_err());
+        assert!(bench::report("t", 1, vec![], vec![]).is_err());
     }
 
     #[test]

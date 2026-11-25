@@ -6,7 +6,7 @@ ledger: docs/superpowers/specs/2026-11-05-td2-general-detector-design.md
 
 # Advance FactsYOLO
 
-This skill is the repo-specific half of the scheduled development task ("FactsYOLO 推进计划"). The run loop is `agent-harness/skills/autonomous-dev`, and the owner's seed is `agent-harness/projects/factsyolo.md`. Where the seed and this file differ, the stricter rule wins. The task keeps this file current through its own PRs. It may make rules stricter, never looser, and it never relaxes the hard limits in the scheduled task's prompt.
+This skill is the repo-specific half of the scheduled development task ("FactsYOLO 推进计划"). The run loop is `agent-harness/skills/autonomous-dev`. It was created from the owner's former seed `agent-harness/projects/factsyolo.md`, which is retired (owner, 2026-11-25): every owner rule it held is in this file, and the scheduled task's prompt and this file are the project rules. The task keeps this file current through its own PRs. It may make rules stricter, never looser, and it never relaxes the hard limits in the scheduled task's prompt.
 
 ## Goal and metric
 - FactsYOLO is an original, Apache-2.0, Rust-first vision core with a C ABI and thin C# bindings (Go/TS later). Customers embed it in their own CCTV cameras, NVRs and edge devices, on premises.
